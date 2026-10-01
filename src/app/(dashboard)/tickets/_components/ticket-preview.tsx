@@ -1,0 +1,70 @@
+"use client";
+
+import { TriangleAlert } from "lucide-react";
+
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useI18n } from "@/i18n/client";
+import { currencyKey, positionKey } from "@/lottery/labels";
+import type { ParsedTicket } from "@/lottery/parser";
+import { summarizeTicket } from "@/lottery/ticket";
+import { issueKey } from "../types";
+
+/** ผลการแยกข้อความแบบสด ๆ ระหว่างพิมพ์ — ให้คนคีย์เห็นว่าระบบอ่านได้อะไรก่อนกดบันทึก */
+export function TicketPreview({ parsed }: { parsed: ParsedTicket }) {
+  const { t, intl } = useI18n();
+  // ยอดที่จะนับ ถ้าบันทึกแบบนับเฉพาะบรรทัดที่อ่านได้
+  const totals = summarizeTicket(parsed, true);
+
+  return (
+    <div className="grid gap-3 rounded-lg border bg-muted/30 p-3">
+      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
+        <span className="font-medium">{t("tickets.previewBets", { count: parsed.bets.length })}</span>
+        <span className="tabular-nums">
+          {t(currencyKey.LAK)} {totals.totalLak.toLocaleString(intl)}
+        </span>
+        <span className="tabular-nums">
+          {t(currencyKey.THB)} {totals.totalThb.toLocaleString(intl)}
+        </span>
+        {parsed.declaredTotal !== null ? (
+          <span className="text-muted-foreground tabular-nums">
+            {t("tickets.previewDeclared", { declared: parsed.declaredTotal, typed: parsed.typedTotal })}
+          </span>
+        ) : null}
+      </div>
+
+      {parsed.issues.length > 0 ? (
+        <Alert variant="warning">
+          <TriangleAlert />
+          <AlertTitle>{t("tickets.issuesTitle", { count: parsed.issues.length })}</AlertTitle>
+          <AlertDescription>
+            <ul className="grid gap-0.5">
+              {parsed.issues.map((issue, index) => (
+                <li key={index}>
+                  {issue.line > 0 ? `${t("tickets.issueLine", { line: issue.line })}: ` : ""}
+                  <span className="font-medium text-foreground tabular-nums">{issue.text}</span>
+                  {" — "}
+                  {t(issueKey[issue.code])}
+                </li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {parsed.bets.length > 0 ? (
+        <ul className="scroll-area grid max-h-40 grid-cols-1 gap-x-4 gap-y-0.5 overflow-y-auto text-sm tabular-nums sm:grid-cols-2">
+          {parsed.bets.map((bet, index) => (
+            <li key={index} className="flex justify-between gap-2">
+              <span>
+                <span className="font-semibold">{bet.number}</span> {t(positionKey[bet.position])}
+              </span>
+              <span>
+                {bet.amount.toLocaleString(intl)} {t(currencyKey[bet.currency])}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}

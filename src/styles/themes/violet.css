@@ -1,0 +1,15 @@
+/* Violet — ม่วงพรีเมียม */
+:root {
+  --primary: oklch(0.55 0.2 295);
+  --primary-foreground: oklch(0.99 0.01 295);
+  --ring: oklch(0.55 0.2 295);
+  --sidebar-primary: oklch(0.55 0.2 295);
+  --sidebar-primary-foreground: oklch(0.99 0.01 295);
+}
+.dark {
+  --primary: oklch(0.72 0.16 295);
+  --primary-foreground: oklch(0.18 0.04 295);
+  --ring: oklch(0.72 0.16 295);
+  --sidebar-primary: oklch(0.72 0.16 295);
+  --sidebar-primary-foreground: oklch(0.18 0.04 295);
+}

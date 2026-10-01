@@ -1,0 +1,413 @@
+// -----------------------------------------------------------------------------
+// Prisma schema — โครงหลักที่ทุก project ใช้ร่วมกัน
+// เปลี่ยน provider ได้ที่ datasource (postgresql | mysql | sqlserver | sqlite)
+// -----------------------------------------------------------------------------
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+// ---------------------------- Auth.js core models ----------------------------
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  /// URL รูปโปรไฟล์ที่ใช้แสดงผล — อัปโหลดเองจะเป็น /api/avatar/<id>?v=<เวลา>, login ผ่าน OAuth จะเป็น URL ภายนอก
+  image         String?
+  /// ไฟล์รูปโปรไฟล์ที่อัปโหลด (ย่อเหลือ 512×512 ฝั่ง client แล้ว) — เก็บในฐานข้อมูลเพื่อให้ deploy ได้ทุกที่
+  avatar        Bytes?
+  avatarType    String?
+  password      String? // ใช้กับ credentials login (hash ด้วย bcrypt)
+  role          Role      @default(USER)
+  isActive      Boolean   @default(true)
+  /// เวลาที่ส่ง heartbeat ครั้งล่าสุด — ใช้บอกว่าออนไลน์อยู่หรือไม่ (ดู src/lib/presence.ts) · null = ออกจากระบบแล้ว/ไม่เคยเข้า
+  lastSeenAt    DateTime?
+
+  accounts  Account[]
+  sessions  Session[]
+  products  Product[]
+  auditLogs AuditLog[]
+
+  // ระบบหวย (project) — ข้อมูลทั้งหมดของผู้ใช้แยกตามแม่หวยที่เป็นเจ้าของ
+  dealers          Dealer[]
+  whatsappAccounts WhatsappAccount[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([lastSeenAt])
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ------------------------- ตัวอย่าง domain model (CRUD) -------------------------
+// ลบทิ้ง / เปลี่ยนชื่อได้เลยเมื่อขึ้น project จริง — โครงสร้าง CRUD ที่ src/app/(dashboard)/products
+// ออกแบบให้ copy ไปทำ module อื่นได้ทันที
+model Category {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  slug      String    @unique
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@map("categories")
+}
+
+model Product {
+  id          String        @id @default(cuid())
+  name        String
+  sku         String        @unique
+  description String?
+  price       Decimal       @db.Decimal(12, 2)
+  stock       Int           @default(0)
+  status      ProductStatus @default(DRAFT)
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([categoryId])
+  @@map("products")
+}
+
+/// ประวัติการเปลี่ยนแปลงข้อมูล — ใครทำอะไร กับอะไร เมื่อไร
+model AuditLog {
+  id        String      @id @default(cuid())
+  action    AuditAction
+  entity    String // ชื่อ model เช่น "Product"
+  entityId  String?
+  summary   String? // ป้ายชื่อที่อ่านรู้เรื่อง เช่น "SKU-001 · Coffee" (ยังอ่านได้แม้ record ถูกลบไปแล้ว)
+  changes   Json? // CREATE: {field: {to}} · UPDATE: {field: {from, to}} เฉพาะที่เปลี่ยน · DELETE: {field: {from}}
+  userId    String?
+  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userName  String? // snapshot ชื่อ/อีเมลตอนทำรายการ
+  ip        String?
+  userAgent String?
+  createdAt DateTime    @default(now())
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ------------------------------ ระบบคิดไล่หวย (project) ------------------------------
+enum DrawStatus {
+  OPEN // รับโพยอยู่
+  CLOSED // ปิดรับแล้ว รอผล
+  SETTLED // ออกผลและคิดรางวัลแล้ว
+}
+
+enum TicketStatus {
+  CONFIRMED // นับยอดแล้ว
+  REVIEW // อ่านข้อความได้ไม่ครบ รอคนตรวจ — ยังไม่นับยอด
+}
+
+enum TicketSource {
+  MANUAL // วางข้อความเอง
+  WHATSAPP // บอทอ่านจากกลุ่ม
+}
+
+enum BetPosition {
+  TOP
+  BOTTOM
+}
+
+enum Currency {
+  LAK
+  THB
+}
+
+/// แม่หวย — ทุกอย่างของระบบหวย (งวด ลูกค้า เลขอั้น โพย กลุ่ม WhatsApp) แยกตามแม่หวย
+/// บัญชีผู้ใช้ 1 บัญชีมีได้หลายแม่หวย และเห็นเฉพาะแม่หวยของตัวเอง (ดู src/lottery/dealer.ts)
+model Dealer {
+  id      String  @id @default(cuid())
+  ownerId String
+  owner   User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name    String
+  note    String?
+
+  /// อัตราจ่ายต่อ 1 หน่วย — ยังไม่ใช้ (ตอนนี้คิดตามยอดแทงจริงที่รับ) เก็บไว้ 0 เผื่อเปิดใช้ภายหลัง
+  rate2Top    Decimal @default(0) @db.Decimal(8, 2)
+  rate2Bottom Decimal @default(0) @db.Decimal(8, 2)
+  rate3Top    Decimal @default(0) @db.Decimal(8, 2)
+
+  draws     Draw[]
+  customers Customer[]
+  limits    Limit[]
+  groups    WhatsappGroup[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ownerId, name])
+  @@map("dealers")
+}
+
+/// งวดหวย
+model Draw {
+  id       String     @id @default(cuid())
+  dealerId String
+  dealer   Dealer     @relation(fields: [dealerId], references: [id], onDelete: Restrict)
+  name     String
+  drawDate DateTime   @db.Date
+  status   DrawStatus @default(OPEN)
+
+  /// เลข 3 ตัวบนที่ออก — 2 ตัวบน = 2 หลักท้ายของเลขนี้
+  topResult    String?
+  /// เลข 2 ตัวล่างที่ออก
+  bottomResult String?
+
+  /// อัตราจ่ายต่อ 1 หน่วย — ยังไม่ใช้ (ตอนนี้คิดตามยอดแทงจริงที่รับ) เก็บไว้ 0 เผื่อเปิดใช้ภายหลัง
+  rate2Top    Decimal @default(0) @db.Decimal(8, 2)
+  rate2Bottom Decimal @default(0) @db.Decimal(8, 2)
+  rate3Top    Decimal @default(0) @db.Decimal(8, 2)
+
+  tickets Ticket[]
+  bets    Bet[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([dealerId, name])
+  @@index([dealerId, status, drawDate])
+  @@map("draws")
+}
+
+model Customer {
+  id            String  @id @default(cuid())
+  dealerId      String
+  dealer        Dealer  @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  name          String
+  /// เบอร์ WhatsApp (ตัวเลขล้วน รวมรหัสประเทศ) — บอทใช้จับคู่คนส่งกับลูกค้าของแม่หวยเจ้าของกลุ่ม
+  phone         String?
+  /// ยอดกีบที่ลูกค้าพิมพ์ต้องคูณเท่าไร (1000 = พิมพ์ย่อเป็นหลักพัน) — บาทไม่คูณ
+  lakMultiplier Int     @default(1000)
+  note          String?
+
+  tickets Ticket[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// ลูกค้าเบอร์เดียวกันอยู่ได้หลายแม่หวย แต่ซ้ำในแม่หวยเดียวกันไม่ได้
+  @@unique([dealerId, name])
+  @@unique([dealerId, phone])
+  @@map("customers")
+}
+
+/// โพย = ข้อความ 1 ข้อความ — เก็บข้อความดิบไว้เสมอ แก้ข้อความแล้วแยกรายการใหม่ได้
+model Ticket {
+  id         String       @id @default(cuid())
+  drawId     String
+  draw       Draw         @relation(fields: [drawId], references: [id], onDelete: Restrict)
+  customerId String?
+  customer   Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  source     TicketSource @default(MANUAL)
+  status     TicketStatus
+
+  rawText       String  @db.Text
+  lakMultiplier Int
+  note          String?
+  /// ปัญหาที่ตัวแยกข้อความพบ: [{ code, line, text }] (ดู src/lottery/parser.ts)
+  issues        Json?
+
+  /// ยอดที่นับแล้ว (= ผลรวมของ bets) — REVIEW เป็น 0 ทั้งหมด
+  totalLak Decimal @default(0) @db.Decimal(14, 2)
+  totalThb Decimal @default(0) @db.Decimal(14, 2)
+  betCount Int     @default(0)
+
+  /// รหัสข้อความ WhatsApp — กันบอทนำเข้าข้อความเดิมซ้ำ
+  waMessageId String? @unique
+  /// JID ของคนส่งในกลุ่ม — ใช้จับคู่ข้อความ "ລວມ" ที่ส่งตามมากับโพยก่อนหน้าของคนเดียวกัน
+  senderId    String?
+  /// ชื่อ/เบอร์คนส่งในกลุ่ม กรณีจับคู่กับลูกค้าไม่ได้
+  senderName  String?
+
+  createdById String?
+  bets        Bet[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([drawId, status])
+  @@index([customerId])
+  @@index([createdAt])
+  @@index([senderId, createdAt])
+  @@map("tickets")
+}
+
+/// รายการแทงที่ "นับยอดแล้ว" — มีเฉพาะของโพยสถานะ CONFIRMED รายงานจึง groupBy ตารางนี้ได้ตรง ๆ
+model Bet {
+  id       String      @id @default(cuid())
+  ticketId String
+  ticket   Ticket      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  drawId   String
+  draw     Draw        @relation(fields: [drawId], references: [id], onDelete: Restrict)
+  /// เก็บเป็นข้อความเพื่อคงศูนย์นำหน้า เช่น "06"
+  number   String
+  digits   Int
+  position BetPosition
+  currency Currency
+  amount   Decimal     @db.Decimal(14, 2)
+
+  @@index([drawId, digits, position, currency, number])
+  @@index([ticketId])
+  @@map("bets")
+}
+
+/// เพดานอั้นเลข — number ว่าง ("") = ใช้กับทุกเลขของประเภทนั้น, ระบุเลข = ทับค่าทั่วไป
+model Limit {
+  id        String      @id @default(cuid())
+  dealerId  String
+  dealer    Dealer      @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  digits    Int
+  number    String      @default("")
+  position  BetPosition
+  currency  Currency
+  /// ยอดรับสูงสุดต่อเลข (0 = ปิดรับ)
+  maxAmount Decimal     @db.Decimal(14, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([dealerId, digits, number, position, currency])
+  @@map("number_limits")
+}
+
+// ------------------------------ บอท WhatsApp (project) ------------------------------
+// เว็บเขียนเฉพาะ "สิ่งที่ต้องการ" (enabled / command / ผูกกลุ่มกับแม่หวย)
+// บอท (worker/whatsapp.ts) อ่านแล้วทำตาม และเขียน "สถานะจริง" กลับ (status / qr / pairingCode / phone / กลุ่ม)
+
+enum WhatsappStatus {
+  STARTING // รอบอทเริ่มการเชื่อมต่อ
+  QR // รอสแกน QR / กรอกรหัสจับคู่
+  CONNECTED
+  DISCONNECTED // หลุด / QR หมดอายุ / ปิดไว้
+  LOGGED_OUT // เลิกเชื่อมต่อแล้ว ต้องสแกนใหม่
+}
+
+/// บัญชี WhatsApp ของบอท (1 เบอร์) — มีกลุ่มได้หลายกลุ่ม แต่ละกลุ่มผูกกับแม่หวยคนละคนได้
+model WhatsappAccount {
+  id      String @id @default(cuid())
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name    String
+
+  /// เว็บตั้ง: true = ให้บอทเชื่อมต่อบัญชีนี้ (false = หยุดไว้ ไม่ขึ้น QR)
+  enabled      Boolean @default(true)
+  /// เว็บตั้ง: คำสั่งครั้งเดียวที่ให้บอททำ ("LOGOUT" | "SYNC") — บอทล้างเป็น null เมื่อทำแล้ว
+  command      String?
+  /// เว็บตั้ง: เบอร์ของบัญชี (ตัวเลขล้วน) ถ้าอยากจับคู่ด้วยรหัสแทนการสแกน QR — ว่าง = ใช้ QR
+  pairingPhone String?
+
+  /// บอทเขียน: สถานะและข้อมูลสำหรับเชื่อมต่อ
+  status      WhatsappStatus @default(STARTING)
+  qr          String?
+  pairingCode String?
+  /// เบอร์/ชื่อของบัญชีที่เชื่อมต่ออยู่
+  phone       String?
+  waName      String?
+  lastError   String?
+  /// บอทยังทำงานอยู่ไหม (บอทแตะทุกไม่กี่วินาที)
+  seenAt      DateTime?
+
+  groups WhatsappGroup[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ownerId, name])
+  @@map("whatsapp_accounts")
+}
+
+/// กลุ่มของบัญชี WhatsApp — บอทเติมรายชื่อให้เอง · dealerId = อ่านกลุ่มนี้เข้าแม่หวยไหน (null = ไม่อ่าน)
+model WhatsappGroup {
+  id        String          @id @default(cuid())
+  accountId String
+  account   WhatsappAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  jid       String
+  name      String
+  size      Int             @default(0)
+  /// false = บัญชีไม่ได้อยู่ในกลุ่มนี้แล้ว (เก็บไว้เพื่อคงการผูกแม่หวยถ้ากลับเข้ากลุ่ม)
+  active    Boolean         @default(true)
+
+  dealerId String?
+  dealer   Dealer? @relation(fields: [dealerId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([accountId, jid])
+  @@index([dealerId])
+  @@map("whatsapp_groups")
+}

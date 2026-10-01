@@ -1,0 +1,15 @@
+/* Emerald — เขียวธุรกิจ */
+:root {
+  --primary: oklch(0.55 0.14 160);
+  --primary-foreground: oklch(0.99 0.01 160);
+  --ring: oklch(0.55 0.14 160);
+  --sidebar-primary: oklch(0.55 0.14 160);
+  --sidebar-primary-foreground: oklch(0.99 0.01 160);
+}
+.dark {
+  --primary: oklch(0.72 0.13 160);
+  --primary-foreground: oklch(0.18 0.03 160);
+  --ring: oklch(0.72 0.13 160);
+  --sidebar-primary: oklch(0.72 0.13 160);
+  --sidebar-primary-foreground: oklch(0.18 0.03 160);
+}

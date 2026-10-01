@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+.env
+.env*.local
+# session ของบอท WhatsApp — ห้ามติดไปกับ image เด็ดขาด (ใน docker ใช้ volume wa-auth)
+.wa-auth
+*.tsbuildinfo
+npm-debug.log*
+coverage

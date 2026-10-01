@@ -1,0 +1,69 @@
+import { parseTicket, type Currency, type ParsedBet, type ParsedTicket, type ParseIssue } from "./parser";
+
+export type TicketStatusValue = "CONFIRMED" | "REVIEW";
+
+export type TicketSummary = {
+  status: TicketStatusValue;
+  /** รายการที่นับยอด — โพยสถานะ REVIEW ยังไม่นับ จึงว่าง */
+  bets: ParsedBet[];
+  issues: ParseIssue[];
+  betCount: number;
+  totalLak: number;
+  totalThb: number;
+};
+
+const sumOf = (bets: ParsedBet[], currency: Currency) =>
+  bets.reduce((sum, bet) => (bet.currency === currency ? sum + bet.amount : sum), 0);
+
+/** ข้อความนี้เป็นโพยหรือไม่ — ข้อความคุยทั่วไปและข้อความที่มีแต่ยอดรวมไม่นับ */
+export function isTicketMessage(parsed: ParsedTicket) {
+  return parsed.bets.length > 0 || parsed.issues.length > 0;
+}
+
+/**
+ * ผลการแยกข้อความ → สถานะและยอดของโพย
+ * อ่านได้ครบทุกบรรทัด = CONFIRMED · มีบรรทัดที่อ่านไม่ออก = REVIEW (ยังไม่นับยอด)
+ * force = คนตรวจยืนยันให้นับเฉพาะบรรทัดที่อ่านได้
+ */
+export function summarizeTicket(parsed: ParsedTicket, force = false): TicketSummary {
+  const confirmed = parsed.bets.length > 0 && (parsed.issues.length === 0 || force);
+  const bets = confirmed ? parsed.bets : [];
+
+  return {
+    status: confirmed ? "CONFIRMED" : "REVIEW",
+    bets,
+    issues: parsed.issues,
+    betCount: bets.length,
+    totalLak: sumOf(bets, "LAK"),
+    totalThb: sumOf(bets, "THB"),
+  };
+}
+
+/**
+ * ข้อความ → ค่าที่จะเขียนลงตาราง tickets / bets — ทางเดียวที่ใช้ทั้งหน้าคีย์โพยและบอท WhatsApp
+ * คืน null เมื่อข้อความไม่ใช่โพย
+ */
+export function readTicketText(text: string, lakMultiplier: number, force = false) {
+  const parsed = parseTicket(text, { lakMultiplier });
+  if (!isTicketMessage(parsed)) return null;
+  const summary = summarizeTicket(parsed, force);
+
+  return {
+    fields: {
+      status: summary.status,
+      rawText: text,
+      lakMultiplier,
+      issues: summary.issues,
+      totalLak: summary.totalLak,
+      totalThb: summary.totalThb,
+      betCount: summary.betCount,
+    },
+    bets: summary.bets.map(({ number, digits, position, currency, amount }) => ({
+      number,
+      digits,
+      position,
+      currency,
+      amount,
+    })),
+  };
+}

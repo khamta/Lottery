@@ -1,0 +1,6 @@
+# ทุก project ที่ใช้ template ใช้ LF เหมือนกัน — กัน merge อัปเดตของ template แล้วชนทั้งไฟล์เพราะ CRLF/LF
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary

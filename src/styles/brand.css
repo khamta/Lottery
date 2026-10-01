@@ -1,0 +1,48 @@
+/*
+ * สีแบรนด์ของ project — ไฟล์นี้เป็นของ project (template จะไม่แก้ไฟล์นี้)
+ * โหลดต่อจาก globals.css (ดู src/app/layout.tsx) จึง override token ใด ๆ ได้โดยไม่ต้องแตะ globals.css
+ *
+ * วิธีที่ 1 — ใช้ชุดสำเร็จรูป: เปิดบรรทัด @import ด้านล่าง (ocean / emerald / violet)
+ * วิธีที่ 2 — กำหนดเอง: ใส่ค่าใน :root / .dark (ดู token ทั้งหมดใน docs/THEMING.md)
+ */
+
+/* @import "./themes/ocean.css"; */
+
+/* สีหลัก: ส้มแดง #F54927 (ใช้ค่าเดียวกันทั้งโหมดสว่างและมืด) */
+:root,
+.dark {
+  --primary: #f54927;
+  --primary-foreground: #ffffff;
+  --ring: #f54927;
+  --sidebar-primary: #f54927;
+  --sidebar-primary-foreground: #ffffff;
+  /* --radius: 0.625rem; */
+}
+
+/*
+ * ฟอนต์ลาว: ใช้ Noto Sans Lao แทน Phetsarath OT (ชุดเดิมอยู่ที่ appFontStack ใน src/app/fonts.ts)
+ * ชุดเดิมถูกตั้งเป็น inline style ที่ <html> จึงต้องใช้ !important ถึงจะ override ได้
+ * ลำดับอื่นเหมือนเดิม: อังกฤษ/ตัวเลข → Times New Roman · ไทย → Sarabun · จีน → Noto Sans SC
+ */
+html {
+  --font-app-sans:
+    "Times New Roman", var(--font-tinos), Times, var(--font-sarabun), var(--font-noto-lao),
+    var(--font-noto-sc), "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", system-ui,
+    sans-serif !important;
+}
+
+/*
+ * จอใหญ่: sidebar ตรึงเต็มความสูงจอ เลื่อนเนื้อหาแล้ว sidebar ไม่เลื่อนตาม
+ * เมนูใน sidebar มีแถบเลื่อนของตัวเอง และเลื่อนสุดแล้วไม่ลากหน้าหลักไปด้วย
+ * (sidebar เป็น <aside data-collapsed> ใน src/components/layout/app-sidebar.tsx)
+ */
+@media (min-width: 64rem) {
+  aside[data-collapsed] {
+    position: sticky;
+    top: 0;
+    height: 100dvh;
+  }
+  aside[data-collapsed] > .scroll-area {
+    overscroll-behavior: contain;
+  }
+}

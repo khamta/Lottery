@@ -1,0 +1,4 @@
+[test]
+# โหลด DOM + matcher ก่อนรันทุกไฟล์เทสต์
+preload = ["./tests/setup.ts"]
+coverageThreshold = 0.6

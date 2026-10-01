@@ -1,0 +1,83 @@
+"use client";
+
+import * as React from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { startRouteProgress } from "@/components/shared/route-progress";
+import { useI18n } from "@/i18n/client";
+import { buildQueryString, toRoute } from "@/lib/query";
+import { TICKET_STATUSES, statusKey, type DrawOption, type TicketFilterValues } from "../types";
+
+/** Radix Select ไม่รับค่าว่าง จึงใช้ค่านี้แทน "ทั้งหมด" */
+const ALL = "all";
+
+/** ตัวกรองงวด / สถานะ — เขียนค่าลง URL (?draw=&status=) ให้ server กรองที่ฐานข้อมูล */
+export function TicketFilters({
+  draws,
+  filters,
+  disabled,
+}: {
+  draws: DrawOption[];
+  filters: TicketFilterValues;
+  disabled?: boolean;
+}) {
+  const { t } = useI18n();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [isPending, startTransition] = React.useTransition();
+
+  function apply(patch: Record<string, string | null>) {
+    const qs = buildQueryString(searchParams, { ...patch, page: 1 });
+    startRouteProgress();
+    startTransition(() => router.replace(toRoute(`${pathname}?${qs}`), { scroll: false }));
+  }
+
+  return (
+    <div className="flex w-full gap-2 sm:w-auto">
+      {/* "ทุกงวด" ต้องเขียน draw=all ลง URL เพราะไม่ระบุ = งวดที่เปิดรับล่าสุด */}
+      <Select
+        value={filters.drawId ?? ALL}
+        onValueChange={(value) => apply({ draw: value })}
+        disabled={disabled || isPending}
+      >
+        <SelectTrigger className="min-w-0 flex-1 sm:w-44" aria-label={t("tickets.filterDraw")}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>{t("tickets.allDraws")}</SelectItem>
+          {draws.map((draw) => (
+            <SelectItem key={draw.id} value={draw.id}>
+              {draw.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={filters.status ?? ALL}
+        onValueChange={(value) => apply({ status: value === ALL ? null : value })}
+        disabled={disabled || isPending}
+      >
+        <SelectTrigger className="min-w-0 flex-1 sm:w-36" aria-label={t("tickets.filterStatus")}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>{t("tickets.allStatuses")}</SelectItem>
+          {TICKET_STATUSES.map((status) => (
+            <SelectItem key={status} value={status}>
+              {t(statusKey[status])}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
