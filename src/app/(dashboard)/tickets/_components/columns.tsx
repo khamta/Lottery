@@ -1,7 +1,7 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { ClipboardCheck, EllipsisVertical, Trash2 } from "lucide-react";
+import { ClipboardCheck, EllipsisVertical, ImageIcon, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { formatDate } from "@/lib/utils";
-import { sourceKey, statusKey, type TicketRow } from "../types";
+import { formatNumber } from "@/lottery/format";
+import { ocrStatusKey, sourceKey, statusKey, type TicketRow } from "../types";
 
 type ColumnOptions = {
   /** ตัวแปลจาก useI18n() — คอลัมน์ไม่เรียก hook เอง เพราะถูกสร้างนอก render tree */
@@ -26,7 +27,7 @@ type ColumnOptions = {
 
 export function getTicketColumns({ t, intl, onEdit, onDelete }: ColumnOptions): ColumnDef<TicketRow>[] {
   const money = (value: number) =>
-    value ? <span className="font-medium tabular-nums">{value.toLocaleString(intl)}</span> : <span className="text-muted-foreground">–</span>;
+    value ? <span className="font-medium tabular-nums">{formatNumber(value, intl)}</span> : <span className="text-muted-foreground">–</span>;
 
   return [
     {
@@ -65,22 +66,34 @@ export function getTicketColumns({ t, intl, onEdit, onDelete }: ColumnOptions): 
       id: "rawText",
       enableSorting: false,
       header: t("tickets.text"),
-      cell: ({ row }) =>
-        row.original.rawText ? (
-          <p className="line-clamp-3 max-w-64 min-w-40 text-sm break-words whitespace-pre-line tabular-nums">
-            {row.original.rawText}
-          </p>
-        ) : (
-          // ข้อความว่าง = บอทถอดรหัสข้อความ WhatsApp นี้ไม่ได้ ต้องดูในแชตแล้ววางเอง
-          <p className="max-w-64 min-w-40 text-sm font-medium text-destructive">{t("tickets.undecrypted")}</p>
-        ),
+      cell: ({ row }) => {
+        const { rawText, ocrStatus } = row.original;
+        return (
+          <div className="max-w-64 min-w-40">
+            {ocrStatus ? (
+              // โพยจากรูป — สถานะการอ่านรูปด้วย OCR
+              <p
+                className={`mb-1 flex items-center gap-1 text-xs font-medium ${ocrStatus === "FAILED" ? "text-destructive" : "text-muted-foreground"}`}
+              >
+                <ImageIcon className="size-3.5" /> {t(ocrStatusKey[ocrStatus])}
+              </p>
+            ) : null}
+            {rawText ? (
+              <p className="line-clamp-3 text-sm break-words whitespace-pre-line tabular-nums">{rawText}</p>
+            ) : ocrStatus ? null : (
+              // ข้อความว่าง = บอทถอดรหัสข้อความ WhatsApp นี้ไม่ได้ ต้องดูในแชตแล้ววางเอง
+              <p className="text-sm font-medium text-destructive">{t("tickets.undecrypted")}</p>
+            )}
+          </div>
+        );
+      },
     },
     {
       id: "betCount",
       accessorKey: "betCount",
       header: t("tickets.betCount"),
       enableSorting: true,
-      cell: ({ row }) => <span className="tabular-nums">{row.original.betCount.toLocaleString(intl)}</span>,
+      cell: ({ row }) => <span className="tabular-nums">{formatNumber(row.original.betCount, intl)}</span>,
     },
     {
       id: "totalLak",

@@ -36,7 +36,9 @@ export type ParseIssueCode =
   | "THREE_DIGIT_BOTTOM"
   /** ยอดรวมที่แจ้ง (ລວມ) ไม่ตรงกับยอดที่คิดได้ */
   | "TOTAL_MISMATCH"
-  | "UNREADABLE";
+  | "UNREADABLE"
+  /** โพยจากรูปที่ยังไม่ได้ข้อความจาก OCR (รอคิว/อ่านไม่ได้) — ตัวแยกข้อความไม่สร้างเอง ดู ticket.ts */
+  | "FROM_IMAGE";
 
 export type ParseIssue = { code: ParseIssueCode; line: number; text: string };
 

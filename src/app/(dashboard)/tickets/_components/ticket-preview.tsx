@@ -7,6 +7,7 @@ import { useI18n } from "@/i18n/client";
 import { currencyKey, positionKey } from "@/lottery/labels";
 import type { ParsedTicket } from "@/lottery/parser";
 import { summarizeTicket } from "@/lottery/ticket";
+import { formatNumber } from "@/lottery/format";
 import { issueKey } from "../types";
 
 /** ผลการแยกข้อความแบบสด ๆ ระหว่างพิมพ์ — ให้คนคีย์เห็นว่าระบบอ่านได้อะไรก่อนกดบันทึก */
@@ -20,10 +21,10 @@ export function TicketPreview({ parsed }: { parsed: ParsedTicket }) {
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
         <span className="font-medium">{t("tickets.previewBets", { count: parsed.bets.length })}</span>
         <span className="tabular-nums">
-          {t(currencyKey.LAK)} {totals.totalLak.toLocaleString(intl)}
+          {t(currencyKey.LAK)} {formatNumber(totals.totalLak, intl)}
         </span>
         <span className="tabular-nums">
-          {t(currencyKey.THB)} {totals.totalThb.toLocaleString(intl)}
+          {t(currencyKey.THB)} {formatNumber(totals.totalThb, intl)}
         </span>
         {parsed.declaredTotal !== null ? (
           <span className="text-muted-foreground tabular-nums">
@@ -59,7 +60,7 @@ export function TicketPreview({ parsed }: { parsed: ParsedTicket }) {
                 <span className="font-semibold">{bet.number}</span> {t(positionKey[bet.position])}
               </span>
               <span>
-                {bet.amount.toLocaleString(intl)} {t(currencyKey[bet.currency])}
+                {formatNumber(bet.amount, intl)} {t(currencyKey[bet.currency])}
               </span>
             </li>
           ))}

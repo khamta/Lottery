@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/shared/empty-state";
 import { getTranslations } from "@/i18n/server";
 import { resolveLimit, type LimitRule, type ThreeDigitRow } from "@/lottery/report";
+import { formatNumber } from "@/lottery/format";
 
 const COLUMNS = [
   { key: "lak", currency: "LAK", labelKey: "lottery.currencyLAK" },
@@ -80,14 +81,14 @@ export async function ThreeDigitSection({
                 return (
                   <TableCell
                     key={column.key}
-                    title={over ? t("lottery.overLimitBy", { amount: (amount - limit).toLocaleString(intl) }) : undefined}
+                    title={over ? t("lottery.overLimitBy", { amount: formatNumber(amount - limit, intl) }) : undefined}
                     className={cn(
                       "text-right tabular-nums",
                       amount === 0 && "text-muted-foreground",
                       over && "font-semibold text-destructive",
                     )}
                   >
-                    {amount.toLocaleString(intl)}
+                    {formatNumber(amount, intl)}
                   </TableCell>
                 );
               })}
@@ -99,7 +100,7 @@ export async function ThreeDigitSection({
             <TableCell colSpan={2}>{t("lottery.totalAll")}</TableCell>
             {COLUMNS.map((column) => (
               <TableCell key={column.key} className="text-right tabular-nums">
-                {totals[column.key].toLocaleString(intl)}
+                {formatNumber(totals[column.key], intl)}
               </TableCell>
             ))}
           </TableRow>

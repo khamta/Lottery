@@ -86,6 +86,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       lakMultiplier: number;
       note: string | null;
       issues: unknown;
+      image: { ocrStatus: TicketRow["ocrStatus"] } | null;
       betCount: number;
       totalLak: unknown;
       totalThb: unknown;
@@ -108,16 +109,19 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       lakMultiplier: true,
       note: true,
       issues: true,
+      // เฉพาะสถานะ — ข้อมูลรูปดึงแยกทีละรูปตอนเปิดดู
+      image: { select: { ocrStatus: true } },
       betCount: true,
       totalLak: true,
       totalThb: true,
       createdAt: true,
     },
-    map: ({ draw, customer, issues, ...row }) => ({
+    map: ({ draw, customer, issues, image, ...row }) => ({
       ...row,
       drawName: draw.name,
       customerName: customer?.name ?? null,
       issueCount: Array.isArray(issues) ? issues.length : 0,
+      ocrStatus: image?.ocrStatus ?? null,
       totalLak: Number(row.totalLak),
       totalThb: Number(row.totalThb),
       createdAt: row.createdAt.toISOString(),

@@ -177,6 +177,13 @@ enum TicketSource {
   WHATSAPP // บอทอ่านจากกลุ่ม
 }
 
+/// สถานะการอ่านรูปโพยด้วย OCR — บอทเก็บรูปก่อน แล้วค่อยอ่านทีละรูปตามคิว
+enum OcrStatus {
+  PENDING // เก็บรูปแล้ว รอคิวอ่าน
+  DONE // อ่านแล้ว ข้อความที่แปลงได้อยู่ใน tickets.rawText
+  FAILED // อ่านไม่ได้ (บริการ OCR ล่ม/รูปเสีย) — คนต้องดูรูปแล้วพิมพ์เอง
+}
+
 enum BetPosition {
   TOP
   BOTTOM
@@ -295,6 +302,8 @@ model Ticket {
 
   createdById String?
   bets        Bet[]
+  /// รูปโพยที่ลูกค้าส่งมาแทนข้อความ (มีเฉพาะโพยจากรูป)
+  image       TicketImage?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -304,6 +313,27 @@ model Ticket {
   @@index([createdAt])
   @@index([senderId, createdAt])
   @@map("tickets")
+}
+
+/// รูปโพยจาก WhatsApp — เก็บในฐานข้อมูลเพื่อให้คนตรวจเทียบกับข้อความที่ OCR แปลงได้ (ดู src/lottery/image-text.ts)
+/// แยกตารางจาก tickets เพื่อไม่ให้การดึงรายการโพยลากข้อมูลรูปมาด้วย
+model TicketImage {
+  id       String @id @default(cuid())
+  ticketId String @unique
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  mimeType String
+  data     Bytes
+
+  ocrStatus OcrStatus @default(PENDING)
+  /// ผลดิบจากบริการ OCR — เก็บไว้ปรับปรุงตัวแปลงภายหลัง
+  ocr       Json?
+  ocrError  String?
+  ocrAt     DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([ocrStatus, createdAt])
+  @@map("ticket_images")
 }
 
 /// รายการแทงที่ "นับยอดแล้ว" — มีเฉพาะของโพยสถานะ CONFIRMED รายงานจึง groupBy ตารางนี้ได้ตรง ๆ

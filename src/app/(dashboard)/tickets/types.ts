@@ -3,6 +3,8 @@ import type { TicketSourceValue, TicketStatusValue } from "@/lib/validations/tic
 import type { ParseIssueCode } from "@/lottery/parser";
 
 /** รูปแบบข้อมูลที่ส่งจาก server ไป client (Decimal -> number, Date -> string) */
+export type OcrStatusValue = "PENDING" | "DONE" | "FAILED";
+
 export type TicketRow = {
   id: string;
   drawId: string;
@@ -17,6 +19,8 @@ export type TicketRow = {
   lakMultiplier: number;
   note: string | null;
   issueCount: number;
+  /** โพยจากรูป: สถานะการอ่านรูปด้วย OCR — null = โพยข้อความ (ไม่มีรูป) */
+  ocrStatus: OcrStatusValue | null;
   betCount: number;
   totalLak: number;
   totalThb: number;
@@ -50,6 +54,12 @@ export const sourceKey: Record<TicketSourceValue, string> = {
   WHATSAPP: "tickets.sourceWHATSAPP",
 };
 
+export const ocrStatusKey: Record<OcrStatusValue, string> = {
+  PENDING: "tickets.ocrPENDING",
+  DONE: "tickets.ocrDONE",
+  FAILED: "tickets.ocrFAILED",
+};
+
 /** ปัญหาที่ตัวแยกข้อความพบ -> คีย์ i18n */
 export const issueKey: Record<ParseIssueCode, string> = {
   NO_AMOUNT: "tickets.issueNO_AMOUNT",
@@ -57,4 +67,8 @@ export const issueKey: Record<ParseIssueCode, string> = {
   THREE_DIGIT_BOTTOM: "tickets.issueTHREE_DIGIT_BOTTOM",
   TOTAL_MISMATCH: "tickets.issueTOTAL_MISMATCH",
   UNREADABLE: "tickets.issueUNREADABLE",
+  FROM_IMAGE: "tickets.issueFROM_IMAGE",
 };
+
+/** รูปโพย — เสิร์ฟจาก tickets/image/[id]/route.ts */
+export const ticketImageUrl = (ticketId: string) => `/tickets/image/${ticketId}`;

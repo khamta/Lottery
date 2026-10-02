@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { getTranslations } from "@/i18n/server";
 import { currencyKey, digitsKey, positionKey } from "@/lottery/labels";
 import type { OverLimitRow } from "@/lottery/report";
+import { formatNumber } from "@/lottery/format";
 
 /** เลขที่ยอดรับเกินเพดานอั้น — ส่วนเกินคือยอดที่ต้องส่งต่อหรือคืนลูกค้า */
 export async function LimitsSection({ rows }: { rows: OverLimitRow[] }) {
@@ -44,12 +45,12 @@ export async function LimitsSection({ rows }: { rows: OverLimitRow[] }) {
                 {t(digitsKey[row.digits] ?? "lottery.digits2")} {t(positionKey[row.position])}
               </TableCell>
               <TableCell>{t(currencyKey[row.currency])}</TableCell>
-              <TableCell className="text-right tabular-nums">{row.amount.toLocaleString(intl)}</TableCell>
+              <TableCell className="text-right tabular-nums">{formatNumber(row.amount, intl)}</TableCell>
               <TableCell className="text-right text-muted-foreground tabular-nums">
-                {row.limit.toLocaleString(intl)}
+                {formatNumber(row.limit, intl)}
               </TableCell>
               <TableCell className="text-right font-semibold text-destructive tabular-nums">
-                {row.excess.toLocaleString(intl)}
+                {formatNumber(row.excess, intl)}
               </TableCell>
             </TableRow>
           ))}

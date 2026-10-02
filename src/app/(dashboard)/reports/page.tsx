@@ -25,6 +25,7 @@ import {
   winningKeys,
 } from "@/lottery/report";
 import type { PageProps } from "@/types";
+import { formatNumber } from "@/lottery/format";
 import { statusKey } from "../draws/types";
 import { CustomersSection } from "./_components/customers-section";
 import { LimitsSection } from "./_components/limits-section";
@@ -101,17 +102,17 @@ export default async function ReportsPage({ searchParams }: PageProps) {
   const twoDigit = pivotTwoDigit(stakes);
 
   const stats: Stat[] = [
-    { label: t("lottery.stakeLak"), value: stake.lak.toLocaleString(intl), icon: Banknote, hint: t("lottery.hintStake") },
-    { label: t("lottery.stakeThb"), value: stake.thb.toLocaleString(intl), icon: Coins, hint: t("lottery.hintStake") },
+    { label: t("lottery.stakeLak"), value: formatNumber(stake.lak, intl), icon: Banknote, hint: t("lottery.hintStake") },
+    { label: t("lottery.stakeThb"), value: formatNumber(stake.thb, intl), icon: Coins, hint: t("lottery.hintStake") },
     {
       label: t("lottery.tickets"),
-      value: counts.confirmed.toLocaleString(intl),
+      value: formatNumber(counts.confirmed, intl),
       icon: ReceiptText,
       hint: t("lottery.hintReview", { count: counts.review }),
     },
     {
       label: t("lottery.overLimit"),
-      value: overLimits.length.toLocaleString(intl),
+      value: formatNumber(overLimits.length, intl),
       icon: TriangleAlert,
       hint: t("lottery.hintOverLimit"),
     },
@@ -120,8 +121,8 @@ export default async function ReportsPage({ searchParams }: PageProps) {
   if (keys) {
     const won = totalWinningStake(stakes, keys);
     stats.push(
-      { label: t("reports.winStakeLak"), value: won.lak.toLocaleString(intl), icon: HandCoins, hint: t("reports.hintWinStake") },
-      { label: t("reports.winStakeThb"), value: won.thb.toLocaleString(intl), icon: HandCoins, hint: t("reports.hintWinStake") },
+      { label: t("reports.winStakeLak"), value: formatNumber(won.lak, intl), icon: HandCoins, hint: t("reports.hintWinStake") },
+      { label: t("reports.winStakeThb"), value: formatNumber(won.thb, intl), icon: HandCoins, hint: t("reports.hintWinStake") },
     );
   }
 

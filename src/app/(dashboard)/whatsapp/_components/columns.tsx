@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toRoute } from "@/lib/query";
+import { formatNumber } from "@/lottery/format";
 import { statusKey, statusVariant, type WhatsappAccountRow } from "../types";
 
 type ColumnOptions = {
@@ -74,8 +75,8 @@ export function getWhatsappColumns({ t, intl, onEdit, onDelete }: ColumnOptions)
       cell: ({ row }) => (
         <span className="tabular-nums">
           {t("whatsapp.readingOf", {
-            reading: row.original.readingCount.toLocaleString(intl),
-            total: row.original.groupCount.toLocaleString(intl),
+            reading: formatNumber(row.original.readingCount, intl),
+            total: formatNumber(row.original.groupCount, intl),
           })}
         </span>
       ),

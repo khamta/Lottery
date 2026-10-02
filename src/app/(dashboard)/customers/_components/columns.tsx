@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { formatDate } from "@/lib/utils";
+import { formatNumber } from "@/lottery/format";
 import { multiplierKey, type CustomerRow } from "../types";
 
 type ColumnOptions = {
@@ -67,7 +68,7 @@ export function getCustomerColumns({
       id: "ticketCount",
       enableSorting: false,
       header: t("customers.ticketCount"),
-      cell: ({ row }) => <span className="tabular-nums">{row.original.ticketCount.toLocaleString(intl)}</span>,
+      cell: ({ row }) => <span className="tabular-nums">{formatNumber(row.original.ticketCount, intl)}</span>,
     },
     {
       id: "updatedAt",

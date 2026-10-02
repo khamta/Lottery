@@ -10,6 +10,7 @@ import { useOptimisticList } from "@/hooks/use-optimistic-list";
 import { useI18n } from "@/i18n/client";
 import type { DealerOption } from "@/lottery/dealer";
 import type { Paginated } from "@/types";
+import { formatNumber } from "@/lottery/format";
 import { assignWhatsappGroup } from "../../actions";
 import type { WhatsappGroupRow } from "../types";
 
@@ -50,7 +51,7 @@ function getGroupColumns({
       accessorKey: "size",
       header: t("whatsapp.members"),
       enableSorting: true,
-      cell: ({ row }) => <span className="tabular-nums">{row.original.size.toLocaleString(intl)}</span>,
+      cell: ({ row }) => <span className="tabular-nums">{formatNumber(row.original.size, intl)}</span>,
     },
     {
       id: "dealerId",

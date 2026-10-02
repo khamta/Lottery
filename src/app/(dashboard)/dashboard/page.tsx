@@ -20,6 +20,7 @@ import { StatCards } from "@/lottery/components/stat-card";
 import { TwoDigitTable } from "@/lottery/components/two-digit-table";
 import { getDrawStakes, getLimitRules, getTicketCounts } from "@/lottery/queries";
 import { findOverLimits, pivotTwoDigit, totalStake } from "@/lottery/report";
+import { formatNumber } from "@/lottery/format";
 import { OnlineUsers } from "./_components/online-users";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -110,17 +111,17 @@ export default async function DashboardPage() {
 
       <StatCards
         stats={[
-          { label: t("lottery.stakeLak"), value: stake.lak.toLocaleString(intl), icon: Banknote, hint: t("lottery.hintStake") },
-          { label: t("lottery.stakeThb"), value: stake.thb.toLocaleString(intl), icon: Coins, hint: t("lottery.hintStake") },
+          { label: t("lottery.stakeLak"), value: formatNumber(stake.lak, intl), icon: Banknote, hint: t("lottery.hintStake") },
+          { label: t("lottery.stakeThb"), value: formatNumber(stake.thb, intl), icon: Coins, hint: t("lottery.hintStake") },
           {
             label: t("lottery.tickets"),
-            value: counts.confirmed.toLocaleString(intl),
+            value: formatNumber(counts.confirmed, intl),
             icon: ReceiptText,
             hint: t("lottery.hintTickets"),
           },
           {
             label: t("lottery.review"),
-            value: counts.review.toLocaleString(intl),
+            value: formatNumber(counts.review, intl),
             icon: ClipboardCheck,
             hint: t("lottery.hintNotCounted"),
           },

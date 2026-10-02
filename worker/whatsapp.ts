@@ -19,6 +19,10 @@
  * บอทอ่านอย่างเดียว ไม่ส่งข้อความเข้ากลุ่ม · ใช้การเชื่อมต่อ WhatsApp Web แบบไม่เป็นทางการ (Baileys)
  * จึงมีความเสี่ยงที่เบอร์จะถูกแบน — ควรใช้เบอร์แยกสำหรับบอท
  *
+ * รูปโพย
+ *   ลูกค้าส่งรูป (ลายมือ/แคปหน้าจอ) แทนข้อความ → บอทดาวน์โหลดรูปเก็บเข้าฐานข้อมูลเป็นโพยรอตรวจทันที
+ *   แล้วส่งเข้าคิวอ่านด้วย OCR (worker/ocr.ts · บริการ ocr ใน docker-compose) — อ่านเสร็จข้อความโพยขึ้นในโพยนั้นเอง
+ *
  * ข้อความที่ถอดรหัสไม่ได้
  *   ข้อความในกลุ่มเข้ารหัสด้วยกุญแจของคนส่งแต่ละคน ข้อความแรก ๆ ของแต่ละคนหลังบอทเพิ่งเชื่อมต่อจึงมัก
  *   ถอดรหัสไม่ได้ในรอบแรก ไลบรารีจะขอให้ส่งใหม่เองและมักได้ข้อความภายในไม่กี่วินาที
@@ -29,6 +33,7 @@ import { join, resolve } from "node:path";
 
 import makeWASocket, {
   DisconnectReason,
+  downloadMediaMessage,
   fetchLatestBaileysVersion,
   isPnUser,
   jidDecode,
@@ -47,12 +52,14 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   editMessage,
+  ingestImage,
   ingestMessage,
   ingestUndecryptable,
   revokeMessage,
   type IngestResult,
   type MessageSender,
 } from "@/lottery/ingest";
+import { enqueueOcr, resumeOcr } from "./ocr";
 
 const AUTH_ROOT = resolve(process.env.WA_AUTH_DIR || ".wa-auth");
 /** รอบการอ่านคำสั่ง/การผูกกลุ่มจากฐานข้อมูล — เปลี่ยนที่หน้าเว็บแล้วมีผลภายในเวลานี้ */
@@ -63,6 +70,8 @@ const RECONNECT_MS = 5000;
 const GROUP_RESYNC_MS = 30 * 60 * 1000;
 /** รอข้อความที่ขอส่งใหม่นานเท่านี้ ก่อนส่งเข้าคิวรอตรวจให้คนดูแชตเอง */
 const UNDECRYPTED_WAIT_MS = 60_000;
+/** รูปใหญ่เกินนี้ไม่ใช่รูปโพย (WhatsApp ย่อรูปเหลือไม่เกินราว 2 MB) — บริการ OCR รับได้ไม่เกิน 15 MB */
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
 const time = () => new Date().toLocaleTimeString("en-GB");
 const log = (...args: unknown[]) => console.log(time(), ...args);
@@ -143,6 +152,18 @@ async function report(id: string, data: Prisma.WhatsappAccountUpdateManyMutation
 function textOf(content: proto.IMessage | null | undefined) {
   const message = normalizeMessageContent(content);
   return message?.conversation ?? message?.extendedTextMessage?.text ?? null;
+}
+
+/** รูปในข้อความ — รูปปกติ หรือรูปที่ส่งแบบไฟล์ (เอกสาร) เพื่อไม่ให้ WhatsApp ย่อรูป */
+function imageOf(content: proto.IMessage | null | undefined) {
+  const message = normalizeMessageContent(content);
+  const image = message?.imageMessage;
+  if (image) return { mimeType: image.mimetype || "image/jpeg", caption: image.caption ?? "", size: toNumber(image.fileLength ?? 0) };
+  const document = message?.documentMessage;
+  if (document?.mimetype && /^image\/(jpeg|png|webp)$/.test(document.mimetype)) {
+    return { mimeType: document.mimetype, caption: document.caption ?? "", size: toNumber(document.fileLength ?? 0) };
+  }
+  return null;
 }
 
 const sentAtOf = (message: WAMessage) =>
@@ -247,11 +268,50 @@ async function handle(session: Session, dealerId: string, message: WAMessage, of
     return;
   }
 
+  const image = imageOf(message.message);
+  if (image) return handleImage(session, dealerId, message, image, recovered?.sender, offline);
+
   const text = textOf(message.message);
   if (!text) return;
 
   const sender = recovered?.sender ?? (await senderOf(sock, message));
   reportIngest(label, sender, await ingestMessage(prisma, { id, dealerId, text, ...sender, sentAt: sentAtOf(message), offline }));
+}
+
+/** รูปโพย → เก็บรูปเข้าระบบก่อน (โพยรอตรวจ) แล้วส่งเข้าคิว OCR */
+async function handleImage(
+  session: Session,
+  dealerId: string,
+  message: WAMessage,
+  image: NonNullable<ReturnType<typeof imageOf>>,
+  knownSender: MessageSender | undefined,
+  offline: boolean,
+) {
+  const { sock, label } = session;
+  const sender = knownSender ?? (await senderOf(sock, message));
+  if (image.size > MAX_IMAGE_BYTES) {
+    return log(`[${label}] ${sender.senderName ?? sender.senderId}: ข้ามรูปขนาด ${(image.size / 1024 / 1024).toFixed(1)} MB (ใหญ่เกิน)`);
+  }
+
+  // ไฟล์รูปบนเซิร์ฟเวอร์ WhatsApp หมดอายุได้ (ข้อความค้างส่งนาน ๆ) — ขอให้โทรศัพท์คนส่งอัปโหลดใหม่ให้เอง
+  const data = await downloadMediaMessage(
+    message,
+    "buffer",
+    {},
+    { logger: makeLogger(label), reuploadRequest: sock.updateMediaMessage },
+  );
+
+  const result = await ingestImage(prisma, {
+    id: message.key.id!,
+    dealerId,
+    ...sender,
+    sentAt: sentAtOf(message),
+    offline,
+    image: { data: new Uint8Array(data), mimeType: image.mimeType },
+    caption: image.caption,
+  });
+  reportIngest(label, sender, result);
+  if (result.action === "image" || result.action === "recovered") enqueueOcr(result.ticketId);
 }
 
 // ------------------------------------------------------------------ กลุ่ม
@@ -564,3 +624,4 @@ await prisma.whatsappAccount.count().catch((error) => {
 
 log(`บอท WhatsApp เริ่มทำงาน — session อยู่ที่ ${AUTH_ROOT} · ตั้งค่าบัญชีที่หน้าเว็บ /whatsapp`);
 void loop();
+await resumeOcr(log).catch((error) => console.error("[OCR] อ่านรายการรูปค้างอ่านไม่สำเร็จ", error));

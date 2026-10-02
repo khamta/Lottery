@@ -36,7 +36,7 @@ import { ticketSchema, type TicketInput } from "@/lib/validations/ticket";
 import { useI18n } from "@/i18n/client";
 import { DEFAULT_LAK_MULTIPLIER, parseTicket } from "@/lottery/parser";
 import { isTicketMessage } from "@/lottery/ticket";
-import type { CustomerOption, DrawOption, TicketRow } from "../types";
+import { ticketImageUrl, type CustomerOption, type DrawOption, type TicketRow } from "../types";
 import { TicketPreview } from "./ticket-preview";
 
 /**
@@ -44,6 +44,7 @@ import { TicketPreview } from "./ticket-preview";
  * ส่งค่ากลับให้ view ผ่าน onSubmit เพื่อให้ view เป็นคนทำ optimistic update
  *
  * วางข้อความจากแชตลงช่องเดียว ระบบแยกเลข/ยอดให้ดูสด ๆ ด้วยตัวแยกชุดเดียวกับ server
+ * โพยจากรูป: แสดงรูปคู่กับข้อความที่ OCR แปลงได้ ให้คนเทียบแล้วแก้ก่อนบันทึก
  */
 type TicketDialogProps = {
   open: boolean;
@@ -70,6 +71,7 @@ export function TicketDialog({
 }: TicketDialogProps) {
   const { t } = useI18n();
   const isEdit = !!ticket;
+  const hasImage = !!ticket?.ocrStatus;
 
   // โพยลงได้เฉพาะงวดที่เปิดรับ — ตอนแก้ไขต้องเห็นงวดเดิมของโพยด้วยแม้จะปิดไปแล้ว
   const drawOptions = React.useMemo(
@@ -122,7 +124,9 @@ export function TicketDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="scroll-area max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
+      <DialogContent
+        className={`scroll-area max-h-[calc(100dvh-2rem)] overflow-y-auto ${hasImage ? "sm:max-w-5xl" : "sm:max-w-2xl"}`}
+      >
         <DialogHeader>
           <DialogTitle>{isEdit ? t("tickets.editTitle") : t("tickets.addTitle")}</DialogTitle>
           <DialogDescription>{t("tickets.dialogDesc")}</DialogDescription>
@@ -191,32 +195,37 @@ export function TicketDialog({
               />
             </div>
 
-            <FormField
-              control={form.control}
-              name="text"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t("tickets.text")}</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      rows={7}
-                      placeholder={t("tickets.textPlaceholder")}
-                      className="tabular-nums"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <div className={hasImage ? "grid gap-4 lg:grid-cols-2 lg:items-start" : "contents"}>
+              {ticket?.ocrStatus ? <TicketImage ticketId={ticket.id} status={ticket.ocrStatus} /> : null}
+              <div className="grid gap-4">
+                <FormField
+                  control={form.control}
+                  name="text"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("tickets.text")}</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          rows={hasImage ? 14 : 7}
+                          placeholder={t("tickets.textPlaceholder")}
+                          className="tabular-nums"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-            {text.trim() ? (
-              isTicketMessage(parsed) ? (
-                <TicketPreview parsed={parsed} />
-              ) : (
-                <p className="text-sm font-medium text-destructive">{t("tickets.noBets")}</p>
-              )
-            ) : null}
+                {text.trim() ? (
+                  isTicketMessage(parsed) ? (
+                    <TicketPreview parsed={parsed} />
+                  ) : (
+                    <p className="text-sm font-medium text-destructive">{t("tickets.noBets")}</p>
+                  )
+                ) : null}
+              </div>
+            </div>
 
             {canForce ? (
               <FormField
@@ -266,5 +275,23 @@ export function TicketDialog({
         </Form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** รูปโพยที่ลูกค้าส่งมา — กดเปิดขนาดเต็มในแท็บใหม่ */
+function TicketImage({ ticketId, status }: { ticketId: string; status: NonNullable<TicketRow["ocrStatus"]> }) {
+  const { t } = useI18n();
+  const src = ticketImageUrl(ticketId);
+
+  return (
+    <div className="grid gap-2">
+      <a href={src} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-md border bg-muted">
+        {/* eslint-disable-next-line @next/next/no-img-element -- route ภายในที่ตรวจสิทธิ์เอง ไม่ต้องผ่าน next/image */}
+        <img src={src} alt={t("tickets.imageAlt")} className="max-h-[60dvh] w-full object-contain" />
+      </a>
+      <p className={`text-xs ${status === "FAILED" ? "font-medium text-destructive" : "text-muted-foreground"}`}>
+        {t(`tickets.imageHint${status}`)}
+      </p>
+    </div>
   );
 }

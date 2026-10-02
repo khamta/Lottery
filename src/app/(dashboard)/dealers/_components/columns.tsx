@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { formatDate } from "@/lib/utils";
+import { formatNumber } from "@/lottery/format";
 import type { DealerRow } from "../types";
 
 type ColumnOptions = {
@@ -36,7 +37,7 @@ export function getDealerColumns({
   onEdit,
   onDelete,
 }: ColumnOptions): ColumnDef<DealerRow>[] {
-  const count = (value: number) => <span className="tabular-nums">{value.toLocaleString(intl)}</span>;
+  const count = (value: number) => <span className="tabular-nums">{formatNumber(value, intl)}</span>;
 
   const owner: ColumnDef<DealerRow>[] = showOwner
     ? [

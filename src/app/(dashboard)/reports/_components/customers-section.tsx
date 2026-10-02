@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { getTranslations } from "@/i18n/server";
 import { getWinningBets } from "@/lottery/queries";
 import { addMoney, emptyMoney, type MoneyPair, type WinningKey } from "@/lottery/report";
+import { formatNumber } from "@/lottery/format";
 
 /** จำนวนลูกค้าที่แสดง — เรียงตามยอดซื้อกีบมากไปน้อย */
 const CUSTOMERS_MAX = 200;
@@ -63,7 +64,7 @@ export async function CustomersSection({
 
   const money = (value: number, className?: string) => (
     <TableCell className={cn("text-right tabular-nums", value === 0 && "text-muted-foreground", className)}>
-      {value.toLocaleString(intl)}
+      {formatNumber(value, intl)}
     </TableCell>
   );
 
@@ -94,7 +95,7 @@ export async function CustomersSection({
                 <TableCell className={name ? "font-medium" : "text-muted-foreground"}>
                   {name ?? t("reports.noCustomer")}
                 </TableCell>
-                <TableCell className="text-right tabular-nums">{group._count._all.toLocaleString(intl)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatNumber(group._count._all, intl)}</TableCell>
                 {money(stake.lak)}
                 {money(stake.thb)}
                 {keys ? (

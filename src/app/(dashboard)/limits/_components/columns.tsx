@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { formatDate } from "@/lib/utils";
+import { formatNumber } from "@/lottery/format";
 import { currencyKey, digitsKey, positionKey, type LimitRow } from "../types";
 
 type ColumnOptions = {
@@ -68,7 +69,7 @@ export function getLimitColumns({ t, intl, onEdit, onDelete }: ColumnOptions): C
         row.original.maxAmount === 0 ? (
           <Badge variant="destructive">{t("limits.closed")}</Badge>
         ) : (
-          <span className="font-medium tabular-nums">{row.original.maxAmount.toLocaleString(intl)}</span>
+          <span className="font-medium tabular-nums">{formatNumber(row.original.maxAmount, intl)}</span>
         ),
     },
     {

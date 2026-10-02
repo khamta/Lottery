@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { OnlineDot } from "@/components/shared/online-dot";
 import { formatDate } from "@/lib/utils";
+import { formatNumber } from "@/lottery/format";
 import { roleKey, type MemberRow } from "../types";
 
 type ColumnOptions = {
@@ -35,7 +36,7 @@ export function getMemberColumns({
   onToggleActive,
   onDelete,
 }: ColumnOptions): ColumnDef<MemberRow>[] {
-  const count = (value: number) => <span className="tabular-nums">{value.toLocaleString(intl)}</span>;
+  const count = (value: number) => <span className="tabular-nums">{formatNumber(value, intl)}</span>;
 
   return [
     {

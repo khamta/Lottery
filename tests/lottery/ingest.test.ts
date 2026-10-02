@@ -3,7 +3,9 @@ import type { PrismaClient } from "@prisma/client";
 
 import {
   TOTAL_WINDOW_MS,
+  applyOcr,
   editMessage,
+  ingestImage,
   ingestMessage,
   ingestUndecryptable,
   revokeMessage,
@@ -21,10 +23,19 @@ const state = {
   tickets: new Map<string, Row>(),
   bets: [] as Row[],
   auditRows: [] as Row[],
+  /** ticketId -> รูปโพย */
+  images: new Map<string, Row>(),
 };
 let nextId = 1;
 
 const drawOf = (ticket: Row) => state.draws.find((draw) => draw.id === ticket.drawId)!;
+
+/** include ของ Prisma ที่ ingest ใช้: draw และ image (null = ไม่มีรูป) */
+const withIncludes = (ticket: Row, include?: { draw?: unknown; image?: unknown }) => ({
+  ...ticket,
+  ...(include?.draw ? { draw: drawOf(ticket) } : {}),
+  ...(include?.image ? { image: state.images.get(ticket.id as string) ?? null } : {}),
+});
 
 const tx = {
   draw: {
@@ -56,27 +67,51 @@ const tx = {
       state.tickets.delete(where.id);
       state.bets = state.bets.filter((bet) => bet.ticketId !== where.id);
     },
-    findUnique: async ({ where, include }: { where: { waMessageId: string }; include?: unknown }) => {
-      const ticket = [...state.tickets.values()].find((row) => row.waMessageId === where.waMessageId);
-      if (!ticket) return null;
-      return include ? { ...ticket, draw: drawOf(ticket) } : ticket;
+    findUnique: async ({
+      where,
+      include,
+    }: {
+      where: { id?: string; waMessageId?: string };
+      include?: { draw?: unknown; image?: unknown };
+    }) => {
+      const ticket = where.id
+        ? state.tickets.get(where.id)
+        : [...state.tickets.values()].find((row) => row.waMessageId === where.waMessageId);
+      return ticket ? withIncludes(ticket, include) : null;
     },
     // โพย WhatsApp ล่าสุดของคนส่งคนนี้ ในงวดที่เปิดรับ ภายในช่วงเวลาที่กำหนด
     findFirst: async ({
       where,
+      include,
     }: {
       where: { senderId: string; createdAt: { gte: Date }; draw: { dealerId: string; status: string } };
-    }) =>
-      [...state.tickets.values()]
-        .filter(
-          (row) =>
-            row.source === "WHATSAPP" &&
-            row.senderId === where.senderId &&
-            (row.createdAt as Date) >= where.createdAt.gte &&
-            drawOf(row).dealerId === where.draw.dealerId &&
-            drawOf(row).status === where.draw.status,
-        )
-        .sort((a, b) => +(b.createdAt as Date) - +(a.createdAt as Date))[0] ?? null,
+      include?: { image?: unknown };
+    }) => {
+      const found =
+        [...state.tickets.values()]
+          .filter(
+            (row) =>
+              row.source === "WHATSAPP" &&
+              row.senderId === where.senderId &&
+              (row.createdAt as Date) >= where.createdAt.gte &&
+              drawOf(row).dealerId === where.draw.dealerId &&
+              drawOf(row).status === where.draw.status,
+          )
+          .sort((a, b) => +(b.createdAt as Date) - +(a.createdAt as Date))[0] ?? null;
+      return found ? withIncludes(found, include) : null;
+    },
+  },
+  ticketImage: {
+    create: async ({ data }: { data: Row }) => {
+      const image = { ocrStatus: "PENDING", ocr: null, ocrError: null, ...data };
+      state.images.set(data.ticketId as string, image);
+      return image;
+    },
+    update: async ({ where, data }: { where: { ticketId: string }; data: Row }) => {
+      const updated = { ...state.images.get(where.ticketId)!, ...data };
+      state.images.set(where.ticketId, updated);
+      return updated;
+    },
   },
   bet: {
     createMany: async ({ data }: { data: Row[] }) => {
@@ -119,6 +154,7 @@ beforeEach(() => {
   state.tickets.clear();
   state.bets = [];
   state.auditRows = [];
+  state.images.clear();
   nextId = 1;
 });
 
@@ -418,5 +454,131 @@ describe("editMessage / revokeMessage", () => {
   test("ข้อความที่ไม่เคยเป็นโพย → ข้าม", async () => {
     expect(await revokeMessage(db, "wa-x")).toEqual({ action: "skipped", reason: "unknown-message" });
     expect(await editMessage(db, "wa-x", "32=1")).toEqual({ action: "skipped", reason: "unknown-message" });
+  });
+});
+
+describe("รูปโพย (ingestImage → applyOcr)", () => {
+  const imageMessage = (id: string, overrides: Partial<Parameters<typeof ingestImage>[1]> = {}) => ({
+    id,
+    dealerId: "dealer-1",
+    senderId: "111@lid",
+    senderPhone: null,
+    senderName: "Noy",
+    image: { data: new Uint8Array([1, 2, 3]), mimeType: "image/jpeg" },
+    caption: "",
+    ...overrides,
+  });
+  const ocr = { paddle: [], tesseract: [] };
+
+  test("เก็บรูปเข้าระบบก่อน → โพยรอตรวจ ข้อความว่าง รอคิว OCR", async () => {
+    const result = await ingestImage(db, imageMessage("wa-img"));
+
+    expect(result).toEqual({ action: "image", ticketId: "ticket-1", status: "REVIEW" });
+    expect(onlyTicket()).toMatchObject({ source: "WHATSAPP", waMessageId: "wa-img", rawText: "", betCount: 0 });
+    expect(state.images.get("ticket-1")).toMatchObject({ mimeType: "image/jpeg", ocrStatus: "PENDING" });
+  });
+
+  test("OCR อ่านได้ครบ → นับยอดเลยเหมือนข้อความในแชต", async () => {
+    await ingestImage(db, imageMessage("wa-img"));
+    const result = await applyOcr(db, "ticket-1", { text: "32=300\n45=100", ocr });
+
+    expect(result).toEqual({ action: "ocr", ticketId: "ticket-1", status: "CONFIRMED" });
+    expect(onlyTicket()).toMatchObject({ rawText: "32=300\n45=100", status: "CONFIRMED", totalLak: 400_000, issues: [] });
+    expect(briefBets()).toEqual(["32 TOP LAK 300000", "45 TOP LAK 100000"]);
+    expect(state.images.get("ticket-1")).toMatchObject({ ocrStatus: "DONE", ocr });
+  });
+
+  test("OCR อ่านได้ไม่ครบ → รอตรวจกับรูป ยังไม่นับยอด", async () => {
+    await ingestImage(db, imageMessage("wa-img"));
+    const result = await applyOcr(db, "ticket-1", { text: "32=300\n43240", ocr });
+
+    expect(result).toMatchObject({ status: "REVIEW" });
+    expect(onlyTicket()).toMatchObject({ status: "REVIEW", totalLak: 0 });
+    expect(state.bets).toEqual([]);
+  });
+
+  test("ยอดรวมใต้รูปไม่ตรงกับที่อ่านได้ (OCR อ่านตกหล่น) → รอตรวจ", async () => {
+    await ingestImage(db, imageMessage("wa-img", { caption: "ລວມ500" }));
+    await applyOcr(db, "ticket-1", { text: "32=300\n45=100", ocr });
+
+    expect(onlyTicket()).toMatchObject({ status: "REVIEW", totalLak: 0 });
+    expect(onlyTicket().issues).toEqual([{ code: "TOTAL_MISMATCH", line: 0, text: "500 ≠ 400" }]);
+  });
+
+  test("OCR ไม่ได้อะไรที่เป็นโพย → ยังรอคนดูรูป", async () => {
+    await ingestImage(db, imageMessage("wa-img"));
+    await applyOcr(db, "ticket-1", { text: "ສະບາຍດີ", ocr });
+
+    expect(onlyTicket()).toMatchObject({ status: "REVIEW" });
+    expect(onlyTicket().issues).toEqual([{ code: "FROM_IMAGE", line: 0, text: "" }]);
+  });
+
+  test("ยอดรวมส่งตามมาหลัง OCR อ่านแล้ว → อ่านใหม่ตามข้อความปกติ", async () => {
+    await ingestImage(db, imageMessage("wa-img"));
+    await applyOcr(db, "ticket-1", { text: "32=300\n45=100", ocr });
+    const total = await ingestMessage(db, message("wa-total", "ລວມ400"));
+
+    expect(total).toMatchObject({ action: "total-attached", status: "CONFIRMED" });
+    expect(onlyTicket()).toMatchObject({ rawText: "32=300\n45=100\nລວມ400", totalLak: 400_000 });
+  });
+
+  test("คำบรรยายใต้รูปต่อท้ายข้อความที่อ่านจากรูป", async () => {
+    await ingestImage(db, imageMessage("wa-img", { caption: "ລວມ400" }));
+    await applyOcr(db, "ticket-1", { text: "32=300\n45=100", ocr });
+
+    expect(onlyTicket().rawText).toBe("32=300\n45=100\n\nລວມ400");
+  });
+
+  test("ยอดรวมส่งตามรูปมาก่อน OCR อ่านเสร็จ → ต่อเข้าโพยจากรูป และไม่นับยอดรวมซ้ำกับที่อ่านจากรูป", async () => {
+    await ingestImage(db, imageMessage("wa-img"));
+    const total = await ingestMessage(db, message("wa-total", "ລວມ400"));
+    await applyOcr(db, "ticket-1", { text: "32=300\n45=100\n\nລວມ400", ocr });
+
+    // ก่อน OCR อ่านเสร็จยังรอรูป · อ่านเสร็จแล้วยอดตรง = นับยอด
+    expect(total).toMatchObject({ action: "total-attached", ticketId: "ticket-1", status: "REVIEW" });
+    expect(onlyTicket()).toMatchObject({ rawText: "32=300\n45=100\n\nລວມ400", status: "CONFIRMED" });
+    expect(state.tickets.size).toBe(1);
+  });
+
+  test("คนพิมพ์โพยเองไปก่อน OCR อ่านเสร็จ → ไม่ทับข้อความของคน เก็บแค่ผล OCR", async () => {
+    await ingestImage(db, imageMessage("wa-img"));
+    // บันทึกผ่านหน้าโพย = อ่านด้วยกติกาข้อความปกติ (ไม่มี FROM_IMAGE แล้ว)
+    state.tickets.set("ticket-1", { ...onlyTicket(), rawText: "32=300", status: "CONFIRMED", issues: [] });
+    await applyOcr(db, "ticket-1", { text: "32=800", ocr });
+
+    expect(onlyTicket()).toMatchObject({ rawText: "32=300", status: "CONFIRMED" });
+    expect(state.images.get("ticket-1")).toMatchObject({ ocrStatus: "DONE" });
+  });
+
+  test("อ่านรูปไม่ได้ → สถานะ FAILED โพยยังรอตรวจให้คนพิมพ์เอง", async () => {
+    await ingestImage(db, imageMessage("wa-img"));
+    const result = await applyOcr(db, "ticket-1", { error: "image too large" });
+
+    expect(result).toEqual({ action: "ocr-failed", ticketId: "ticket-1", status: "REVIEW" });
+    expect(state.images.get("ticket-1")).toMatchObject({ ocrStatus: "FAILED", ocrError: "image too large" });
+    expect(onlyTicket()).toMatchObject({ status: "REVIEW", rawText: "" });
+  });
+
+  test("รูปเดิมถูกส่งมาอีกรอบ → ไม่เก็บซ้ำ", async () => {
+    await ingestImage(db, imageMessage("wa-img"));
+
+    expect(await ingestImage(db, imageMessage("wa-img"))).toEqual({ action: "skipped", reason: "duplicate" });
+    expect(state.images.size).toBe(1);
+  });
+
+  test("ข้อความที่เคยถอดรหัสไม่ได้ จริง ๆ เป็นรูป → ใส่รูปลงโพยรอตรวจเดิม", async () => {
+    await ingestUndecryptable(db, message("wa-img", ""));
+    const result = await ingestImage(db, imageMessage("wa-img"));
+
+    expect(result).toEqual({ action: "recovered", ticketId: "ticket-1", status: "REVIEW" });
+    expect(state.tickets.size).toBe(1);
+    expect(state.images.get("ticket-1")).toMatchObject({ ocrStatus: "PENDING" });
+  });
+
+  test("ไม่มีงวดที่เปิดรับ → ไม่เก็บรูป", async () => {
+    state.draws[0]!.status = "CLOSED";
+
+    expect(await ingestImage(db, imageMessage("wa-img"))).toEqual({ action: "skipped", reason: "no-open-draw" });
+    expect(state.images.size).toBe(0);
   });
 });

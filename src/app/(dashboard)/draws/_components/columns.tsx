@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toRoute } from "@/lib/query";
 import { formatDate } from "@/lib/utils";
+import { formatNumber } from "@/lottery/format";
 import { statusKey, type DrawRow } from "../types";
 
 type ColumnOptions = {
@@ -75,7 +76,7 @@ export function getDrawColumns({ t, intl, onEdit, onSetStatus, onDelete }: Colum
       id: "ticketCount",
       enableSorting: false,
       header: t("draws.ticketCount"),
-      cell: ({ row }) => <span className="tabular-nums">{row.original.ticketCount.toLocaleString(intl)}</span>,
+      cell: ({ row }) => <span className="tabular-nums">{formatNumber(row.original.ticketCount, intl)}</span>,
     },
     {
       id: "actions",

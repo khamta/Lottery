@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 
 import { logAudit } from "@/lib/audit";
 import { DEFAULT_LAK_MULTIPLIER, parseTicket } from "./parser";
-import { isTicketMessage, readTicketText, type TicketStatusValue } from "./ticket";
+import { isTicketMessage, readImageTicketText, readTicketText, type TicketRecord, type TicketStatusValue } from "./ticket";
 
 /**
  * นำข้อความจากกลุ่ม WhatsApp เข้าระบบเป็นโพย — บอท (worker/whatsapp.ts) เรียกใช้
@@ -15,6 +15,8 @@ import { isTicketMessage, readTicketText, type TicketStatusValue } from "./ticke
  *  - ข้อความที่มีแต่ยอดรวม (ລວມ150) ต่อท้ายโพยล่าสุดของคนเดิม เพื่อใช้ตรวจยอด
  *  - ข้อความที่ WhatsApp ถอดรหัสไม่ได้ = โพยรอตรวจที่ข้อความว่าง ให้คนดูแชตแล้ววางข้อความเอง
  *    (ไม่ปล่อยให้โพยหายเงียบ ๆ) — ถ้าข้อความจริงตามมาทีหลัง ระบบเติมให้เอง
+ *  - รูปโพย: เก็บรูปเข้าระบบก่อน (โพยรอตรวจ ข้อความ = คำบรรยายรูป) แล้วบอทค่อยอ่านรูปด้วย OCR ตามคิว
+ *    ได้ข้อความแล้วอ่านเหมือนข้อความในแชตทั่วไป: อ่านได้ครบ = นับยอดเลย · มีบรรทัดที่อ่านไม่ออก = รอตรวจกับรูป
  *  - audit log บันทึกในนาม "ระบบ" (ไม่มี user)
  */
 
@@ -39,6 +41,15 @@ type MessageMeta = MessageSender & {
 
 export type IncomingMessage = MessageMeta & { text: string };
 
+export type IncomingImage = MessageMeta & {
+  image: { data: Uint8Array<ArrayBuffer>; mimeType: string };
+  /** คำบรรยายใต้รูป (ว่างได้) — ต่อท้ายข้อความที่อ่านจากรูป */
+  caption: string;
+};
+
+/** ผลอ่านรูปจากบริการ OCR — text = ข้อความโพยที่แปลงแล้ว (ดู image-text.ts) */
+export type OcrOutcome = { text: string; ocr: Prisma.InputJsonValue } | { error: string };
+
 export type SkipReason =
   | "not-ticket"
   | "duplicate"
@@ -50,7 +61,7 @@ export type SkipReason =
 
 export type IngestResult =
   | {
-      action: "created" | "recovered" | "undecryptable" | "total-attached" | "edited";
+      action: "created" | "recovered" | "undecryptable" | "total-attached" | "edited" | "image" | "ocr" | "ocr-failed";
       ticketId: string;
       status: TicketStatusValue;
     }
@@ -61,13 +72,28 @@ export type IngestResult =
 export const TOTAL_WINDOW_MS = 10 * 60 * 1000;
 
 type Tx = Prisma.TransactionClient;
-type Read = NonNullable<ReturnType<typeof readTicketText>>;
+type Read = TicketRecord;
 
 const summaryOf = (text: string) => text.split("\n")[0]!.slice(0, 60);
 
-/** โพยที่บอทสร้างไว้แทนข้อความที่ถอดรหัสไม่ได้: รอตรวจ + ข้อความว่าง */
-const isPlaceholder = (ticket: { status: string; rawText: string }) =>
-  ticket.status === "REVIEW" && ticket.rawText === "";
+/** โพยที่บอทสร้างไว้แทนข้อความที่ถอดรหัสไม่ได้: รอตรวจ + ข้อความว่าง (โพยจากรูปที่ยังไม่ได้อ่านก็ข้อความว่าง จึงต้องเช็ครูปด้วย) */
+const isPlaceholder = (ticket: { status: string; rawText: string }, hasImage = false) =>
+  !hasImage && ticket.status === "REVIEW" && ticket.rawText === "";
+
+/** โพยจากรูปที่ OCR ยังไม่ได้อ่าน ต้องคงสถานะรอรูปไว้ — นอกนั้น (รวมโพยจากรูปที่อ่านแล้ว) อ่านตามข้อความปกติ */
+const reread = (text: string, lakMultiplier: number, imagePending: boolean) =>
+  imagePending ? readImageTicketText(text, lakMultiplier) : readTicketText(text, lakMultiplier);
+
+const hasIssue = (issues: Prisma.JsonValue, code: string) =>
+  Array.isArray(issues) && issues.some((issue) => (issue as { code?: string } | null)?.code === code);
+
+/** บรรทัดยอดรวมที่ image-text.ts ใส่ไว้ท้ายข้อความ */
+const withoutTotal = (text: string) =>
+  text
+    .split("\n")
+    .filter((line) => !line.startsWith("ລວມ"))
+    .join("\n")
+    .trim();
 
 /** แทนที่รายการแทงของโพยด้วยผลการอ่านข้อความใหม่ */
 async function rewriteTicket(tx: Tx, ticket: { id: string; drawId: string }, fields: Read["fields"], bets: Read["bets"]) {
@@ -219,11 +245,104 @@ export async function ingestUndecryptable(db: PrismaClient, message: MessageMeta
   });
 }
 
+/**
+ * รูปโพยจากกลุ่ม → เก็บรูปเข้าระบบก่อน เป็นโพยรอตรวจที่ข้อความ = คำบรรยายรูป (OCR ยังไม่ได้อ่าน)
+ * บอทส่งรูปเข้าคิว OCR ต่อเอง แล้วเรียก applyOcr เมื่ออ่านเสร็จ — รูปจึงไม่หายแม้บริการ OCR ล่มหรือบอทรีสตาร์ต
+ */
+export async function ingestImage(db: PrismaClient, message: IncomingImage): Promise<IngestResult> {
+  return db.$transaction(async (tx) => {
+    const imageData = { mimeType: message.image.mimeType, data: message.image.data };
+    const existing = await tx.ticket.findUnique({
+      where: { waMessageId: message.id },
+      include: { draw: { select: { status: true } }, image: { select: { id: true } } },
+    });
+
+    if (existing) {
+      const { draw, image, ...before } = existing;
+      if (!isPlaceholder(before, !!image)) return { action: "skipped", reason: "duplicate" };
+      if (draw.status !== "OPEN") return { action: "skipped", reason: "draw-closed" };
+
+      // ข้อความที่เคยถอดรหัสไม่ได้ จริง ๆ แล้วเป็นรูป
+      const read = readImageTicketText(message.caption, before.lakMultiplier);
+      const ticket = await rewriteTicket(tx, before, read.fields, read.bets);
+      await tx.ticketImage.create({ data: { ...imageData, ticketId: ticket.id } });
+      await logAudit(tx, {
+        action: "UPDATE",
+        entity: "Ticket",
+        entityId: ticket.id,
+        summary: summaryOf(ticket.rawText) || ticket.senderName,
+        before,
+        after: ticket,
+      });
+      return { action: "recovered", ticketId: ticket.id, status: ticket.status };
+    }
+
+    const target = await findTarget(tx, message);
+    if (target.skip) return { action: "skipped", reason: target.skip };
+
+    const read = readImageTicketText(message.caption, target.customer?.lakMultiplier ?? DEFAULT_LAK_MULTIPLIER);
+    const ticket = await createTicket(tx, message, target.draw.id, target.customer?.id ?? null, read);
+    await tx.ticketImage.create({ data: { ...imageData, ticketId: ticket.id } });
+    return { action: "image", ticketId: ticket.id, status: ticket.status };
+  });
+}
+
+/**
+ * OCR อ่านรูปเสร็จ → เอาข้อความที่แปลงได้ใส่หน้าข้อความเดิมของโพย (คำบรรยายรูป / ยอดรวมที่ส่งตามมา)
+ * แล้วอ่านเหมือนข้อความในแชตทั่วไป: อ่านได้ครบทุกบรรทัด = นับยอดเลย · มีบรรทัดที่อ่านไม่ออก/ยอดรวมไม่ตรง = รอตรวจกับรูป
+ * ไม่ได้อะไรที่เป็นโพยเลย = ยังรอคนดูรูป
+ * คนบันทึกโพยไปก่อนแล้ว (พิมพ์เองระหว่างรอคิว) หรืองวดปิดแล้ว → เก็บผล OCR ไว้เฉย ๆ ไม่แตะข้อความที่คนแก้
+ */
+export async function applyOcr(db: PrismaClient, ticketId: string, outcome: OcrOutcome): Promise<IngestResult> {
+  return db.$transaction(async (tx) => {
+    const existing = await tx.ticket.findUnique({
+      where: { id: ticketId },
+      include: { draw: { select: { status: true } }, image: { select: { ocrStatus: true } } },
+    });
+    if (!existing?.image) return { action: "skipped", reason: "unknown-message" };
+    const { draw, image, ...before } = existing;
+    const ocrAt = new Date();
+
+    if ("error" in outcome) {
+      await tx.ticketImage.update({
+        where: { ticketId },
+        data: { ocrStatus: "FAILED", ocrError: outcome.error.slice(0, 500), ocrAt },
+      });
+      return { action: "ocr-failed", ticketId, status: before.status };
+    }
+
+    await tx.ticketImage.update({
+      where: { ticketId },
+      data: { ocrStatus: "DONE", ocr: outcome.ocr, ocrError: null, ocrAt },
+    });
+    // คนบันทึกผ่านหน้าโพยแล้ว = อ่านด้วยกติกาข้อความปกติ issue FROM_IMAGE จึงหายไป
+    const untouched = image.ocrStatus === "PENDING" && hasIssue(before.issues, "FROM_IMAGE") && draw.status === "OPEN";
+    if (!untouched || !outcome.text.trim()) return { action: "ocr", ticketId, status: before.status };
+
+    // ยอดรวมที่ส่งตามรูปมาเป็นข้อความเชื่อได้กว่ายอดที่ OCR อ่านจากรูป — ไม่ให้นับยอดรวมซ้ำสองครั้ง
+    const fromImage = parseTicket(before.rawText).declaredTotal !== null ? withoutTotal(outcome.text) : outcome.text;
+    const text = [fromImage, before.rawText].filter(Boolean).join("\n\n");
+    const read = readTicketText(text, before.lakMultiplier) ?? readImageTicketText(text, before.lakMultiplier);
+    const ticket = await rewriteTicket(tx, before, read.fields, read.bets);
+
+    await logAudit(tx, {
+      action: "UPDATE",
+      entity: "Ticket",
+      entityId: ticket.id,
+      summary: summaryOf(ticket.rawText),
+      before,
+      after: ticket,
+    });
+
+    return { action: "ocr", ticketId: ticket.id, status: ticket.status };
+  });
+}
+
 /** ข้อความที่มีแต่ยอดรวม → ต่อท้ายโพยล่าสุดของคนเดิม แล้วอ่านใหม่ (ยอดไม่ตรง = กลับไปรอตรวจ) */
 async function attachTotal(db: PrismaClient, message: IncomingMessage): Promise<IngestResult> {
   return db.$transaction(async (tx) => {
     const at = message.sentAt ?? new Date();
-    const before = await tx.ticket.findFirst({
+    const found = await tx.ticket.findFirst({
       where: {
         source: "WHATSAPP",
         senderId: message.senderId,
@@ -231,13 +350,18 @@ async function attachTotal(db: PrismaClient, message: IncomingMessage): Promise<
         draw: { dealerId: message.dealerId, status: "OPEN" },
       },
       orderBy: { createdAt: "desc" },
+      include: { image: { select: { id: true } } },
     });
-    // ไม่มีโพยให้ต่อ, โพยนั้นยังไม่มีข้อความ หรือมียอดรวมอยู่แล้ว → ไม่ใช่ยอดรวมของโพยนี้
-    if (!before || isPlaceholder(before) || parseTicket(before.rawText).declaredTotal !== null) {
+    if (!found) return { action: "skipped", reason: "not-ticket" };
+    const { image, ...before } = found;
+    // โพยนั้นยังไม่มีข้อความ (ถอดรหัสไม่ได้) หรือมียอดรวมอยู่แล้ว → ไม่ใช่ยอดรวมของโพยนี้
+    // โพยจากรูปต่อได้แม้ยังไม่ได้อ่านรูป — ยอดรวมมักส่งตามรูปมาทันที ก่อน OCR อ่านเสร็จ
+    if (isPlaceholder(before, !!image) || parseTicket(before.rawText).declaredTotal !== null) {
       return { action: "skipped", reason: "not-ticket" };
     }
 
-    const read = readTicketText(`${before.rawText}\n${message.text}`, before.lakMultiplier);
+    const text = before.rawText ? `${before.rawText}\n${message.text}` : message.text;
+    const read = reread(text, before.lakMultiplier, !!image && hasIssue(before.issues, "FROM_IMAGE"));
     if (!read) return { action: "skipped", reason: "not-ticket" };
     const ticket = await rewriteTicket(tx, before, read.fields, read.bets);
 

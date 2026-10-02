@@ -13,6 +13,7 @@ import { getTranslations } from "@/i18n/server";
 import { currencyKey, digitsKey, positionKey } from "@/lottery/labels";
 import { WINNING_BETS_MAX, getWinningBets } from "@/lottery/queries";
 import type { WinningKey } from "@/lottery/report";
+import { formatNumber } from "@/lottery/format";
 
 /** รายการแทงที่ถูกรางวัลของงวด พร้อมยอดแทงจริง — ใช้ไล่จ่ายเงินรายคน (ยังไม่คูณอัตราจ่าย) */
 export async function WinnersSection({
@@ -59,7 +60,7 @@ export async function WinnersSection({
                   </TableCell>
                   <TableCell>{t(currencyKey[bet.currency])}</TableCell>
                   <TableCell className="text-right font-semibold tabular-nums">
-                    {bet.amount.toLocaleString(intl)}
+                    {formatNumber(bet.amount, intl)}
                   </TableCell>
                 </TableRow>
             ))}

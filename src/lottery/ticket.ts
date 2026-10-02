@@ -67,3 +67,27 @@ export function readTicketText(text: string, lakMultiplier: number, force = fals
     })),
   };
 }
+
+/** ค่าที่จะเขียนลงตาราง tickets / bets */
+export type TicketRecord = NonNullable<ReturnType<typeof readTicketText>>;
+
+/**
+ * โพยจากรูปที่ยังไม่ได้ข้อความจาก OCR (รอคิว / อ่านไม่ได้ / อ่านแล้วไม่มีอะไรเป็นโพย) → ค่าที่จะเขียนลงตาราง tickets
+ * รอตรวจและยังไม่นับยอด โดยมี issue FROM_IMAGE บอกว่ายังรอรูปอยู่ — ข้อความ (คำบรรยายรูป) ว่างได้
+ * OCR อ่านได้แล้วใช้ readTicketText ตามข้อความปกติ (ดู applyOcr ใน ingest.ts)
+ */
+export function readImageTicketText(text: string, lakMultiplier: number): TicketRecord {
+  const parsed = parseTicket(text, { lakMultiplier });
+  return {
+    fields: {
+      status: "REVIEW",
+      rawText: text,
+      lakMultiplier,
+      issues: [{ code: "FROM_IMAGE", line: 0, text: "" }, ...parsed.issues],
+      totalLak: 0,
+      totalThb: 0,
+      betCount: 0,
+    },
+    bets: [],
+  };
+}

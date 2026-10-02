@@ -92,6 +92,7 @@ export function TicketsView({
             id: tempId(),
             source: "MANUAL",
             senderName: null,
+            ocrStatus: null,
             createdAt: new Date().toISOString(),
             ...shared,
           },
