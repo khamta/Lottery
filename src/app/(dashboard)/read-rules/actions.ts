@@ -8,7 +8,7 @@ import { createAction } from "@/lib/action";
 import { logAudit, logAuditMany } from "@/lib/audit";
 import { requireDealerId } from "@/lottery/dealer";
 import { rereadTickets, rulesOf } from "@/lottery/ingest";
-import { READ_RULES_MAX } from "@/lottery/read-rules";
+import { normalizeFind, READ_RULES_MAX } from "@/lottery/read-rules";
 import {
   createReadRuleSchema,
   createReadRulesSchema,
@@ -32,7 +32,7 @@ const summaryOf = (rule: { kind: string; find: string; replace: string }) =>
 /** เงื่อนไขข้ามบรรทัดไม่ใช้ผลลัพธ์ — เก็บว่างไว้ ไม่ให้ค่าค้างจากตอนเลือกชนิดอื่นมีผล */
 const dataOf = (input: ReadRuleInput) => ({
   kind: input.kind,
-  find: input.find.trim(),
+  find: normalizeFind(input.find),
   replace: input.kind === "SKIP" ? "" : input.replace.trim(),
   note: input.note?.trim() || null,
   isActive: input.isActive,

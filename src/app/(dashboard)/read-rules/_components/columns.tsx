@@ -48,7 +48,7 @@ export function getReadRuleColumns({ t, intl, onEdit, onToggle, onDelete }: Colu
       cell: ({ row }) => (
         <div className="grid gap-1">
           <div className="flex flex-wrap items-center gap-2 font-mono text-sm">
-            <span className="break-all rounded bg-muted px-1.5 py-0.5">{row.original.find}</span>
+            <span className="whitespace-pre-line break-all rounded bg-muted px-1.5 py-0.5">{row.original.find}</span>
             {row.original.kind !== "SKIP" ? (
               <>
                 <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />

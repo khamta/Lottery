@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { READ_RULE_KINDS, isPattern, slotsIn, unknownSlots } from "@/lottery/read-rules";
+import { READ_RULE_KINDS, findLines, isPattern, slotsIn, unknownSlots } from "@/lottery/read-rules";
 
 export const readRuleKindEnum = z.enum(READ_RULE_KINDS);
 
@@ -11,9 +11,16 @@ const oneLine = (max: number) =>
     .max(max, "readRules.validation.tooLong")
     .refine((value) => !/[\r\n]/.test(value), "readRules.validation.oneLine");
 
+/** ช่องค้นหาใส่ได้หลายบรรทัด (บรรทัดละแบบ ใช้ผลลัพธ์เดียวกัน) — จำกัดความยาวทีละบรรทัด */
+export const READ_RULE_FIND_LINES = 20;
+
 const readRuleFields = z.object({
   kind: readRuleKindEnum,
-  find: oneLine(200).refine((value) => value.trim().length > 0, "readRules.validation.findRequired"),
+  find: z
+    .string()
+    .refine((value) => findLines(value).length > 0, "readRules.validation.findRequired")
+    .refine((value) => findLines(value).every((line) => line.length <= 200), "readRules.validation.tooLong")
+    .refine((value) => findLines(value).length <= READ_RULE_FIND_LINES, "readRules.validation.tooManyLines"),
   replace: oneLine(200).default(""),
   note: z.string().max(500, "validation.descriptionMax").optional().or(z.literal("")),
   isActive: z.boolean().default(true),
@@ -25,15 +32,21 @@ function checkReadRule(value: ReadRuleFields, ctx: z.RefinementCtx) {
   const issue = (path: "find" | "replace", message: string) =>
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
 
-  if (value.kind !== "REPLACE" && unknownSlots(value.find).length > 0) issue("find", "readRules.validation.unknownSlot");
+  // ตรวจทีละบรรทัด — ทุกบรรทัดใช้ผลลัพธ์เดียวกัน ช่องในผลลัพธ์จึงต้องมีในทุกบรรทัด
+  const lines = findLines(value.find);
+  if (value.kind !== "REPLACE" && lines.some((line) => unknownSlots(line).length > 0)) {
+    issue("find", "readRules.validation.unknownSlot");
+  }
   if (value.kind === "PATTERN") {
-    const slots = slotsIn(value.find);
-    if (!isPattern(value.find)) issue("find", "readRules.validation.patternNeedsSlot");
-    else if (new Set(slots).size !== slots.length) issue("find", "readRules.validation.duplicateSlot");
+    const slotsOf = lines.map(slotsIn);
+    if (!lines.every(isPattern)) issue("find", "readRules.validation.patternNeedsSlot");
+    else if (slotsOf.some((slots) => new Set(slots).size !== slots.length)) {
+      issue("find", "readRules.validation.duplicateSlot");
+    }
     if (!value.replace.trim()) issue("replace", "readRules.validation.replaceRequired");
     else if (unknownSlots(value.replace).length > 0) {
       issue("replace", "readRules.validation.unknownSlot");
-    } else if (slotsIn(value.replace).some((slot) => !slots.includes(slot))) {
+    } else if (slotsIn(value.replace).some((slot) => slotsOf.some((slots) => !slots.includes(slot)))) {
       issue("replace", "readRules.validation.slotNotInFind");
     }
   }

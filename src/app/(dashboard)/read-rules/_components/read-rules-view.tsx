@@ -10,7 +10,7 @@ import { useOptimisticList } from "@/hooks/use-optimistic-list";
 import { useI18n } from "@/i18n/client";
 import { notify } from "@/lib/notify";
 import type { ReadRuleInput } from "@/lib/validations/read-rule";
-import type { ReadRuleSpec } from "@/lottery/read-rules";
+import { normalizeFind, type ReadRuleSpec } from "@/lottery/read-rules";
 import type { Paginated } from "@/types";
 import {
   createReadRule,
@@ -53,7 +53,7 @@ export function ReadRulesView({ page, activeRules }: ReadRulesViewProps) {
     if (!values) return;
     const shared = {
       kind: values.kind,
-      find: values.find.trim(),
+      find: normalizeFind(values.find),
       replace: values.kind === "SKIP" ? "" : values.replace.trim(),
       note: values.note?.trim() || null,
       isActive: values.isActive,

@@ -138,6 +138,22 @@ describe("parseTicket — กติกา", () => {
       expect(ticket.bets).toEqual([]);
       expect(ticket.issues.map((i) => i.code)).toEqual(["THREE_DIGIT_BOTTOM"]);
     }
+    expect(parseTicket("26.243=100ລ່າງ").issues.map((i) => i.code)).toEqual(["THREE_DIGIT_BOTTOM"]);
+  });
+
+  test("บน+ล่างที่มีเลข 2 ตัวปน → เลข 3 ตัวลงบนอย่างเดียว", () => {
+    const brief = (text: string) =>
+      parseTicket(text, { lakMultiplier: 1 }).bets.map((b) => `${b.number} ${b.position} ${b.amount}`);
+
+    expect(brief("26.590.90=10ບລ")).toEqual([
+      "26 TOP 10",
+      "26 BOTTOM 10",
+      "590 TOP 10",
+      "90 TOP 10",
+      "90 BOTTOM 10",
+    ]);
+    expect(brief("26.590=10*20")).toEqual(["26 TOP 10", "26 BOTTOM 20", "590 TOP 10"]);
+    expect(parseTicket("26.66.590.10.50.90=10ບລ").issues).toEqual([]);
   });
 
   test("เลขที่ไม่ใช่ 2 หรือ 3 หลัก → รอตรวจ", () => {

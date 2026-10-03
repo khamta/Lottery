@@ -279,13 +279,15 @@ function RuleFields({ index, control, kind, numbered, onRemove, onInsert }: Rule
             <FormItem>
               <FormLabel>{t(kind === "REPLACE" ? "readRules.findText" : "readRules.findPattern")}</FormLabel>
               <FormControl>
-                <Input
+                <Textarea
+                  rows={3}
                   placeholder={t(`readRules.findPlaceholder${kind}`)}
                   className="font-mono"
                   autoComplete="off"
                   {...field}
                 />
               </FormControl>
+              <FormDescription>{t("readRules.findLinesHint")}</FormDescription>
               {kind !== "REPLACE" ? <SlotButtons onInsert={(token) => onInsert("find", token)} /> : null}
               <FormMessage />
             </FormItem>

@@ -198,13 +198,15 @@ function parseLine(line: string): LineResult {
   const position: PositionMark = second !== undefined ? "BOTH" : (suffix.position ?? "TOP");
   const currency = suffix.currency ?? "LAK";
   const hasBottom = position !== "TOP";
-  if (hasBottom && numbers.some((n) => n.length === 3)) return { issue: "THREE_DIGIT_BOTTOM" };
+  // บน+ล่างที่มีเลข 2 ตัวปน (26.66.590=10ບລ) → เลข 3 ตัวลงบนอย่างเดียว · ล่างล้วน หรือมีแต่เลข 3 ตัว = พิมพ์ผิด
+  const threeDigitTopOnly = position === "BOTH" && numbers.some((n) => n.length === 2);
+  if (hasBottom && !threeDigitTopOnly && numbers.some((n) => n.length === 3)) return { issue: "THREE_DIGIT_BOTTOM" };
 
   const stakes = numbers.flatMap((number) => {
     const base = { number, digits: number.length as 2 | 3, currency };
     return [
       ...(position !== "BOTTOM" ? [{ ...base, position: "TOP" as const, typed: first }] : []),
-      ...(hasBottom ? [{ ...base, position: "BOTTOM" as const, typed: second ?? first }] : []),
+      ...(hasBottom && number.length === 2 ? [{ ...base, position: "BOTTOM" as const, typed: second ?? first }] : []),
     ];
   });
   return { stakes };

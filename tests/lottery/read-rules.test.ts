@@ -71,6 +71,15 @@ describe("REPLACE / SKIP", () => {
     expect(run("32/50 ລ", ...rules)).toBe("32=50ລ່າງ");
     expect(run("ໂອນ 32/50", ...rules)).toBeNull();
   });
+
+  test("ช่องค้นหาหลายบรรทัด = หลายแบบ ใช้ผลลัพธ์เดียวกัน · บรรทัดว่างถูกข้าม", () => {
+    expect(run("32x50 72*50", replace("x\n\n  *  ", "="))).toBe("32=50 72=50");
+    expect(run("ໂອນແລ້ວ", skip("ໂອນ\nຈ່າຍແລ້ວ"))).toBeNull();
+    expect(run("ຈ່າຍແລ້ວ", skip("ໂອນ\nຈ່າຍແລ້ວ"))).toBeNull();
+    const both = pattern("ລ {N} x{A}\nລ່າງ {N} = {A}", "{N}={A}ລ່າງ");
+    expect(run("ລ 30 x100", both)).toBe("30=100ລ່າງ");
+    expect(run("ລ່າງ 30 = 100", both)).toBe("30=100ລ່າງ");
+  });
 });
 
 describe("ใช้ร่วมกับตัวแยกข้อความ (parseTicket)", () => {
@@ -125,6 +134,8 @@ describe("readRuleSchema", () => {
     expect(errorOf({ find: "{X}" })).toBe("readRules.validation.unknownSlot");
     expect(errorOf({ replace: "" })).toBe("readRules.validation.replaceRequired");
     expect(errorOf({ replace: "{N}={B}" })).toBe("readRules.validation.slotNotInFind");
-    expect(errorOf({ find: "a\nb" })).toBe("readRules.validation.oneLine");
+    expect(errorOf({ find: "ລ {N} x{A}\nລ 30" })).toBe("readRules.validation.patternNeedsSlot");
+    expect(errorOf({ find: "ລ {N} x{A}\n{N}" })).toBe("readRules.validation.slotNotInFind");
+    expect(errorOf({ replace: "a\nb" })).toBe("readRules.validation.oneLine");
   });
 });

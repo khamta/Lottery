@@ -36,6 +36,7 @@ export const readRulesMessages = defineModuleMessages({
       findPlaceholderSKIP: "เช่น โอนแล้ว",
       findPlaceholderREPLACE: "เช่น /",
       findPlaceholderPATTERN: "เช่น ล {N} x{A}",
+      findLinesHint: "ใส่ได้หลายแบบ บรรทัดละแบบ — ทุกบรรทัดใช้ผลลัพธ์เดียวกัน",
       replace: "เปลี่ยนเป็น",
       replacePlaceholderREPLACE: "เช่น =",
       replacePlaceholderPATTERN: "เช่น {N}={A}ล่าง",
@@ -79,6 +80,7 @@ export const readRulesMessages = defineModuleMessages({
         replaceRequired: "กรุณากรอกรูปแบบที่ต้องการเปลี่ยนเป็น",
         slotNotInFind: "ผลลัพธ์ใช้ได้เฉพาะช่องที่มีในรูปแบบที่ค้นหา",
         tooManyRows: "เพิ่มได้ไม่เกิน 20 ข้อต่อครั้ง",
+        tooManyLines: "ใส่ได้ไม่เกิน 20 บรรทัด",
       },
     },
     auditLogs: {
@@ -119,6 +121,7 @@ export const readRulesMessages = defineModuleMessages({
       findPlaceholderSKIP: "ເຊັ່ນ ໂອນແລ້ວ",
       findPlaceholderREPLACE: "ເຊັ່ນ /",
       findPlaceholderPATTERN: "ເຊັ່ນ ລ {N} x{A}",
+      findLinesHint: "ໃສ່ໄດ້ຫຼາຍແບບ ແຖວລະແບບ — ທຸກແຖວໃຊ້ຜົນລັບດຽວກັນ",
       replace: "ປ່ຽນເປັນ",
       replacePlaceholderREPLACE: "ເຊັ່ນ =",
       replacePlaceholderPATTERN: "ເຊັ່ນ {N}={A}ລ່າງ",
@@ -162,6 +165,7 @@ export const readRulesMessages = defineModuleMessages({
         replaceRequired: "ກະລຸນາປ້ອນຮູບແບບທີ່ຕ້ອງການປ່ຽນເປັນ",
         slotNotInFind: "ຜົນລັບໃຊ້ໄດ້ສະເພາະຊ່ອງທີ່ມີໃນຮູບແບບທີ່ຄົ້ນຫາ",
         tooManyRows: "ເພີ່ມໄດ້ບໍ່ເກີນ 20 ຂໍ້ຕໍ່ຄັ້ງ",
+        tooManyLines: "ໃສ່ໄດ້ບໍ່ເກີນ 20 ແຖວ",
       },
     },
     auditLogs: {
@@ -203,6 +207,7 @@ export const readRulesMessages = defineModuleMessages({
       findPlaceholderSKIP: "e.g. paid",
       findPlaceholderREPLACE: "e.g. /",
       findPlaceholderPATTERN: "e.g. ລ {N} x{A}",
+      findLinesHint: "One variant per line — every line uses the same result",
       replace: "Change to",
       replacePlaceholderREPLACE: "e.g. =",
       replacePlaceholderPATTERN: "e.g. {N}={A}ລ່າງ",
@@ -246,6 +251,7 @@ export const readRulesMessages = defineModuleMessages({
         replaceRequired: "Please enter what to change it to",
         slotNotInFind: "The result can only use slots that are in the find pattern",
         tooManyRows: "You can add up to 20 rules at a time",
+        tooManyLines: "Up to 20 lines",
       },
     },
     auditLogs: {
@@ -283,6 +289,7 @@ export const readRulesMessages = defineModuleMessages({
       findPlaceholderSKIP: "例如 已转账",
       findPlaceholderREPLACE: "例如 /",
       findPlaceholderPATTERN: "例如 ລ {N} x{A}",
+      findLinesHint: "每行一种写法 — 所有行使用相同的结果",
       replace: "改为",
       replacePlaceholderREPLACE: "例如 =",
       replacePlaceholderPATTERN: "例如 {N}={A}ລ່າງ",
@@ -325,6 +332,7 @@ export const readRulesMessages = defineModuleMessages({
         replaceRequired: "请输入要改成的格式",
         slotNotInFind: "结果只能使用查找格式中出现的占位符",
         tooManyRows: "每次最多添加 20 条",
+        tooManyLines: "最多 20 行",
       },
     },
     auditLogs: {

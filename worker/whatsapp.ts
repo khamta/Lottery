@@ -470,7 +470,9 @@ async function start(account: { id: string; name: string; pairingPhone: string |
         }
 
         // ยังไม่เคยจับคู่ แล้ว QR หมดรอบ → หยุดไว้ รอผู้ใช้กด "เชื่อมต่อ" ใหม่ (ไม่ขึ้น QR วนไปเรื่อย ๆ)
-        if (!state.creds.registered && status === DisconnectReason.timedOut) {
+        // ดูจาก creds.me (มีหลังจับคู่สำเร็จทั้ง QR และรหัสจับคู่) — creds.registered ตั้งเฉพาะการจับคู่ด้วยรหัส
+        // และ 408 ยังเป็นรหัสเดียวกับ "เน็ตหลุด" (connectionLost) ที่ต้องต่อใหม่เอง
+        if (!state.creds.me && status === DisconnectReason.timedOut) {
           log(`[${label}] QR หมดอายุ — รอกดเชื่อมต่อใหม่ที่หน้าเว็บ`);
           void report(account.id, {
             status: "DISCONNECTED",

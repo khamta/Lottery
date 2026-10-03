@@ -8,6 +8,7 @@
  *   3. PATTERN  รูปแบบบรรทัด    แปลงบรรทัดทั้งบรรทัดเป็นรูปแบบมาตรฐาน (ใช้เงื่อนไขแรกที่ตรง)
  *                               เช่น "ລ {N} x{A}" → "{N}={A}ລ່າງ" : "ລ 30 70 x100" → "30 70=100ລ່າງ"
  * เงื่อนไขชนิดเดียวกันใช้ตามลำดับที่สร้าง
+ * ช่องค้นหาใส่ได้หลายบรรทัด — แต่ละบรรทัดคือคำ/รูปแบบที่ค้นหาอีกแบบหนึ่ง ใช้ผลลัพธ์เดียวกัน (เช่น ລ / ລາງ → ລ່າງ)
  *
  * ช่องว่างในรูปแบบ = มีหรือไม่มีช่องว่างก็ได้ · ตัวพิมพ์เล็ก/ใหญ่ถือว่าเหมือนกัน
  *   {N}  เลข 2-3 หลัก หนึ่งตัวหรือหลายตัวคั่นด้วย . , - / หรือช่องว่าง   (เขียน {เลข} / {ເລກ} ก็ได้)
@@ -19,8 +20,18 @@
 export const READ_RULE_KINDS = ["SKIP", "REPLACE", "PATTERN"] as const;
 export type ReadRuleKind = (typeof READ_RULE_KINDS)[number];
 
-/** เงื่อนไขหนึ่งข้อ — find = ข้อความ/รูปแบบที่ค้นหา · replace = ผลลัพธ์ (SKIP ไม่ใช้) */
+/** เงื่อนไขหนึ่งข้อ — find = ข้อความ/รูปแบบที่ค้นหา (หลายบรรทัด = หลายแบบ) · replace = ผลลัพธ์ (SKIP ไม่ใช้) */
 export type ReadRuleSpec = { kind: ReadRuleKind; find: string; replace: string };
+
+/** ช่องค้นหา → คำ/รูปแบบทีละบรรทัด (ตัดช่องว่างหัวท้าย ข้ามบรรทัดว่าง) */
+export const findLines = (find: string) =>
+  find
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+/** ช่องค้นหาที่เก็บลงฐานข้อมูล — บรรทัดละแบบ ไม่มีบรรทัดว่าง */
+export const normalizeFind = (find: string) => findLines(find).join("\n");
 
 /** จำนวนเงื่อนไขสูงสุดต่อแม่หวย — ทุกบรรทัดของทุกโพยต้องผ่านเงื่อนไขทั้งหมด */
 export const READ_RULES_MAX = 300;
@@ -108,25 +119,26 @@ type Prepared =
 
 /** เตรียมเงื่อนไขครั้งเดียวใช้กับทุกบรรทัด — เงื่อนไขที่ใช้ไม่ได้ถูกข้ามไป (ไม่ทำให้อ่านโพยพัง) */
 export function prepareReadRules(rules: readonly ReadRuleSpec[]): Prepared[] {
-  const prepared = rules.flatMap((rule): Prepared[] => {
-    const find = rule.find.trim();
-    if (!find) return [];
-    if (rule.kind === "SKIP") {
-      if (!isPattern(find)) {
-        const needle = find.toLowerCase();
-        return [{ kind: "SKIP", test: (line) => line.toLowerCase().includes(needle) }];
-      }
-      const compiled = compilePattern(find);
-      return compiled ? [{ kind: "SKIP", test: (line) => compiled.regex.test(line) }] : [];
-    }
-    if (rule.kind === "REPLACE") {
-      return [{ kind: "REPLACE", find: new RegExp(escape(find), "giu"), replace: rule.replace.replace(/\$/g, "$$$$") }];
-    }
-    const compiled = compilePattern(find);
-    return compiled ? [{ kind: "PATTERN", compiled, replace: rule.replace }] : [];
-  });
+  const prepared = rules.flatMap((rule) => findLines(rule.find).flatMap((find) => prepareOne(rule, find)));
   // ลำดับ: ข้าม → แทนคำ → รูปแบบ (sort คงลำดับเดิมภายในชนิดเดียวกัน)
   return prepared.sort((a, b) => READ_RULE_KINDS.indexOf(a.kind) - READ_RULE_KINDS.indexOf(b.kind));
+}
+
+/** คำ/รูปแบบที่ค้นหาหนึ่งบรรทัดของเงื่อนไข */
+function prepareOne(rule: ReadRuleSpec, find: string): Prepared[] {
+  if (rule.kind === "SKIP") {
+    if (!isPattern(find)) {
+      const needle = find.toLowerCase();
+      return [{ kind: "SKIP", test: (line) => line.toLowerCase().includes(needle) }];
+    }
+    const compiled = compilePattern(find);
+    return compiled ? [{ kind: "SKIP", test: (line) => compiled.regex.test(line) }] : [];
+  }
+  if (rule.kind === "REPLACE") {
+    return [{ kind: "REPLACE", find: new RegExp(escape(find), "giu"), replace: rule.replace.replace(/\$/g, "$$$$") }];
+  }
+  const compiled = compilePattern(find);
+  return compiled ? [{ kind: "PATTERN", compiled, replace: rule.replace }] : [];
 }
 
 /** บรรทัดหนึ่งบรรทัด → บรรทัดที่แปลงแล้ว · null = ข้ามบรรทัดนี้ */
