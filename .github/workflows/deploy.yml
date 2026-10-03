@@ -172,3 +172,10 @@ jobs:
           echo "::error::app did not become healthy"
           docker compose logs --tail 80 app
           exit 1
+
+      # อ่านโพยที่รับไว้แล้วใหม่ด้วยตัวแยกข้อความรุ่นที่เพิ่ง deploy (worker/tickets-reread.ts)
+      # ไม่ทับโพยที่คนยืนยันแล้ว และไม่แตะงวดที่ปิดแล้ว · ล้มเหลวแค่เตือน ไม่ทำให้ deploy ล้ม (แอปขึ้นแล้ว)
+      - name: Re-read tickets
+        working-directory: ${{ env.DEPLOY_PATH }}
+        run: |
+          docker compose exec -T app bun run tickets:reread || echo "::warning::tickets:reread failed — run it by hand: docker compose exec app bun run tickets:reread"

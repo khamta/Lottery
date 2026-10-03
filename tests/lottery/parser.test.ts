@@ -243,6 +243,29 @@ describe("parseTicket — กติกา", () => {
     );
   });
 
+  test("โพยเลขเดี่ยวที่ copy มาจาก WhatsApp (อักขระล่องหน / ขีดนำหน้า / ตัวเต็มความกว้าง) → ยังใช้ยอดเดียวกัน", () => {
+    const numbers = ["919", "959", "999", "911", "951", "991", "914", "954", "994", "909", "949"];
+    const slip = [...numbers, "989=10"];
+    const variants = {
+      // LRM / RLM / bidi isolate ที่ WhatsApp Web/Desktop แทรกหน้า-หลังแต่ละบรรทัด
+      lrm: slip.map((l) => `‎${l}`).join("\n"),
+      rlm: slip.map((l) => `${l}‏`).join("\n"),
+      isolate: slip.map((l) => `⁦${l}⁩`).join("\n"),
+      firstOnly: `‎${slip.join("\n")}`,
+      dash: [...numbers, "- 989=10"].join("\n"),
+      dot: [...numbers, ".989=10"].join("\n"),
+      fullWidthEquals: [...numbers, "989＝10"].join("\n"),
+      fullWidthDigits: slip.join("\n").replace(/\d/g, (d) => String.fromCharCode(0xff10 + Number(d))),
+    };
+    for (const [name, text] of Object.entries(variants)) {
+      const ticket = parseTicket(text);
+      expect({ name, issues: ticket.issues }).toEqual({ name, issues: [] });
+      expect(ticket.bets.map((b) => b.number)).toEqual([...numbers, "989"]);
+      expect(ticket.bets.every((b) => b.position === "TOP" && b.amount === 10_000)).toBe(true);
+      expect(ticket.typedTotal).toBe(120);
+    }
+  });
+
   test("เลขเดี่ยวไม่มียอดที่ไม่ได้ตามด้วยเลขเดี่ยวที่มียอด ยังรอตรวจ", () => {
     const codes = (text: string) => parseTicket(text).issues.map((i) => i.code);
     expect(codes("919\n32 72=10")).toEqual(["NO_AMOUNT"]);

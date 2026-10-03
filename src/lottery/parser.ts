@@ -138,14 +138,21 @@ const TAKE_BOTH = /(?:ເອົາ|เอา)?\s*(?:ທັງ|ທັ້ງ|ท�
 const SHARED_AMOUNT_LINE = /^(?:[=;:]|ໂຕ|ຕົວ|ตัว|โต)\s*(\d.*)$/u;
 /** ປ່ອງ3 / ຮູ3 = ยอดเลขละ 3 ของทุกเลขที่ไม่มียอดในบรรทัดติดกันด้านบน */
 const EACH_AMOUNT_LINE = /^(?:ປ່ອງ|ປອງ|ป่อง|ຮູ|รู)\s*(\d.*)$/u;
-/** zero-width space / joiner (U+200B–U+200D) และ BOM (U+FEFF) */
-const INVISIBLE = new RegExp(`[${String.fromCharCode(0x200b)}-${String.fromCharCode(0x200d)}${String.fromCharCode(0xfeff)}]`, "g");
+/**
+ * อักขระควบคุมที่มองไม่เห็น (Unicode Cf): zero-width space / joiner, BOM, soft hyphen และเครื่องหมายทิศทาง
+ * (LRM/RLM U+200E–U+200F, U+202A–U+202E, U+2066–U+2069) ที่ WhatsApp Web/Desktop แทรกมาตอน copy —
+ * ไม่ใช่ \s จึงติดอยู่กับเลขแล้วทำให้ทั้งบรรทัดอ่านไม่ออก (สระ/วรรณยุกต์ไทย-ลาวเป็น Mn ไม่โดนตัด)
+ */
+const INVISIBLE = /\p{Cf}/gu;
+/** ตัวเลข/เครื่องหมายเต็มความกว้าง (０-９ ＝ ＊ …) จากคีย์บอร์ดจีน/ญี่ปุ่น → ASCII */
+const FULL_WIDTH = /[！-～]/g;
 
 /** เลขลาว (໐-໙) / เลขไทย (๐-๙) → 0-9 และตัดอักขระล่องหนที่ติดมากับการ copy */
 function normalize(text: string) {
   return text
     .normalize("NFC")
     .replace(INVISIBLE, "")
+    .replace(FULL_WIDTH, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
     .replace(/[໐-໙]/g, (d) => String(d.charCodeAt(0) - 0x0ed0))
     .replace(/[๐-๙]/g, (d) => String(d.charCodeAt(0) - 0x0e50))
     .trim();
@@ -422,11 +429,13 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
     }
     groups = [];
     // บรรทัดนี้เป็นเลขเดี่ยวที่มียอด → เลขเดี่ยวที่รออยู่ด้านบนใช้ยอดเดียวกัน (อ่านส่วนท้ายซ้ำด้วยเลขของบรรทัดนั้น)
-    const lead = text.match(/^\d{2,3}(?!\d)/)?.[0];
+    // ข้ามขีด/จุด/bullet หน้าเลขด้วย ("- 989=10" / ".989=10")
+    const leadMatch = text.match(/^[\s\-–•*.·]*(\d{2,3})(?!\d)/);
+    const lead = leadMatch?.[1];
     const singles = waiting.every((wait) => wait.numbers.length === 1);
     if (!hundreds && lead && singles && result.stakes.every((stake) => stake.number === lead)) {
       for (const wait of waiting) {
-        const same = parseLine(wait.numbers[0] + text.slice(lead.length));
+        const same = parseLine(wait.numbers[0] + text.slice(leadMatch![0].length));
         if ("issue" in same) continue;
         dropIssues([wait.issue]);
         addStakes(same.stakes, () => wait.line);

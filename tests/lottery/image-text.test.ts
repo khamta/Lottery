@@ -106,6 +106,24 @@ describe("imageToTicketText — ลายมือ", () => {
     expect(text).toBe("26=5\n66=5\n515=5");
   });
 
+  test("ยอดที่ OCR แยกเป็นกล่อง \"=10\" → จับคู่กับเลขทางซ้าย และเลขเดี่ยวด้านบนใช้ยอดเดียวกัน", () => {
+    const numbers = ["919", "959", "999", "911", "951", "991", "914", "954", "994", "909", "949"];
+    const text = imageToTicketText({
+      paddle: [
+        ...numbers.map((n, i) => box(n, 0, i * 50, 90, i * 50 + 40)),
+        box("989", 0, 550, 90, 590),
+        box("=10", 100, 550, 170, 590),
+      ],
+      tesseract: [],
+    });
+
+    expect(text).toBe([...numbers, "989=10"].join("\n"));
+    const ticket = parseTicket(text);
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets).toHaveLength(12);
+    expect(ticket.typedTotal).toBe(120);
+  });
+
   test("ยอดที่ OCR อ่านเครื่องหมายคูณเป็น 0 (50050) → 50*50", () => {
     const text = imageToTicketText({ paddle: [box("32.50050", 0, 0, 200, 40)], tesseract: [] });
 
