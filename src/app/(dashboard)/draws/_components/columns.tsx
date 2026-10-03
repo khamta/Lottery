@@ -62,7 +62,14 @@ export function getDrawColumns({ t, intl, onEdit, onSetStatus, onDelete }: Colum
       header: t("draws.drawDate"),
       enableSorting: true,
       cell: ({ row }) => (
-        <span className="whitespace-nowrap">{formatDate(row.original.drawDate, intl, "date")}</span>
+        <div className="whitespace-nowrap">
+          <p>{formatDate(row.original.drawDate, intl, "date")}</p>
+          {row.original.closeTime ? (
+            <p className="text-xs text-muted-foreground tabular-nums">
+              {t("draws.closeAt", { time: row.original.closeTime })}
+            </p>
+          ) : null}
+        </div>
       ),
     },
     {

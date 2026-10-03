@@ -25,13 +25,14 @@ function submit() {
 }
 
 describe("<DrawDialog /> (เปิดงวดใหม่ / แก้งวด)", () => {
-  test("เปิดงวดใหม่ด้วยค่าตั้งต้น → บันทึกได้", async () => {
-    const onSubmit = mock(() => {});
-    render(<DrawDialog open onOpenChange={() => {}} draw={null} onSubmit={onSubmit} />);
+  test("เปิดงวดใหม่ด้วยค่าตั้งต้น (เวลาออกผลตามงวดล่าสุดของประเภทนั้น) → บันทึกได้", async () => {
+    const onSubmit = mock((_values: unknown) => {});
+    render(<DrawDialog open onOpenChange={() => {}} draw={null} closeTimes={{ LAO: "20:30" }} onSubmit={onSubmit} />);
 
     submit();
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({ lottery: "LAO", closeTime: "20:30" });
   });
 
   test("แก้งวดแล้วกรอกเลขที่ออกครบ → บันทึกได้", async () => {
@@ -40,10 +41,12 @@ describe("<DrawDialog /> (เปิดงวดใหม่ / แก้งวด
       <DrawDialog
         open
         onOpenChange={() => {}}
+        closeTimes={{}}
         draw={{
           id: "draw-1",
           name: "ງວດ 01/10/2026",
           lottery: "LAO",
+          closeTime: null,
           drawDate: "2026-10-01",
           status: "OPEN",
           topResult: null,

@@ -19,7 +19,15 @@ import {
 type Row = Record<string, unknown>;
 
 const state = {
-  draws: [] as Array<{ id: string; dealerId: string; status: string; drawDate: Date; createdAt: Date; lottery?: string }>,
+  draws: [] as Array<{
+    id: string;
+    dealerId: string;
+    status: string;
+    drawDate: Date;
+    createdAt: Date;
+    lottery?: string;
+    closesAt?: Date | null;
+  }>,
   customers: [] as Array<{ id: string; dealerId: string; phone: string; lakMultiplier: number }>,
   tickets: new Map<string, Row>(),
   bets: [] as Row[],
@@ -51,11 +59,18 @@ const tx = {
   },
   draw: {
     // งวดที่เปิดรับล่าสุดของแม่หวย
-    findFirst: async ({ where }: { where: { dealerId: string; status: string; lottery: string } }) =>
+    findFirst: async ({
+      where,
+    }: {
+      where: { dealerId: string; status: string; lottery: string; OR: [unknown, { closesAt: { gt: Date } }] };
+    }) =>
       state.draws
         .filter(
           (draw) =>
-            draw.dealerId === where.dealerId && draw.status === where.status && (draw.lottery ?? "LAO") === where.lottery,
+            draw.dealerId === where.dealerId &&
+            draw.status === where.status &&
+            (draw.lottery ?? "LAO") === where.lottery &&
+            (!draw.closesAt || draw.closesAt > where.OR[1].closesAt.gt),
         )
         .sort((a, b) => +b.drawDate - +a.drawDate)[0] ?? null,
   },
@@ -293,6 +308,24 @@ describe("หวยเวียดนาม — วันเดียวเป�
     await ingestMessage(db, message("wa-lao", "12=100"));
 
     expect([...state.tickets.values()].map((ticket) => ticket.drawId)).toEqual(["draw-v3", "draw-v4", "draw-1"]);
+  });
+
+  test("ข้อความที่ส่งหลังเวลาออกผล = ไม่นำเข้า แม้สถานะยังไม่ถูกปิด · ส่งก่อนเวลา (ค้างส่ง) ยังนำเข้าได้", async () => {
+    state.draws.push({
+      id: "draw-v3",
+      dealerId: "dealer-1",
+      status: "OPEN",
+      drawDate: new Date("2026-09-30"),
+      createdAt: DRAW_OPENED_AT,
+      lottery: "V3",
+      closesAt: new Date("2026-09-30T11:30:00Z"),
+    });
+
+    const late = await ingestMessage(db, message("wa-late", "32=300", { lottery: "V3", sentAt: new Date("2026-09-30T11:31:00Z") }));
+    expect(late).toMatchObject({ action: "skipped", reason: "no-open-draw" });
+
+    await ingestMessage(db, message("wa-early", "32=300", { lottery: "V3", sentAt: new Date("2026-09-30T11:29:00Z"), offline: true }));
+    expect([...state.tickets.values()].map((ticket) => ticket.drawId)).toEqual(["draw-v3"]);
   });
 
   test("ไม่มีงวดเปิดของประเภทนั้น = ไม่นำเข้า (ไม่ไปลงงวดของหวยอื่น)", async () => {

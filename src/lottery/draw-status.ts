@@ -15,3 +15,8 @@ export function nextDrawStatus(
   if (!current) return "OPEN";
   return current === "OPEN" ? "OPEN" : "CLOSED";
 }
+
+/** งวดยังรับโพยอยู่ไหม: เปิดรับ และยังไม่ถึงเวลาออกผล (ระบบปิดสถานะให้ตามมา — ดู draw-close.ts) */
+export function acceptsTickets(draw: { status: DrawStatusValue; closesAt: Date | null }, at: Date = new Date()) {
+  return draw.status === "OPEN" && (!draw.closesAt || draw.closesAt > at);
+}

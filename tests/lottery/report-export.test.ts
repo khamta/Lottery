@@ -210,6 +210,7 @@ describe("ใบสรุปส่งแม่ (layout=sheet)", () => {
     exportedAt: new Date("2026-10-03T12:00:00Z"),
     percents: { left: 15, right: 30 },
     outstanding: { lak: 0, thb: 0 },
+    bills: [],
     ...overrides,
   });
   const line = (lines: SheetLine[], label: string) => lines.find((item) => item.label === label)!;
@@ -250,9 +251,29 @@ describe("ใบสรุปส่งแม่ (layout=sheet)", () => {
     expect(sheet.result[2]).toMatchObject({ lak: 112_669, thb: 34_059 });
     expect(sheet.result[4]).toMatchObject({ lak: 113_669, thb: 34_000 });
     expect(sheet.meta[0]).toContain("V3 ງວດ 03/10/2026");
-    // ตารางล่างรวมเลข 2 ตัวของทุกงวดในวัน
-    expect(sheet.rows[12]).toEqual(["12", 258_790, 124_856]);
     expect(sheet.tableHeader).toEqual(["ລ/ດ", "ກີບ", "ບາດ"]);
+  });
+
+  test("ตารางล่าง: ยอดรายบิลเรียงต่อกันไม่เว้นแถว ลำดับเริ่ม 01 · บิลที่มีทั้งกีบและบาทได้สองแถว · บิลยอด 0 ไม่แสดง", () => {
+    const sheet = buildSettlementSheet(
+      sheetInput({
+        bills: [
+          { lak: 400_000, thb: 0 },
+          { lak: 0, thb: 1_800 },
+          { lak: 3_000, thb: 160 },
+          { lak: 0, thb: 0 },
+          { lak: 200_000, thb: 0 },
+        ],
+      }),
+    );
+    expect(sheet.rows).toEqual([
+      ["01", 400_000, 0],
+      ["02", 0, 1_800],
+      ["03", 3_000, 0],
+      ["04", 0, 160],
+      ["05", 200_000, 0],
+    ]);
+    expect(sheet.tableTotal).toEqual(["ລວມ", 603_000, 1_960]);
   });
 
   test("อัตราจ่ายของงวด (ถ้าตั้งไว้) คูณยอดถูก", () => {
@@ -290,7 +311,7 @@ describe("ใบสรุปส่งแม่ (layout=sheet)", () => {
     expect(ws.getCell(send, 1).font.name).toBe("Phetsarath OT");
     expect(ws.getCell(send, 2).font.name).toBe("Times New Roman");
     expect(ws.getCell(find(5, "LAO"), 5).font.name).toBe("Times New Roman");
-    expect(ws.getCell(find(1, "72"), 2).value).toBeNull();
+
     // ช่องที่มีทั้งตัวลาวและตัวเลข → rich text แยกฟอนต์ตามช่วง
     const title = ws.getCell(1, 1).value as { richText: { text: string; font: { name: string } }[] };
     expect(title.richText.find((run) => run.text.includes("2026"))!.font.name).toBe("Times New Roman");

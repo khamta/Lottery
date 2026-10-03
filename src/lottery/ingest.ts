@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 
 import { logAudit } from "@/lib/audit";
 import { nextBillNo } from "./bill";
+import { acceptsTickets } from "./draw-status";
 import type { LotteryTypeValue } from "./labels";
 import { imageToTicketText, transcribeImage, type OcrResult } from "./image-text";
 import { DEFAULT_LAK_MULTIPLIER, parseTicket } from "./parser";
@@ -166,7 +167,13 @@ function unreadable(text: string, lakMultiplier: number): Read {
 /** งวดที่จะลงโพย + ลูกค้าที่ตรงกับเบอร์คนส่ง (ของแม่หวยเดียวกัน) — คืนเหตุผลเมื่อไม่ควรนำเข้า */
 async function findTarget(tx: Tx, message: MessageMeta) {
   const draw = await tx.draw.findFirst({
-    where: { dealerId: message.dealerId, status: "OPEN", lottery: message.lottery ?? "LAO" },
+    where: {
+      dealerId: message.dealerId,
+      status: "OPEN",
+      lottery: message.lottery ?? "LAO",
+      // ยังไม่ถึงเวลาออกผล ณ เวลาที่ส่งข้อความ (บอทปิดสถานะให้ตามมาไม่กี่วินาที)
+      OR: [{ closesAt: null }, { closesAt: { gt: message.sentAt ?? new Date() } }],
+    },
     orderBy: [{ drawDate: "desc" }, { createdAt: "desc" }],
     select: { id: true, createdAt: true },
   });
@@ -224,13 +231,13 @@ export async function ingestMessage(db: PrismaClient, message: IncomingMessage):
   const result = await db.$transaction(async (tx): Promise<IngestResult | null> => {
     const existing = await tx.ticket.findUnique({
       where: { waMessageId: message.id },
-      include: { draw: { select: { status: true } } },
+      include: { draw: { select: { status: true, closesAt: true } } },
     });
 
     if (existing) {
       const { draw, ...before } = existing;
       if (!isPlaceholder(before)) return { action: "skipped", reason: "duplicate" };
-      if (draw.status !== "OPEN") return { action: "skipped", reason: "draw-closed" };
+      if (!acceptsTickets(draw)) return { action: "skipped", reason: "draw-closed" };
 
       // ข้อความจริงของโพยที่เคยถอดรหัสไม่ได้มาถึงแล้ว
       if (!isTicket) {
@@ -305,13 +312,13 @@ export async function ingestImage(db: PrismaClient, message: IncomingImage): Pro
     const imageData = { mimeType: message.image.mimeType, path: message.image.path };
     const existing = await tx.ticket.findUnique({
       where: { waMessageId: message.id },
-      include: { draw: { select: { status: true } }, image: { select: { id: true } } },
+      include: { draw: { select: { status: true, closesAt: true } }, image: { select: { id: true } } },
     });
 
     if (existing) {
       const { draw, image, ...before } = existing;
       if (!isPlaceholder(before, !!image)) return { action: "skipped", reason: "duplicate" };
-      if (draw.status !== "OPEN") return { action: "skipped", reason: "draw-closed" };
+      if (!acceptsTickets(draw)) return { action: "skipped", reason: "draw-closed" };
 
       // ข้อความที่เคยถอดรหัสไม่ได้ จริง ๆ แล้วเป็นรูป
       const read = readImageTicketText(message.caption, { lakMultiplier: before.lakMultiplier, rules });
@@ -351,7 +358,7 @@ export async function applyOcr(db: PrismaClient, ticketId: string, outcome: OcrO
   return db.$transaction(async (tx) => {
     const existing = await tx.ticket.findUnique({
       where: { id: ticketId },
-      include: { draw: { select: { status: true, dealerId: true } }, image: { select: { ocrStatus: true } } },
+      include: { draw: { select: { status: true, closesAt: true, dealerId: true } }, image: { select: { ocrStatus: true } } },
     });
     if (!existing?.image) return { action: "skipped", reason: "unknown-message" };
     const { draw, image, ...before } = existing;
@@ -419,7 +426,7 @@ export async function reapplyOcr(db: PrismaClient, ticketId: string): Promise<In
     const existing = await tx.ticket.findUnique({
       where: { id: ticketId },
       include: {
-        draw: { select: { status: true, dealerId: true } },
+        draw: { select: { status: true, closesAt: true, dealerId: true } },
         image: { select: { ocrStatus: true, ocr: true, ocrText: true } },
       },
     });
@@ -429,7 +436,7 @@ export async function reapplyOcr(db: PrismaClient, ticketId: string): Promise<In
     const ocrText = imageToTicketText(ocr);
 
     await tx.ticketImage.update({ where: { ticketId }, data: { transcript: transcribeImage(ocr) } });
-    if (draw.status !== "OPEN") return { action: "skipped", reason: "draw-closed" };
+    if (!acceptsTickets(draw)) return { action: "skipped", reason: "draw-closed" };
 
     const byUser = await tx.auditLog.findFirst({
       where: { entity: "Ticket", entityId: ticketId, userId: { not: null } },
@@ -508,11 +515,11 @@ export async function editMessage(db: PrismaClient, waMessageId: string, text: s
   return db.$transaction(async (tx) => {
     const existing = await tx.ticket.findUnique({
       where: { waMessageId },
-      include: { draw: { select: { status: true, dealerId: true } } },
+      include: { draw: { select: { status: true, closesAt: true, dealerId: true } } },
     });
     if (!existing) return { action: "skipped", reason: "unknown-message" };
     const { draw, ...before } = existing;
-    if (draw.status !== "OPEN") return { action: "skipped", reason: "draw-closed" };
+    if (!acceptsTickets(draw)) return { action: "skipped", reason: "draw-closed" };
 
     // แก้จนไม่เหลือรายการแทง → เก็บเป็นโพยรอตรวจให้คนตัดสินใจ ไม่ลบเอง
     const options = { lakMultiplier: before.lakMultiplier, rules: await rulesOf(tx, draw.dealerId) };
@@ -537,11 +544,11 @@ export async function revokeMessage(db: PrismaClient, waMessageId: string): Prom
   return db.$transaction(async (tx) => {
     const existing = await tx.ticket.findUnique({
       where: { waMessageId },
-      include: { draw: { select: { status: true } } },
+      include: { draw: { select: { status: true, closesAt: true } } },
     });
     if (!existing) return { action: "skipped", reason: "unknown-message" };
     const { draw, ...before } = existing;
-    if (draw.status !== "OPEN") return { action: "skipped", reason: "draw-closed" };
+    if (!acceptsTickets(draw)) return { action: "skipped", reason: "draw-closed" };
 
     // รายการแทงของโพยถูกลบตาม (onDelete: Cascade)
     await tx.ticket.delete({ where: { id: before.id } });

@@ -13,6 +13,8 @@ import { DEFAULT_PERCENTS, isReportView, toAmount, toPercent, toTopOption, viewK
 
 /** งวดสูงสุดในใบสรุปหนึ่งวัน (หวย 9 ประเภท เผื่อเปิดซ้ำ) */
 const SHEET_DRAWS_MAX = 50;
+/** บิลสูงสุดในตารางล่างของใบสรุปหนึ่งวัน */
+const SHEET_BILLS_MAX = 5000;
 
 const CONTENT_TYPE = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -113,6 +115,13 @@ export async function GET(request: Request) {
         stakes: await getDrawStakes(item.id),
       })),
     );
+    // ยอดของแต่ละบิลที่นับยอดแล้ว ของทุกงวดในวันนั้น เรียงตามเวลา (ตารางล่างของใบ)
+    const bills = await prisma.ticket.findMany({
+      where: { drawId: { in: dayDraws.map((item) => item.id) }, status: "CONFIRMED" },
+      orderBy: [{ createdAt: "asc" }, { billNo: "asc" }],
+      take: SHEET_BILLS_MAX,
+      select: { totalLak: true, totalThb: true },
+    });
     const content = buildSettlementSheet({
       t,
       intl,
@@ -124,6 +133,7 @@ export async function GET(request: Request) {
         right: toPercent(url.searchParams.get("pr"), DEFAULT_PERCENTS.right),
       },
       outstanding: { lak: toAmount(url.searchParams.get("owLak")), thb: toAmount(url.searchParams.get("owThb")) },
+      bills: bills.map((bill) => ({ lak: Number(bill.totalLak), thb: Number(bill.totalThb) })),
     });
     const options = { intl, exportedAt, sheetName: t("reports.sheetTitle"), pageLabel };
     file = format === "xlsx" ? await sheetToXlsx(content, options) : await sheetToPdf(content, options);

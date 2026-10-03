@@ -247,6 +247,9 @@ model Draw {
   /// ประเภทหวยของงวด — วันเดียวมีได้หลายงวด (เช่น V3, V4 … LAO) · ข้อความ WhatsApp ลงงวดที่เปิดรับของประเภทเดียวกับกลุ่ม
   lottery  LotteryType @default(LAO)
 
+  /// เวลาออกผล (null = ไม่ปิดเอง) — เลยเวลานี้ระบบปิดรับโพยให้เอง (src/lottery/draw-close.ts)
+  closesAt DateTime?
+
   /// เลข 3 ตัวบนที่ออก — 2 ตัวบน = 2 หลักท้ายของเลขนี้
   topResult    String?
   /// เลข 2 ตัวล่างที่ออก
@@ -266,6 +269,7 @@ model Draw {
   @@unique([dealerId, name])
   @@index([dealerId, status, drawDate])
   @@index([dealerId, lottery, status])
+  @@index([status, closesAt])
   @@map("draws")
 }
 

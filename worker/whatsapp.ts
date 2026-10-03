@@ -60,6 +60,7 @@ import {
   type IngestResult,
   type MessageSender,
 } from "@/lottery/ingest";
+import { closeExpiredDraws } from "@/lottery/draw-close";
 import { enqueueOcr, resumeOcr } from "./ocr";
 
 const AUTH_ROOT = resolve(process.env.WA_AUTH_DIR || ".wa-auth");
@@ -613,6 +614,10 @@ async function tick() {
     const groups = await loadGroupMap([...sessions.keys()]);
     for (const session of sessions.values()) session.groups = groups.get(session.id) ?? new Map();
   }
+
+  // งวดที่เลยเวลาออกผล → ปิดรับให้เอง (ทุกแม่หวย)
+  const closed = await closeExpiredDraws(prisma);
+  if (closed > 0) log(`ปิดรับงวดที่เลยเวลาออกผลแล้ว ${closed} งวด`);
 
   // บอกหน้าเว็บว่าบอทยังทำงานอยู่ (SQL ตรง เพื่อไม่ให้ updatedAt ขยับทุกรอบ)
   await prisma.$executeRaw`UPDATE "whatsapp_accounts" SET "seenAt" = NOW()`;

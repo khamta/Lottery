@@ -283,12 +283,14 @@ export type SettlementExportInput = {
   percents: { left: number; right: number };
   /** ยอดค้าง (ผู้ใช้กรอกเองตอนส่งออก) */
   outstanding: MoneyPair;
+  /** ยอดของแต่ละบิล (ที่นับยอดแล้ว) ของทุกงวดในวันนั้น เรียงตามเวลา — ตารางล่าง */
+  bills: MoneyPair[];
 };
 
-/** ใบสรุปส่งแม่ของทั้งวัน: สองกล่องตามประเภทหวย → ถูก 2 ตัว / 3 ตัว → เหลือ → ค้าง → ส่งแม่ + ตารางเลข 00–99 */
+/** ใบสรุปส่งแม่ของทั้งวัน: สองกล่องตามประเภทหวย → ถูก 2 ตัว / 3 ตัว → เหลือ → ค้าง → ส่งแม่ + ตารางยอดรายบิล */
 export function buildSettlementSheet(input: SettlementExportInput): SheetExport {
   const { t, intl } = input;
-  const s = buildSettlement(input.draws, input.percents, input.outstanding);
+  const s = buildSettlement(input.draws, input.percents, input.outstanding, input.bills);
   const percent = (value: number) => `${formatNumber(value, intl)}%`;
 
   const box = (part: Settlement["left"]): SheetLine[] => [
@@ -319,6 +321,6 @@ export function buildSettlementSheet(input: SettlementExportInput): SheetExport 
     ],
     tableHeader: [t("reports.sheetSeq"), t("lottery.currencyLAK"), t("lottery.currencyTHB")],
     tableTotal: [t("reports.sheetTotal"), s.rowsTotal.lak, s.rowsTotal.thb],
-    rows: s.rows.map((row) => [row.number, row.lak, row.thb]),
+    rows: s.rows.map((row) => [row.seq, row.lak, row.thb]),
   };
 }

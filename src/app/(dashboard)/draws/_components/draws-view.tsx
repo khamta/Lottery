@@ -12,11 +12,11 @@ import type { DrawInput } from "@/lib/validations/draw";
 import type { Paginated } from "@/types";
 import { nextDrawStatus } from "@/lottery/draw-status";
 import { createDraw, deleteDraw, setDrawStatus, updateDraw } from "../actions";
-import type { DrawRow } from "../types";
+import type { CloseTimes, DrawRow } from "../types";
 import { getDrawColumns } from "./columns";
 import { DrawDialog } from "./draw-dialog";
 
-export function DrawsView({ page }: { page: Paginated<DrawRow> }) {
+export function DrawsView({ page, closeTimes }: { page: Paginated<DrawRow>; closeTimes: CloseTimes }) {
   const { t, intl } = useI18n();
   const { rows, isPending, mutate, tempId } = useOptimisticList(page.rows);
 
@@ -50,6 +50,7 @@ export function DrawsView({ page }: { page: Paginated<DrawRow> }) {
       name: values.name,
       lottery: values.lottery,
       drawDate: values.drawDate,
+      closeTime: values.closeTime || null,
       ...results,
       updatedAt: new Date().toISOString(),
     };
@@ -108,6 +109,7 @@ export function DrawsView({ page }: { page: Paginated<DrawRow> }) {
         open={formOpen}
         onOpenChange={setFormOpen}
         draw={editing}
+        closeTimes={closeTimes}
         onSubmit={handleSave}
       />
 

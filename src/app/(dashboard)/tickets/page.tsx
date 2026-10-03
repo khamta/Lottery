@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { prisma } from "@/lib/prisma";
+import { closeExpiredDraws } from "@/lottery/draw-close";
 import { buildOrderBy, paginate, parseListParams } from "@/lib/query";
 import { LiveRefresh } from "@/components/shared/live-refresh";
 import { PageHeader } from "@/components/shared/page-header";
@@ -26,6 +27,8 @@ export default async function TicketsPage({ searchParams }: PageProps) {
   const { t } = await getTranslations();
   const { dealers, current } = await getDealerContext();
   if (!current) return <NoDealer title={t("tickets.title")} description={t("tickets.subtitle")} />;
+  // งวดที่เลยเวลาออกผลแล้วปิดรับก่อนแสดง (เผื่อบอทไม่ได้ทำงานอยู่)
+  await closeExpiredDraws(prisma, { dealerId: current.id });
 
   const raw = await searchParams;
   const params = parseListParams(raw, {

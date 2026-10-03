@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Banknote, ClipboardCheck, Coins, ReceiptText, TriangleAlert } from "lucide-react";
 
 import { prisma } from "@/lib/prisma";
+import { closeExpiredDraws } from "@/lottery/draw-close";
 import { requireUser } from "@/lib/auth";
 import { HEARTBEAT_MS, onlineSince } from "@/lib/presence";
 import { toRoute } from "@/lib/query";
@@ -38,6 +39,8 @@ export default async function DashboardPage() {
   const { dealers, current } = await getDealerContext();
   const onlineWhere = { lastSeenAt: { gte: onlineSince() }, isActive: true };
   const dealerId = current?.id ?? "";
+  // งวดที่เลยเวลาออกผลแล้วปิดรับก่อนแสดง (เผื่อบอทไม่ได้ทำงานอยู่)
+  if (current) await closeExpiredDraws(prisma, { dealerId });
 
   const [openDraw, latestDraw, onlineUsers, onlineTotal] = await Promise.all([
     prisma.draw.findFirst({

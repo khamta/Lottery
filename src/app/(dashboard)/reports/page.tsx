@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Banknote, Coins, HandCoins, ReceiptText, TriangleAlert } from "lucide-react";
 
 import { prisma } from "@/lib/prisma";
+import { closeExpiredDraws } from "@/lottery/draw-close";
 import { buildQueryString, toRoute } from "@/lib/query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,6 +52,8 @@ export default async function ReportsPage({ searchParams }: PageProps) {
   const { t, intl } = await getTranslations();
   const { dealers, current } = await getDealerContext();
   if (!current) return <NoDealer title={t("reports.title")} description={t("reports.subtitle")} />;
+  // งวดที่เลยเวลาออกผลแล้วปิดรับก่อนแสดง (เผื่อบอทไม่ได้ทำงานอยู่)
+  await closeExpiredDraws(prisma, { dealerId: current.id });
 
   const raw = await searchParams;
   const switcher = <DealerSwitcher dealers={dealers} currentId={current.id} />;

@@ -7,6 +7,10 @@ export const drawsMessages = defineModuleMessages({
       draws: "งวด",
     },
     draws: {
+      closeTime: "เวลาออกผล",
+      closeTimeHint: "ถึงเวลานี้ (เวลาลาว) ระบบปิดรับโพยให้เอง · เว้นว่าง = ไม่ปิดเอง",
+      closeAt: "ออกผล {time}",
+      closeTimePassed: "เลยเวลาออกผลแล้ว — แก้เวลาออกผลก่อนเปิดรับอีกครั้ง",
       lotteryHint: "หวยเวียดนาม (V3–V9) วันเดียวออกหลายรอบ — เปิดงวดแยกต่อรอบ · โพยจาก WhatsApp ลงงวดที่เปิดรับของประเภทเดียวกับกลุ่ม",
       title: "งวดหวย",
       subtitle: "เปิด/ปิดรับงวด และกรอกเลขที่ออก",
@@ -43,6 +47,7 @@ export const drawsMessages = defineModuleMessages({
       statusChanged: "เปลี่ยนสถานะงวดแล้ว",
       alreadySettled: "งวดนี้ออกผลแล้ว — ลบเลขที่ออกก่อนจึงจะเปลี่ยนสถานะได้",
       validation: {
+        closeTime: "เวลาไม่ถูกต้อง (ชั่วโมง:นาที)",
         nameMin: "ชื่องวดอย่างน้อย 2 ตัวอักษร",
         dateInvalid: "กรุณาเลือกวันที่ออก",
         topResult: "เลข 3 ตัวบนต้องเป็นตัวเลข 3 หลัก",
@@ -59,6 +64,10 @@ export const drawsMessages = defineModuleMessages({
       draws: "ງວດ",
     },
     draws: {
+      closeTime: "ເວລາອອກຜົນ",
+      closeTimeHint: "ຮອດເວລານີ້ (ເວລາລາວ) ລະບົບປິດຮັບໂພຍໃຫ້ເອງ · ປ່ອຍຫວ່າງ = ບໍ່ປິດເອງ",
+      closeAt: "ອອກຜົນ {time}",
+      closeTimePassed: "ເລີຍເວລາອອກຜົນແລ້ວ — ແກ້ເວລາອອກຜົນກ່ອນເປີດຮັບອີກຄັ້ງ",
       lotteryHint: "ຫວຍຫວຽດນາມ (V3–V9) ມື້ດຽວອອກຫຼາຍຮອບ — ເປີດງວດແຍກຕໍ່ຮອບ · ໂພຍຈາກ WhatsApp ລົງງວດທີ່ເປີດຮັບຂອງປະເພດດຽວກັບກຸ່ມ",
       title: "ງວດຫວຍ",
       subtitle: "ເປີດ/ປິດຮັບງວດ ແລະ ປ້ອນເລກທີ່ອອກ",
@@ -95,6 +104,7 @@ export const drawsMessages = defineModuleMessages({
       statusChanged: "ປ່ຽນສະຖານະງວດແລ້ວ",
       alreadySettled: "ງວດນີ້ອອກຜົນແລ້ວ — ລຶບເລກທີ່ອອກກ່ອນຈຶ່ງປ່ຽນສະຖານະໄດ້",
       validation: {
+        closeTime: "ເວລາບໍ່ຖືກຕ້ອງ (ຊົ່ວໂມງ:ນາທີ)",
         nameMin: "ຊື່ງວດຢ່າງໜ້ອຍ 2 ຕົວອັກສອນ",
         dateInvalid: "ກະລຸນາເລືອກວັນທີອອກ",
         topResult: "ເລກ 3 ໂຕບົນຕ້ອງເປັນຕົວເລກ 3 ຫຼັກ",
@@ -111,6 +121,10 @@ export const drawsMessages = defineModuleMessages({
       draws: "Draws",
     },
     draws: {
+      closeTime: "Result time",
+      closeTimeHint: "At this time (Lao time) the draw stops taking tickets automatically · leave empty = never",
+      closeAt: "Result {time}",
+      closeTimePassed: "The result time has passed — change it before reopening",
       lotteryHint: "Vietnam lottery (V3–V9) draws several times a day — open one draw per round · WhatsApp tickets go to the open draw of the group's lottery type",
       title: "Draws",
       subtitle: "Open and close draws and enter the winning numbers",
@@ -147,6 +161,7 @@ export const drawsMessages = defineModuleMessages({
       statusChanged: "Draw status changed",
       alreadySettled: "This draw is settled — clear the winning numbers before changing its status",
       validation: {
+        closeTime: "Invalid time (hours:minutes)",
         nameMin: "Draw name must be at least 2 characters",
         dateInvalid: "Please choose the draw date",
         topResult: "3-digit top must be exactly 3 digits",
@@ -163,6 +178,10 @@ export const drawsMessages = defineModuleMessages({
       draws: "期次",
     },
     draws: {
+      closeTime: "开奖时间",
+      closeTimeHint: "到此时间（老挝时间）系统自动停止收单 · 留空 = 不自动关闭",
+      closeAt: "开奖 {time}",
+      closeTimePassed: "已过开奖时间 — 请先修改开奖时间再重新开放",
       lotteryHint: "越南彩票（V3–V9）每天开奖多次 — 每轮单独开一期 · WhatsApp 投注进入与群组彩票类型相同的开放期",
       title: "彩票期次",
       subtitle: "开启/截止期次并录入开奖号码",
@@ -199,6 +218,7 @@ export const drawsMessages = defineModuleMessages({
       statusChanged: "期次状态已更改",
       alreadySettled: "该期次已开奖 — 请先清除开奖号码再更改状态",
       validation: {
+        closeTime: "时间无效（时:分）",
         nameMin: "期次名称至少 2 个字符",
         dateInvalid: "请选择开奖日期",
         topResult: "上三位必须是 3 位数字",

@@ -88,10 +88,10 @@ export async function tableToXlsx(table: ExportTable, options: ExportOptions): P
   const header = sheet.getRow(headerRow);
   header.values = table.columns.map((column) => column.header);
   header.font = { bold: true };
-  table.columns.forEach((column, index) => {
+  table.columns.forEach((_column, index) => {
     const cell = header.getCell(index + 1);
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } };
-    cell.alignment = { horizontal: column.align ?? "left" };
+    cell.alignment = { horizontal: "center", vertical: "middle" };
   });
 
   const write = (cells: ExportCell[], bold?: boolean) => {

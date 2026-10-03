@@ -15,6 +15,11 @@ const drawFields = z.object({
   lottery: lotteryTypeEnum.default("LAO"),
   /** วันที่ออก รูปแบบ YYYY-MM-DD (ค่าจาก <input type="date">) */
   drawDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "draws.validation.dateInvalid"),
+  /** เวลาออกผล HH:mm (เวลาลาว) — ถึงเวลานี้ระบบปิดรับโพยให้เอง · ว่าง = ไม่ปิดเอง */
+  closeTime: z
+    .string()
+    .regex(/^(([01]\d|2[0-3]):[0-5]\d)?$/, "draws.validation.closeTime")
+    .default(""),
   /** เลข 3 ตัวบนที่ออก — ว่างได้จนกว่าจะออกผล */
   topResult: z.string().regex(/^(\d{3})?$/, "draws.validation.topResult"),
   /** เลข 2 ตัวล่างที่ออก */

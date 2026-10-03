@@ -93,7 +93,7 @@ const valid = {
   bottomResult: "",
 };
 
-async function created(input = valid) {
+async function created(input: Parameters<typeof createDraw>[0] = valid) {
   const result = await createDraw(input);
   db.auditRows = [];
   return result.ok ? result.data.id : "";
@@ -120,6 +120,22 @@ describe("createDraw", () => {
     expect(draw.topResult).toBeNull();
     expect(draw.bottomResult).toBeNull();
     expect(revalidated).toEqual(expect.arrayContaining(["/draws", "/tickets", "/reports", "/dashboard"]));
+  });
+
+  test("เวลาออกผล (เวลาลาว) เก็บเป็นเวลาจริงของวันที่งวด · ไม่กรอก = null (ไม่ปิดเอง)", async () => {
+    await createDraw({ ...valid, lottery: "V3", closeTime: "18:30" });
+    await createDraw({ ...valid, name: "งวดไม่มีเวลา" });
+
+    const [timed, untimed] = [...db.draws.values()];
+    expect(timed).toMatchObject({ lottery: "V3", closesAt: new Date("2026-09-30T11:30:00.000Z") });
+    expect(untimed).toMatchObject({ lottery: "LAO", closesAt: null });
+  });
+
+  test("เวลาออกผลผิดรูปแบบ → VALIDATION", async () => {
+    const result = await createDraw({ ...valid, closeTime: "25:00" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("VALIDATION");
+    expect(db.draws.size).toBe(0);
   });
 
   test("งวดใหม่ที่ยังไม่มีผล → เปิดรับ", async () => {
@@ -248,6 +264,17 @@ describe("setDrawStatus", () => {
     if (!result.ok) expect(result.message).toBe("draws.alreadySettled");
     expect(db.draws.get(id)).toMatchObject({ status: "SETTLED" });
     expect(db.auditRows).toHaveLength(0);
+  });
+
+  test("เลยเวลาออกผลแล้ว เปิดรับอีกครั้งไม่ได้ (ต้องแก้เวลาก่อน)", async () => {
+    const id = await created({ ...valid, closeTime: "08:00" }); // 30/09/2026 08:00 เวลาลาว ผ่านไปแล้ว
+    db.draws.set(id, { ...db.draws.get(id)!, status: "CLOSED" });
+
+    const result = await setDrawStatus({ id, status: "OPEN" });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toBe("draws.closeTimePassed");
+    expect(db.draws.get(id)).toMatchObject({ status: "CLOSED" });
   });
 
   test("ตั้งสถานะออกผลแล้วตรง ๆ ไม่ได้ → VALIDATION", async () => {

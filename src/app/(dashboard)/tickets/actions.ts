@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { createAction } from "@/lib/action";
 import { logAudit, logAuditMany } from "@/lib/audit";
+import { acceptsTickets } from "@/lottery/draw-status";
 import { nextBillNo } from "@/lottery/bill";
 import { requireDealerId } from "@/lottery/dealer";
 import { DEFAULT_LAK_MULTIPLIER } from "@/lottery/parser";
@@ -29,9 +30,9 @@ import {
 
 /** ข้อความโพย → ข้อมูลที่จะบันทึก + รายการแทงที่นับยอด */
 async function readTicket(tx: Prisma.TransactionClient, input: TicketInput, dealerId: string) {
-  const draw = await tx.draw.findFirst({ where: { id: input.drawId, dealerId }, select: { status: true } });
+  const draw = await tx.draw.findFirst({ where: { id: input.drawId, dealerId }, select: { status: true, closesAt: true } });
   if (!draw) throw new Error("tickets.drawNotFound");
-  if (draw.status !== "OPEN") throw new Error("tickets.drawNotOpen");
+  if (!acceptsTickets(draw)) throw new Error("tickets.drawNotOpen");
 
   const customer = input.customerId
     ? await tx.customer.findFirst({
@@ -107,11 +108,11 @@ export const updateTicket = createAction(
     const ticket = await prisma.$transaction(async (tx) => {
       const existing = await tx.ticket.findFirst({
         where: { id, draw: { dealerId } },
-        include: { draw: { select: { status: true } } },
+        include: { draw: { select: { status: true, closesAt: true } } },
       });
       if (!existing) throw new Error("tickets.notFound");
       const { draw, ...before } = existing;
-      if (draw.status !== "OPEN") throw new Error("tickets.drawNotOpen");
+      if (!acceptsTickets(draw)) throw new Error("tickets.drawNotOpen");
 
       const { data, bets } = await readTicket(tx, input, dealerId);
 
@@ -149,11 +150,11 @@ export const deleteTicket = createAction(
     await prisma.$transaction(async (tx) => {
       const existing = await tx.ticket.findFirst({
         where: { id, draw: { dealerId } },
-        include: { draw: { select: { status: true } } },
+        include: { draw: { select: { status: true, closesAt: true } } },
       });
       if (!existing) throw new Error("tickets.notFound");
       const { draw, ...before } = existing;
-      if (draw.status !== "OPEN") throw new Error("tickets.drawNotOpen");
+      if (!acceptsTickets(draw)) throw new Error("tickets.drawNotOpen");
 
       // รายการแทงของโพยถูกลบตาม (onDelete: Cascade)
       await tx.ticket.delete({ where: { id } });
@@ -184,13 +185,13 @@ export const deleteTickets = createAction(
     const count = await prisma.$transaction(async (tx) => {
       const tickets = await tx.ticket.findMany({
         where: { id: { in: ids }, draw: { dealerId } },
-        include: { draw: { select: { status: true } } },
+        include: { draw: { select: { status: true, closesAt: true } } },
       });
       if (tickets.length === 0) return 0;
 
       // มีโพยของงวดที่ปิดแล้วปนอยู่ → ไม่ลบเลยสักใบ
       const entries = tickets.map(({ draw, ...ticket }) => {
-        if (draw.status !== "OPEN") throw new Error("tickets.drawNotOpen");
+        if (!acceptsTickets(draw)) throw new Error("tickets.drawNotOpen");
         return {
           action: "DELETE" as const,
           entity: "Ticket",

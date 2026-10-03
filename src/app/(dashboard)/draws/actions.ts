@@ -6,7 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { createAction } from "@/lib/action";
 import { logAudit } from "@/lib/audit";
-import { isoToDate } from "@/lottery/date";
+import { siteConfig } from "@/config/site";
+import { isoToDate, zonedDateTime } from "@/lottery/date";
 import { requireDealerId } from "@/lottery/dealer";
 import { nextDrawStatus } from "@/lottery/draw-status";
 import {
@@ -30,6 +31,7 @@ function toData(input: DrawInput, current: DrawStatusValue | null) {
     name: input.name,
     lottery: input.lottery,
     drawDate: isoToDate(input.drawDate),
+    closesAt: input.closeTime ? zonedDateTime(input.drawDate, input.closeTime, siteConfig.timeZone) : null,
     status: nextDrawStatus({ topResult, bottomResult }, current),
     topResult,
     bottomResult,
@@ -110,6 +112,8 @@ export const setDrawStatus = createAction(
       const before = await tx.draw.findFirst({ where: { id, dealerId } });
       if (!before) throw new Error("draws.notFound");
       if (before.status === "SETTLED") throw new Error("draws.alreadySettled");
+      // เลยเวลาออกผลแล้ว เปิดรับไปก็ถูกปิดเองทันที — ต้องแก้เวลาออกผลก่อน
+      if (status === "OPEN" && before.closesAt && before.closesAt <= new Date()) throw new Error("draws.closeTimePassed");
 
       const draw = await tx.draw.update({ where: { id }, data: { status } });
 

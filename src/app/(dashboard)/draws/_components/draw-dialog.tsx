@@ -30,7 +30,7 @@ import { drawSchema, type DrawInput } from "@/lib/validations/draw";
 import { useI18n } from "@/i18n/client";
 import { isoToDisplay, todayIso } from "@/lottery/date";
 import { LOTTERY_TYPES, lotteryLabel, type LotteryTypeValue } from "@/lottery/labels";
-import type { DrawRow } from "../types";
+import type { CloseTimes, DrawRow } from "../types";
 
 /**
  * ฟอร์มล้วน ๆ — ไม่เรียก server action เอง
@@ -41,16 +41,18 @@ type DrawDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   draw: DrawRow | null;
+  /** เวลาออกผลล่าสุดของแต่ละประเภทหวย — ค่าตั้งต้นของงวดใหม่ */
+  closeTimes: CloseTimes;
   onSubmit: (values: DrawInput) => void;
 };
 
-export function DrawDialog({ open, onOpenChange, draw, onSubmit }: DrawDialogProps) {
+export function DrawDialog({ open, onOpenChange, draw, closeTimes, onSubmit }: DrawDialogProps) {
   const { t } = useI18n();
   const isEdit = !!draw;
 
   const form = useForm<DrawInput>({
     resolver: zodResolver(drawSchema),
-    defaultValues: { name: "", lottery: "LAO", drawDate: "", topResult: "", bottomResult: "" },
+    defaultValues: { name: "", lottery: "LAO", drawDate: "", closeTime: "", topResult: "", bottomResult: "" },
   });
 
   /** ชื่อตั้งต้นของงวด — หวยเวียดนามวันเดียวมีหลายงวด จึงมีรหัสรอบนำหน้า (ชื่องวดห้ามซ้ำในแม่หวยเดียวกัน) */
@@ -66,6 +68,10 @@ export function DrawDialog({ open, onOpenChange, draw, onSubmit }: DrawDialogPro
   function followAutoName(next: { lottery?: LotteryTypeValue; drawDate?: string }) {
     if (isEdit) return;
     const { lottery, drawDate, name } = form.getValues();
+    // เวลาออกผลตามประเภทหวยใหม่ (ถ้ายังเป็นค่าตั้งต้นของประเภทเดิม)
+    if (next.lottery && form.getValues("closeTime") === (closeTimes[lottery] ?? "")) {
+      form.setValue("closeTime", closeTimes[next.lottery] ?? "");
+    }
     if (name !== autoName(lottery, drawDate)) return;
     form.setValue("name", autoName(next.lottery ?? lottery, next.drawDate ?? drawDate));
   }
@@ -80,6 +86,7 @@ export function DrawDialog({ open, onOpenChange, draw, onSubmit }: DrawDialogPro
             name: draw.name,
             lottery: draw.lottery,
             drawDate: draw.drawDate,
+            closeTime: draw.closeTime ?? "",
             topResult: draw.topResult ?? "",
             bottomResult: draw.bottomResult ?? "",
           }
@@ -87,11 +94,12 @@ export function DrawDialog({ open, onOpenChange, draw, onSubmit }: DrawDialogPro
             name: autoName("LAO", today),
             lottery: "LAO",
             drawDate: today,
+            closeTime: closeTimes.LAO ?? "",
             topResult: "",
             bottomResult: "",
           },
     );
-  }, [open, draw, form, autoName]);
+  }, [open, draw, form, autoName, closeTimes]);
 
   // zod ตรวจฝั่ง client แล้วค่อยส่งต่อ — server ตรวจซ้ำอีกชั้นเสมอ
   function handleValid(values: DrawInput) {
@@ -175,6 +183,21 @@ export function DrawDialog({ open, onOpenChange, draw, onSubmit }: DrawDialogPro
                 )}
               />
             </div>
+
+            <FormField
+              control={form.control}
+              name="closeTime"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("draws.closeTime")}</FormLabel>
+                  <FormControl>
+                    <Input type="time" className="tabular-nums" {...field} />
+                  </FormControl>
+                  <FormDescription>{t("draws.closeTimeHint")}</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField

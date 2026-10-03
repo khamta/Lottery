@@ -8,6 +8,8 @@ export type DrawRow = {
   lottery: LotteryTypeValue;
   /** YYYY-MM-DD */
   drawDate: string;
+  /** เวลาออกผล HH:mm (เวลาลาว) — null = ไม่ปิดรับเอง */
+  closeTime: string | null;
   status: DrawStatusValue;
   topResult: string | null;
   bottomResult: string | null;
@@ -24,3 +26,6 @@ export const statusKey: Record<DrawStatusValue, string> = {
   CLOSED: "draws.statusCLOSED",
   SETTLED: "draws.statusSETTLED",
 };
+
+/** เวลาออกผลล่าสุดที่ใช้ของแต่ละประเภทหวย (HH:mm) — ค่าตั้งต้นของฟอร์มงวดใหม่ */
+export type CloseTimes = Partial<Record<LotteryTypeValue, string>>;
