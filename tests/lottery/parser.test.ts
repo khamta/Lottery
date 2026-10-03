@@ -297,6 +297,27 @@ describe("parseTicket — กติกา", () => {
     }
   });
 
+  test("บรรทัด ໂຕ10 / =10 ที่ไม่มีเลข → ทุกเลขที่ไม่มียอดด้านบน (ปน 2 และ 3 ตัว) เลขละ 10", () => {
+    const ticket = parseTicket("173\n133\n350\n354\n73\n33\n50\n54\nໂຕ10", { lakMultiplier: 1 });
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.map((b) => `${b.number} ${b.position} ${b.amount}`)).toEqual(
+      ["173 TOP 10", "133 TOP 10", "350 TOP 10", "354 TOP 10", "73 TOP 10", "33 TOP 10", "50 TOP 10", "54 TOP 10"],
+    );
+    expect(ticket.bets.map((b) => b.line)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(parseTicket("173\n33\n=10").issues).toEqual([]);
+    // ไม่มีเลขรอด้านบน → ยังรอตรวจ
+    expect(parseTicket("33=5\nໂຕ10").issues.map((i) => i.code)).toEqual(["UNREADABLE"]);
+  });
+
+  test("เลขเดี่ยวไม่มียอดด้านบน + บรรทัดสุดท้าย บน×ล่าง (85=20*20) → ทุกเลขบน 20 ล่าง 20", () => {
+    const ticket = parseTicket("55\n11\n56\n29\n14\n09\n89\n21\n05\n85=20*20", { lakMultiplier: 1 });
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets).toHaveLength(20);
+    expect(ticket.bets.slice(0, 2).map((b) => `${b.number} ${b.position} ${b.amount}`)).toEqual(["55 TOP 20", "55 BOTTOM 20"]);
+    expect(ticket.bets.every((b) => b.amount === 20)).toBe(true);
+    expect(ticket.typedTotal).toBe(400);
+  });
+
   test("ປ່ອງ ที่ไม่มีเลขรอด้านบน / ยอดใช้กับเลขไม่ได้ → รอตรวจ", () => {
     const codes = (text: string) => parseTicket(text).issues.map((i) => i.code);
     expect(codes("24=5\nປ່ອງ3")).toEqual(["UNREADABLE"]);

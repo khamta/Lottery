@@ -21,6 +21,7 @@
  *                            ເອົາທັງ2-3ໂຕ = แทงเลขฐาน 2 ตัวด้วยตามฝั่งที่ระบุ · ไม่มี = เลข 3 ตัวอย่างเดียว
  *   919 / 959 / 989=10     → บรรทัดเลขเดี่ยวที่ไม่มียอดติดกัน ตามด้วยเลขเดี่ยวที่มียอด = ใช้ยอด/คำกำกับเดียวกันทุกเลข
  *   24 / 64 / 07 / ປ່ອງ3   → ປ່ອງ / ຮູ = ยอดเลขละ ใช้กับทุกเลขที่ไม่มียอดในบรรทัดติดกันด้านบน (24 64 07 บน เลขละ 3)
+ *   173 / 73 / 33 / ໂຕ10   → บรรทัด ໂຕ10 / =10 ที่ไม่มีเลข ใช้แบบเดียวกับ ປ່ອງ (173 73 33 บน เลขละ 10)
  *
  * บรรทัดที่อ่านไม่ออกจะไม่ถูกเดา — คืนเป็น issue ให้คนตรวจ
  */
@@ -374,7 +375,8 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
       return;
     }
 
-    const each = text.match(EACH_AMOUNT_LINE);
+    // ປ່ອງ3 / ຮູ3 — หรือ ໂຕ10 / =10 ที่ไม่มีชุด ລັກ รออยู่ แต่มีเลขไม่มียอดด้านบน (173 / 133 / 73 / ໂຕ10)
+    const each = text.match(EACH_AMOUNT_LINE) ?? (pending.length > 0 ? text.match(SHARED_AMOUNT_LINE) : null);
     if (each) {
       const amount = parseAmount(each[1]);
       const results = pending.map((wait) => ("issue" in amount ? amount : stakesFor(wait.numbers, amount)));
