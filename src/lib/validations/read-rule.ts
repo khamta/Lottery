@@ -55,5 +55,14 @@ export const deleteReadRulesSchema = z.object({
     .max(100, "validation.required"),
 });
 
+/** เพิ่มหลายเงื่อนไขในครั้งเดียว (หน้าต่างเพิ่มเงื่อนไขมีหลายแถว) */
+export const READ_RULES_PER_SAVE = 20;
+export const createReadRulesSchema = z.object({
+  rules: z.array(readRuleSchema).min(1, "validation.required").max(READ_RULES_PER_SAVE, "readRules.validation.tooManyRows"),
+});
+/** เปิด/ปิดหลายรายการที่เลือกพร้อมกัน */
+export const setReadRulesActiveSchema = deleteReadRulesSchema.extend({ isActive: z.boolean() });
+
 export type ReadRuleInput = z.infer<typeof readRuleSchema>;
+export type ReadRulesInput = z.infer<typeof createReadRulesSchema>;
 export type ReadRuleKindValue = z.infer<typeof readRuleKindEnum>;

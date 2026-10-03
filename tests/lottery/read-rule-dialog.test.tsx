@@ -45,7 +45,27 @@ describe("<ReadRuleDialog /> (เพิ่ม / แก้เงื่อนไ�
     submit();
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
-    expect(onSubmit.mock.calls[0]![0]).toMatchObject({ kind: "PATTERN", find: "ລ {N} x{A}", replace: "{N}={A}ລ່າງ" });
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject([{ kind: "PATTERN", find: "ລ {N} x{A}", replace: "{N}={A}ລ່າງ" }]);
+  });
+
+  test("เพิ่มหลายข้อในครั้งเดียว → ส่งทุกข้อตามลำดับ และลองข้อความด้วยทุกข้อ", async () => {
+    const onSubmit = renderDialog();
+
+    fireEvent.click(screen.getByText(t("readRules.addRow")));
+    const finds = screen.getAllByPlaceholderText(t("readRules.findPlaceholderPATTERN"));
+    const replaces = screen.getAllByPlaceholderText(t("readRules.replacePlaceholderPATTERN"));
+    expect(finds).toHaveLength(2);
+    fireEvent.change(finds[0]!, { target: { value: "ລ {N} x{A}" } });
+    fireEvent.change(replaces[0]!, { target: { value: "{N}={A}ລ່າງ" } });
+    fireEvent.change(finds[1]!, { target: { value: "ບ {N} x{A}" } });
+    fireEvent.change(replaces[1]!, { target: { value: "{N}={A}ບົນ" } });
+    type(t("readRules.tryPlaceholder"), "ລ 30 70 x100\nບ 12 x50");
+
+    await waitFor(() => expect(screen.getByText(t("tickets.previewBets", { count: 3 }))).toBeTruthy());
+    submit();
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect((onSubmit.mock.calls[0]![0] as unknown[]).length).toBe(2);
   });
 
   test("รูปแบบไม่มีช่อง {N}/{A} → ไม่บันทึก และบอกเหตุผล", async () => {

@@ -163,6 +163,50 @@ describe("parseTicket — กติกา", () => {
     expect(ticket.needsReview).toBe(false);
   });
 
+  test("คั่นเลขด้วยขีดล่าง (มีขีดล่างค้างท้ายได้)", () => {
+    const ticket = parseTicket("04_44_84_05_45_85_=20");
+    expect(ticket.bets.map((b) => b.number)).toEqual(["04", "44", "84", "05", "45", "85"]);
+    expect(ticket.bets.every((b) => b.amount === 20_000)).toBe(true);
+  });
+
+  test("หลายเลขคั่นด้วยช่องว่าง + ขีดตัวเดียวคั่นยอด", () => {
+    const ticket = parseTicket("570 57 70 50 22 62 02 42 82-30,000");
+    expect(ticket.bets).toHaveLength(9);
+    expect(ticket.bets[0]).toMatchObject({ number: "570", digits: 3, position: "TOP" });
+    // หลังขีดเป็นเลข 2-3 หลักเปล่า ๆ → ไม่เดา (อาจเป็นเลขทั้งหมด)
+    expect(parseTicket("38.78-33").issues.map((i) => i.code)).toEqual(["NO_AMOUNT"]);
+  });
+
+  test("ໂຕ / ตัว = เลขละ", () => {
+    expect(brief(parseTicket("33 73 073 ໂຕ 20").bets)).toEqual([
+      "33 TOP LAK 20000",
+      "73 TOP LAK 20000",
+      "073 TOP LAK 20000",
+    ]);
+    expect(parseTicket("33 73 ตัว 20ล่าง").bets).toHaveLength(2);
+  });
+
+  test("ยอดกีบตั้งแต่ 10,000 (หรือ 10.000) พิมพ์เต็มจำนวนแล้ว ไม่คูณ", () => {
+    expect(brief(parseTicket("32=10.000\n33=10,000\n34=9999").bets)).toEqual([
+      "32 TOP LAK 10000",
+      "33 TOP LAK 10000",
+      "34 TOP LAK 9999000",
+    ]);
+    expect(brief(parseTicket("32=20,000฿").bets)).toEqual(["32 TOP THB 20000"]);
+    // ยอดรวมเทียบในหน่วยย่อ: 20 + 30,000 = 50 = ລວມ50,000
+    const ticket = parseTicket("32=20\n33=30,000\nລວມ50,000");
+    expect(ticket.typedTotal).toBe(50);
+    expect(ticket.declaredTotal).toBe(50);
+    expect(ticket.needsReview).toBe(false);
+  });
+
+  test("ລາວ200,000 = ยอดรวมที่แจ้ง", () => {
+    const ticket = parseTicket("01-41-81-30-70-19-59-99:20\n501-541-581-530-570-519-559-599:5\nລາວ200,000");
+    expect(ticket.bets).toHaveLength(16);
+    expect(ticket.declaredTotal).toBe(200);
+    expect(ticket.issues.map((i) => i.code)).toEqual([]);
+  });
+
   test("ข้อความที่มีแต่ยอดรวม (ส่งแยกข้อความ) คืนยอดรวมโดยไม่มีรายการ", () => {
     const ticket = parseTicket("ລວມ150");
     expect(ticket.bets).toEqual([]);

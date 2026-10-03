@@ -11,8 +11,10 @@ import { rereadTickets, rulesOf } from "@/lottery/ingest";
 import { READ_RULES_MAX } from "@/lottery/read-rules";
 import {
   createReadRuleSchema,
+  createReadRulesSchema,
   deleteReadRuleSchema,
   deleteReadRulesSchema,
+  setReadRulesActiveSchema,
   updateReadRuleSchema,
   type ReadRuleInput,
 } from "@/lib/validations/read-rule";
@@ -71,6 +73,44 @@ export const createReadRule = createAction(
     return { id: rule.id, reread };
   },
   { successMessage: "readRules.created" },
+);
+
+/** เพิ่มหลายเงื่อนไขในคำสั่งเดียว — สร้างตามลำดับแถว (ลำดับมีผลกับการอ่าน) และอ่านโพยใหม่ครั้งเดียว */
+export const createReadRules = createAction(
+  createReadRulesSchema,
+  async ({ rules: inputs }) => {
+    const user = await requireUser();
+    const dealerId = await requireDealerId(user.id);
+    const previous = await rulesOf(prisma, dealerId);
+
+    const ids = await prisma.$transaction(async (tx) => {
+      const count = await tx.readRule.count({ where: { dealerId } });
+      if (count + inputs.length > READ_RULES_MAX) throw new Error("readRules.tooMany");
+
+      const rules = [];
+      // ทีละแถว (ไม่ใช้ createMany) ให้ createdAt เรียงตามแถวที่กรอก
+      for (const input of inputs) rules.push(await tx.readRule.create({ data: { ...dataOf(input), dealerId } }));
+
+      await logAuditMany(
+        tx,
+        rules.map((rule) => ({
+          action: "CREATE" as const,
+          entity: "ReadRule",
+          entityId: rule.id,
+          summary: summaryOf(rule),
+          after: rule,
+          user,
+        })),
+      );
+
+      return rules.map((rule) => rule.id);
+    });
+
+    const reread = await rereadTickets(prisma, dealerId, previous, await rulesOf(prisma, dealerId));
+    revalidateReadRules();
+    return { ids, count: ids.length, reread };
+  },
+  { successMessage: "readRules.createdMany" },
 );
 
 export const updateReadRule = createAction(
@@ -134,6 +174,44 @@ export const deleteReadRule = createAction(
     return { id, reread };
   },
   { successMessage: "readRules.deleted" },
+);
+
+/** เปิด/ปิดรายการที่เลือกจากตาราง (checkbox) ในคำสั่งเดียว — แตะเฉพาะข้อที่สถานะเปลี่ยนจริง */
+export const setReadRulesActive = createAction(
+  setReadRulesActiveSchema,
+  async ({ ids, isActive }) => {
+    const user = await requireUser();
+    const dealerId = await requireDealerId(user.id);
+    const previous = await rulesOf(prisma, dealerId);
+
+    const count = await prisma.$transaction(async (tx) => {
+      const rules = await tx.readRule.findMany({ where: { id: { in: ids }, dealerId } });
+      const changing = rules.filter((rule) => rule.isActive !== isActive);
+      if (changing.length === 0) return 0;
+
+      await tx.readRule.updateMany({ where: { id: { in: changing.map((rule) => rule.id) } }, data: { isActive } });
+
+      await logAuditMany(
+        tx,
+        changing.map((rule) => ({
+          action: "UPDATE" as const,
+          entity: "ReadRule",
+          entityId: rule.id,
+          summary: summaryOf(rule),
+          before: rule,
+          after: { ...rule, isActive },
+          user,
+        })),
+      );
+
+      return changing.length;
+    });
+
+    const reread = count > 0 ? await rereadTickets(prisma, dealerId, previous, await rulesOf(prisma, dealerId)) : 0;
+    revalidateReadRules();
+    return { count, reread };
+  },
+  { successMessage: "readRules.updatedMany" },
 );
 
 /** ลบรายการที่เลือกจากตาราง (checkbox) ในคำสั่งเดียว — audit หนึ่งแถวต่อเงื่อนไขหนึ่งข้อ */

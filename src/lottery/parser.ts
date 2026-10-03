@@ -7,7 +7,11 @@
  *   38.78.33.73=300ບລ      → บน 300 และล่าง 300 ทุกเลข
  *   78.87=1000*1000฿       → บน 1000 × ล่าง 1000 บาท
  *   772;5 · 762-5          → เลข 772 / 762 บน 5
- *   ລວມ150                 → ยอดรวมที่ลูกค้าแจ้ง (ใช้ตรวจกับยอดที่คิดได้)
+ *   04_44_84_=20           → คั่นเลขด้วยขีดล่างได้
+ *   570 57 70-30,000       → หลายเลขคั่นด้วยช่องว่าง ขีดตัวเดียวคั่นยอด
+ *   33 73 073 ໂຕ 20         → ໂຕ / ຕົວ / ตัว = เลขละ (เหมือน =)
+ *   =10.000 · =10,000      → ยอดกีบตั้งแต่ 10,000 = พิมพ์เต็มจำนวนแล้ว ไม่คูณ
+ *   ລວມ150 · ລາວ200,000    → ยอดรวมที่ลูกค้าแจ้ง (ใช้ตรวจกับยอดที่คิดได้)
  *
  * บรรทัดที่อ่านไม่ออกจะไม่ถูกเดา — คืนเป็น issue ให้คนตรวจ
  */
@@ -25,7 +29,7 @@ export type ParsedBet = {
   digits: 2 | 3;
   position: Position;
   currency: Currency;
-  /** ยอดจริงหลังคูณตัวคูณกีบแล้ว */
+  /** ยอดจริงหลังคูณตัวคูณกีบแล้ว (ยอดกีบที่พิมพ์ตั้งแต่ LAK_FULL_AMOUNT ไม่คูณ) */
   amount: number;
 };
 
@@ -49,9 +53,12 @@ export type ParsedTicket = {
   issues: ParseIssue[];
   /** บรรทัดที่ไม่มีตัวเลขเลย เช่น ชื่อลูกค้า คำทักทาย */
   notes: string[];
-  /** ยอดรวมที่ลูกค้าแจ้ง ตามตัวเลขที่พิมพ์ (ยังไม่คูณ) — null = ไม่ได้แจ้ง */
+  /**
+   * ยอดรวมที่ลูกค้าแจ้ง ในหน่วยที่พิมพ์แบบย่อ (ยังไม่คูณ) — null = ไม่ได้แจ้ง
+   * แจ้งเต็มจำนวน (ตั้งแต่ LAK_FULL_AMOUNT) ถูกหารตัวคูณกลับ: ລວມ750,000 = ລວມ750 เมื่อตัวคูณ 1,000
+   */
   declaredTotal: number | null;
-  /** ผลรวมของยอดที่พิมพ์ในทุกรายการ (ยังไม่คูณ) ใช้เทียบกับ declaredTotal */
+  /** ผลรวมของยอดในทุกรายการ ในหน่วยที่พิมพ์แบบย่อ (ยังไม่คูณ) ใช้เทียบกับ declaredTotal */
   typedTotal: number;
   needsReview: boolean;
 };
@@ -64,6 +71,8 @@ export type ParseOptions = {
 };
 
 export const DEFAULT_LAK_MULTIPLIER = 1000;
+/** ยอดกีบที่พิมพ์ตั้งแต่ค่านี้ (10.000 / 10,000) ถือว่าพิมพ์เต็มจำนวนแล้ว — ไม่คูณตัวคูณกีบ */
+export const LAK_FULL_AMOUNT = 10_000;
 
 type PositionMark = Position | "BOTH";
 
@@ -98,9 +107,17 @@ const SUFFIX_TOKENS: SuffixToken[] = [
 // คำยาวก่อน กัน "ລ" ชนะ "ລ່າງ"
 SUFFIX_TOKENS.sort((a, b) => b.text.length - a.text.length);
 
-const TOTAL_LINE = /^(?:ລວມ|รวม|total)[^\d]*(\d[\d,]*)/i;
-const AMOUNT_PART = /^(\d[\d,]*)(?:\s*[*x×]\s*(\d[\d,]*))?(.*)$/i;
-const DASH_LINE = /^(\d{2,3})\s*-\s*(.+)$/;
+/** ยอด: คั่นหลักพันด้วย , หรือ . ได้ (10,000 / 10.000) — จุดที่ไม่ใช่หลักพันไม่ถูกนับเป็นยอด */
+const AMOUNT = String.raw`\d{1,3}(?:[.,]\d{3})+(?!\d)|\d[\d,]*`;
+/** ລາວ200,000 = ยอดรวมของโพยหวยลาว */
+const TOTAL_LINE = new RegExp(String.raw`^(?:ລວມ|รวม|total|ລາວ|ลาว)[^\d]*(${AMOUNT})`, "i");
+const AMOUNT_PART = new RegExp(String.raw`^(${AMOUNT})(?:\s*[*x×]\s*(${AMOUNT}))?(.*)$`, "i");
+/** ขีดตัวเดียวคั่นเลขกับยอด: 762-5 · 570 57 70-30,000 */
+const DASH_LINE = /^([^-]+?)\s*-\s*([^-]+)$/;
+/** ตัวคั่นระหว่างเลข */
+const NUMBER_SEPARATOR = /[.\-/,_\s+]+/;
+/** ໂຕ / ຕົວ / ตัว ระหว่างเลขกับยอด = เลขละ — "33 73 ໂຕ 20" อ่านเหมือน "33 73=20" */
+const EACH_WORD = /\s*(?:ໂຕ|ຕົວ|ตัว)\s*(?=\d)/u;
 /** zero-width space / joiner (U+200B–U+200D) และ BOM (U+FEFF) */
 const INVISIBLE = new RegExp(`[${String.fromCharCode(0x200b)}-${String.fromCharCode(0x200d)}${String.fromCharCode(0xfeff)}]`, "g");
 
@@ -115,8 +132,8 @@ function normalize(text: string) {
 }
 
 function toAmount(text: string) {
-  if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)$/.test(text)) return null;
-  const value = Number(text.replaceAll(",", ""));
+  if (!/^(?:\d+|\d{1,3}(?:,\d{3})+|\d{1,3}(?:\.\d{3})+)$/.test(text)) return null;
+  const value = Number(text.replace(/[.,]/g, ""));
   return value > 0 ? value : null;
 }
 
@@ -143,7 +160,8 @@ function readSuffix(text: string) {
 
 type LineResult = { stakes: Array<Omit<ParsedBet, "line" | "amount"> & { typed: number }> } | { issue: ParseIssueCode };
 
-function parseLine(text: string): LineResult {
+function parseLine(line: string): LineResult {
+  const text = /[=;:]/.test(line) ? line : line.replace(EACH_WORD, "=");
   const parts = text.split(/[=;:]/);
   if (parts.length > 2) return { issue: "UNREADABLE" };
 
@@ -151,17 +169,18 @@ function parseLine(text: string): LineResult {
   let amountPart = parts[1];
 
   if (amountPart === undefined) {
-    // ไม่มี = หรือ ; → รับรูปแบบ "เลข-ยอด" (762-5) เท่านั้น ที่เหลือถือว่าไม่มียอด
+    // ไม่มี = หรือ ; → รับรูปแบบ "เลข-ยอด" ที่มีขีดตัวเดียว ที่เหลือถือว่าไม่มียอด
+    // หลายเลขรับเฉพาะเมื่อหลังขีดไม่ใช่เลข 2-3 หลักเปล่า ๆ (30,000 / 5 / 100ລ່າງ) — "38.78-33" อาจเป็นเลขทั้งหมด
     const dash = text.match(DASH_LINE);
-    const tokens = text.split(/[.\-/,\s+]+/).filter(Boolean);
-    if (dash && tokens.length === 2) {
+    const tokens = text.split(NUMBER_SEPARATOR).filter(Boolean);
+    if (dash && (tokens.length === 2 || !/^\d{2,3}$/.test(dash[2].trim()))) {
       [, numbersPart, amountPart] = dash;
     } else {
       return { issue: tokens.every((t) => /^\d{2,3}$/.test(t)) ? "NO_AMOUNT" : "UNREADABLE" };
     }
   }
 
-  const numbers = numbersPart.split(/[.\-/,\s+]+/).filter(Boolean);
+  const numbers = numbersPart.split(NUMBER_SEPARATOR).filter(Boolean);
   if (numbers.length === 0) return { issue: "UNREADABLE" };
   if (!numbers.every((n) => /^\d{2,3}$/.test(n))) return { issue: "BAD_NUMBER" };
 
@@ -193,6 +212,10 @@ function parseLine(text: string): LineResult {
 
 export function parseTicket(message: string, options: ParseOptions = {}): ParsedTicket {
   const lakMultiplier = options.lakMultiplier ?? DEFAULT_LAK_MULTIPLIER;
+  /** ยอดกีบที่พิมพ์ → ยอดจริง (พิมพ์เต็มจำนวนแล้วไม่คูณ) */
+  const lakAmount = (typed: number) => (typed >= LAK_FULL_AMOUNT ? typed : typed * lakMultiplier);
+  /** ยอดกีบที่พิมพ์ → หน่วยแบบย่อ ใช้เทียบยอดรวม — 30,000 = 30 เมื่อตัวคูณ 1,000 */
+  const lakShort = (typed: number) => (typed >= LAK_FULL_AMOUNT && lakMultiplier > 0 ? typed / lakMultiplier : typed);
   const bets: ParsedBet[] = [];
   const issues: ParseIssue[] = [];
   const notes: string[] = [];
@@ -224,7 +247,7 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
     if (total) {
       const value = toAmount(total[1]);
       if (value === null) issues.push({ code: "UNREADABLE", line, text: original });
-      else declaredTotal = (declaredTotal ?? 0) + value;
+      else declaredTotal = (declaredTotal ?? 0) + lakShort(value);
       return;
     }
 
@@ -234,10 +257,14 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
       return;
     }
     for (const { typed, ...stake } of result.stakes) {
-      typedTotal += typed;
-      bets.push({ ...stake, line, amount: typed * (stake.currency === "LAK" ? lakMultiplier : 1) });
+      const lak = stake.currency === "LAK";
+      typedTotal += lak ? lakShort(typed) : typed;
+      bets.push({ ...stake, line, amount: lak ? lakAmount(typed) : typed });
     }
   });
+  // ยอดเต็มจำนวนที่หารกลับเป็นหน่วยย่ออาจมีทศนิยม (15,500 = 15.5) — ปัดกันเศษทศนิยมของ float
+  typedTotal = Math.round(typedTotal * 1000) / 1000;
+  if (declaredTotal !== null) declaredTotal = Math.round(declaredTotal * 1000) / 1000;
 
   // บรรทัดที่อ่านไม่ออกทำให้ยอดไม่ตรงอยู่แล้ว จึงเทียบยอดรวมเฉพาะเมื่ออ่านได้ครบทุกบรรทัด
   if (declaredTotal !== null && issues.length === 0 && bets.length > 0 && declaredTotal !== typedTotal) {

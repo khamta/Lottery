@@ -48,6 +48,10 @@ const tx = {
       for (const id of where.id.in) db.rules.delete(id);
       return { count: where.id.in.length };
     },
+    updateMany: async ({ where, data }: { where: { id: { in: string[] } }; data: Row }) => {
+      for (const id of where.id.in) db.rules.set(id, { ...db.rules.get(id)!, ...data });
+      return { count: where.id.in.length };
+    },
     count: async ({ where }: { where: { dealerId: string } }) => rulesOfDealer(where.dealerId).length,
     findFirst: async ({ where }: { where: { id: string; dealerId: string } }) => {
       const row = db.rules.get(where.id);
@@ -133,9 +137,8 @@ mock.module("next/cache", () => ({
   },
 }));
 
-const { createReadRule, updateReadRule, deleteReadRule, deleteReadRules } = await import(
-  "@/app/(dashboard)/read-rules/actions"
-);
+const { createReadRule, createReadRules, updateReadRule, setReadRulesActive, deleteReadRule, deleteReadRules } =
+  await import("@/app/(dashboard)/read-rules/actions");
 
 /** ลูกค้าพิมพ์ "ລ 30 70 x100" = เลข 30 และ 70 ล่าง ยอด 100 */
 const pattern = { kind: "PATTERN" as const, find: "ລ {N} x{A}", replace: "{N}={A}ລ່າງ", note: "", isActive: true };
@@ -247,6 +250,50 @@ describe("createReadRule", () => {
       userId: "user-1",
       summary: "PATTERN · ລ {N} x{A} → {N}={A}ລ່າງ",
     });
+  });
+});
+
+describe("createReadRules (หลายข้อในครั้งเดียว)", () => {
+  test("สร้างตามลำดับแถว อ่านโพยใหม่ครั้งเดียว และ audit หนึ่งแถวต่อข้อ", async () => {
+    addTicket("ticket-1", "ລ 30/70 x100");
+
+    const result = await createReadRules({
+      rules: [{ kind: "REPLACE", find: "/", replace: ".", note: "", isActive: true }, pattern],
+    });
+
+    expect(result.ok && result.data.count).toBe(2);
+    expect([...db.rules.values()].map((rule) => rule.kind)).toEqual(["REPLACE", "PATTERN"]);
+    expect(db.tickets.get("ticket-1")).toMatchObject({ status: "CONFIRMED", totalLak: 200_000 });
+    expect(db.auditRows.filter((row) => row.entity === "ReadRule" && row.action === "CREATE")).toHaveLength(2);
+  });
+
+  test("มีข้อที่ใช้ไม่ได้ → VALIDATION ไม่สร้างสักข้อ", async () => {
+    const result = await createReadRules({ rules: [pattern, { ...pattern, find: "ລ 30 70" }] });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("VALIDATION");
+    expect(db.rules.size).toBe(0);
+  });
+});
+
+describe("setReadRulesActive (เปิด/ปิดที่เลือก)", () => {
+  test("ปิดหลายข้อ → โพยกลับไปรอตรวจ · audit เฉพาะข้อที่สถานะเปลี่ยน · ข้ามแม่หวยอื่น", async () => {
+    addTicket("ticket-1", "ລ 30 70 x100");
+    const a = await createReadRule(pattern);
+    const b = await createReadRule({ ...pattern, kind: "REPLACE", find: "/", replace: "=", isActive: false });
+    currentDealerId = "dealer-2";
+    const foreign = await createReadRule(pattern);
+    currentDealerId = "dealer-1";
+    db.auditRows = [];
+    const ids = [a, b, foreign].map((r) => (r.ok ? r.data.id : ""));
+
+    const result = await setReadRulesActive({ ids, isActive: false });
+
+    expect(result.ok && result.data).toEqual({ count: 1, reread: 1 });
+    expect(db.rules.get(ids[0]!)).toMatchObject({ isActive: false });
+    expect(db.rules.get(ids[2]!)).toMatchObject({ isActive: true });
+    expect(db.tickets.get("ticket-1")).toMatchObject({ status: "REVIEW" });
+    expect(db.auditRows.filter((row) => row.entity === "ReadRule")).toHaveLength(1);
   });
 });
 

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Power, PowerOff, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/shared/data-table";
@@ -12,7 +12,14 @@ import { notify } from "@/lib/notify";
 import type { ReadRuleInput } from "@/lib/validations/read-rule";
 import type { ReadRuleSpec } from "@/lottery/read-rules";
 import type { Paginated } from "@/types";
-import { createReadRule, deleteReadRule, deleteReadRules, updateReadRule } from "../actions";
+import {
+  createReadRule,
+  createReadRules,
+  deleteReadRule,
+  deleteReadRules,
+  setReadRulesActive,
+  updateReadRule,
+} from "../actions";
 import type { ReadRuleRow } from "../types";
 import { getReadRuleColumns } from "./columns";
 import { ReadRuleDialog } from "./read-rule-dialog";
@@ -41,7 +48,9 @@ export function ReadRulesView({ page, activeRules }: ReadRulesViewProps) {
     if (reread > 0) notify.info(t("readRules.reread", { count: reread }));
   };
 
-  function handleSave(values: ReadRuleInput) {
+  function handleSave(list: ReadRuleInput[]) {
+    const [values] = list;
+    if (!values) return;
     const shared = {
       kind: values.kind,
       find: values.find.trim(),
@@ -57,15 +66,37 @@ export function ReadRulesView({ page, activeRules }: ReadRulesViewProps) {
         action: () => updateReadRule({ ...values, id: editing.id }),
         onSuccess: reportReread,
       });
-    } else {
+    } else if (list.length === 1) {
       mutate({
         patch: { type: "create", item: { id: tempId(), ...shared } },
         action: () => createReadRule(values),
         onSuccess: reportReread,
       });
+    } else {
+      // patch ทีละแถวเท่านั้น — แสดงข้อแรกทันที ข้อที่เหลือมากับ router.refresh() หลังบันทึก
+      mutate({
+        patch: { type: "create", item: { id: tempId(), ...shared } },
+        action: () => createReadRules({ rules: list }),
+        successMessage: t("readRules.createdMany", { count: list.length }),
+        onSuccess: reportReread,
+      });
     }
 
     setFormOpen(false); // ปิดทันที ไม่รอ database
+  }
+
+  /** เปิด/ปิดหลายรายการที่เลือก — แสดงข้อแรกทันที (patch ทีละแถว) ที่เหลือมากับ router.refresh() */
+  function handleBulkActive({ rows: selected, clear }: { rows: ReadRuleRow[]; clear: () => void }, isActive: boolean) {
+    const changing = selected.filter((row) => row.isActive !== isActive);
+    clear();
+    const [first] = changing;
+    if (!first) return;
+    mutate({
+      patch: { type: "update", item: { ...first, isActive, updatedAt: new Date().toISOString() } },
+      action: () => setReadRulesActive({ ids: changing.map((row) => row.id), isActive }),
+      successMessage: t("readRules.updatedMany", { count: changing.length }),
+      onSuccess: reportReread,
+    });
   }
 
   function handleToggle(row: ReadRuleRow) {
@@ -131,9 +162,17 @@ export function ReadRulesView({ page, activeRules }: ReadRulesViewProps) {
         emptyDescriptionKey="readRules.emptyDesc"
         selectable
         bulkActions={(ctx) => (
-          <Button variant="destructive" size="sm" onClick={() => setBulkDeleting(ctx)}>
-            <Trash2 /> {t("common.deleteSelected")}
-          </Button>
+          <>
+            <Button variant="outline" size="sm" aria-label={t("readRules.activate")} onClick={() => handleBulkActive(ctx, true)}>
+              <Power /> <span className="hidden sm:inline">{t("readRules.activate")}</span>
+            </Button>
+            <Button variant="outline" size="sm" aria-label={t("readRules.deactivate")} onClick={() => handleBulkActive(ctx, false)}>
+              <PowerOff /> <span className="hidden sm:inline">{t("readRules.deactivate")}</span>
+            </Button>
+            <Button variant="destructive" size="sm" onClick={() => setBulkDeleting(ctx)}>
+              <Trash2 /> {t("common.deleteSelected")}
+            </Button>
+          </>
         )}
         toolbar={
           <Button

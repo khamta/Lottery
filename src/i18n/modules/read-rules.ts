@@ -63,6 +63,12 @@ export const readRulesMessages = defineModuleMessages({
       notFound: "ไม่พบเงื่อนไขนี้ในแม่หวยที่เลือกอยู่",
       tooMany: "เงื่อนไขของแม่หวยนี้ครบจำนวนสูงสุดแล้ว — ลบเงื่อนไขที่ไม่ใช้ก่อน",
       reread: "อ่านโพยในงวดที่เปิดรับใหม่แล้ว ผลเปลี่ยน {count} ใบ",
+      addRow: "เพิ่มอีกข้อ",
+      removeRow: "ลบข้อนี้",
+      rowTitle: "ข้อที่ {index}",
+      saveMany: "บันทึก {count} ข้อ",
+      createdMany: "เพิ่มเงื่อนไข {count} รายการแล้ว",
+      updatedMany: "เปลี่ยนสถานะเงื่อนไข {count} รายการแล้ว",
       validation: {
         tooLong: "ยาวเกินไป",
         oneLine: "ใส่ได้บรรทัดเดียว",
@@ -72,6 +78,7 @@ export const readRulesMessages = defineModuleMessages({
         duplicateSlot: "แต่ละช่องใช้ได้ครั้งเดียวในรูปแบบ",
         replaceRequired: "กรุณากรอกรูปแบบที่ต้องการเปลี่ยนเป็น",
         slotNotInFind: "ผลลัพธ์ใช้ได้เฉพาะช่องที่มีในรูปแบบที่ค้นหา",
+        tooManyRows: "เพิ่มได้ไม่เกิน 20 ข้อต่อครั้ง",
       },
     },
     auditLogs: {
@@ -139,6 +146,12 @@ export const readRulesMessages = defineModuleMessages({
       notFound: "ບໍ່ພົບເງື່ອນໄຂນີ້ໃນແມ່ຫວຍທີ່ເລືອກຢູ່",
       tooMany: "ເງື່ອນໄຂຂອງແມ່ຫວຍນີ້ຄົບຈຳນວນສູງສຸດແລ້ວ — ລຶບເງື່ອນໄຂທີ່ບໍ່ໃຊ້ກ່ອນ",
       reread: "ອ່ານໂພຍໃນງວດທີ່ເປີດຮັບໃໝ່ແລ້ວ ຜົນປ່ຽນ {count} ໃບ",
+      addRow: "ເພີ່ມອີກຂໍ້",
+      removeRow: "ລຶບຂໍ້ນີ້",
+      rowTitle: "ຂໍ້ທີ {index}",
+      saveMany: "ບັນທຶກ {count} ຂໍ້",
+      createdMany: "ເພີ່ມເງື່ອນໄຂ {count} ລາຍການແລ້ວ",
+      updatedMany: "ປ່ຽນສະຖານະເງື່ອນໄຂ {count} ລາຍການແລ້ວ",
       validation: {
         tooLong: "ຍາວເກີນໄປ",
         oneLine: "ໃສ່ໄດ້ແຖວດຽວ",
@@ -148,6 +161,7 @@ export const readRulesMessages = defineModuleMessages({
         duplicateSlot: "ແຕ່ລະຊ່ອງໃຊ້ໄດ້ເທື່ອດຽວໃນຮູບແບບ",
         replaceRequired: "ກະລຸນາປ້ອນຮູບແບບທີ່ຕ້ອງການປ່ຽນເປັນ",
         slotNotInFind: "ຜົນລັບໃຊ້ໄດ້ສະເພາະຊ່ອງທີ່ມີໃນຮູບແບບທີ່ຄົ້ນຫາ",
+        tooManyRows: "ເພີ່ມໄດ້ບໍ່ເກີນ 20 ຂໍ້ຕໍ່ຄັ້ງ",
       },
     },
     auditLogs: {
@@ -216,6 +230,12 @@ export const readRulesMessages = defineModuleMessages({
       notFound: "This rule was not found for the selected dealer",
       tooMany: "This dealer has reached the maximum number of rules — delete unused ones first",
       reread: "Re-read tickets in open draws — {count} changed",
+      addRow: "Add another rule",
+      removeRow: "Remove this rule",
+      rowTitle: "Rule {index}",
+      saveMany: "Save {count} rules",
+      createdMany: "Added {count} rules",
+      updatedMany: "Changed status of {count} rules",
       validation: {
         tooLong: "Too long",
         oneLine: "Single line only",
@@ -225,6 +245,7 @@ export const readRulesMessages = defineModuleMessages({
         duplicateSlot: "Each slot can be used once in a pattern",
         replaceRequired: "Please enter what to change it to",
         slotNotInFind: "The result can only use slots that are in the find pattern",
+        tooManyRows: "You can add up to 20 rules at a time",
       },
     },
     auditLogs: {
@@ -288,6 +309,12 @@ export const readRulesMessages = defineModuleMessages({
       notFound: "在当前庄家中找不到此规则",
       tooMany: "该庄家的规则数量已达上限 — 请先删除不用的规则",
       reread: "已重新识别开放期次的投注单，{count} 张结果有变化",
+      addRow: "再添加一条",
+      removeRow: "删除此条",
+      rowTitle: "第 {index} 条",
+      saveMany: "保存 {count} 条",
+      createdMany: "已添加 {count} 条规则",
+      updatedMany: "已更改 {count} 条规则的状态",
       validation: {
         tooLong: "太长",
         oneLine: "只能填写一行",
@@ -297,6 +324,7 @@ export const readRulesMessages = defineModuleMessages({
         duplicateSlot: "每个占位符在格式中只能用一次",
         replaceRequired: "请输入要改成的格式",
         slotNotInFind: "结果只能使用查找格式中出现的占位符",
+        tooManyRows: "每次最多添加 20 条",
       },
     },
     auditLogs: {
