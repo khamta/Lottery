@@ -42,7 +42,7 @@ export type ParsedBet = {
   digits: 2 | 3;
   position: Position;
   currency: Currency;
-  /** ยอดจริงหลังคูณตัวคูณกีบแล้ว (ยอดกีบที่พิมพ์ตั้งแต่ LAK_FULL_AMOUNT ไม่คูณ) */
+  /** ยอดจริงหลังคูณตัวคูณกีบแล้ว (ยอดกีบที่พิมพ์ตั้งแต่ LAK_FULL_BET_AMOUNT ไม่คูณ) */
   amount: number;
 };
 
@@ -84,8 +84,13 @@ export type ParseOptions = {
 };
 
 export const DEFAULT_LAK_MULTIPLIER = 1000;
-/** ยอดกีบที่พิมพ์ตั้งแต่ค่านี้ (10.000 / 10,000) ถือว่าพิมพ์เต็มจำนวนแล้ว — ไม่คูณตัวคูณกีบ */
+/** ยอดรวม (ລວມ) กีบที่พิมพ์ตั้งแต่ค่านี้ (10.000 / 10,000) ถือว่าพิมพ์เต็มจำนวนแล้ว — ไม่คูณตัวคูณกีบ */
 export const LAK_FULL_AMOUNT = 10_000;
+/**
+ * ยอดแทงกีบที่พิมพ์ตั้งแต่ค่านี้ถือว่าเต็มจำนวน — คูณเฉพาะ 1–999: "=5" = 5,000 · "=5.000" / "=1000" = 5,000 / 1,000
+ * (ยอดรวมใช้ LAK_FULL_AMOUNT เพราะยอดรวมแบบย่อเกิน 999 ได้บ่อย: ລວມ1.800 = 1,800,000)
+ */
+export const LAK_FULL_BET_AMOUNT = 1_000;
 
 type PositionMark = Position | "BOTH";
 
@@ -434,9 +439,11 @@ function parseHundredsLine(
 
 export function parseTicket(message: string, options: ParseOptions = {}): ParsedTicket {
   const lakMultiplier = options.lakMultiplier ?? DEFAULT_LAK_MULTIPLIER;
-  /** ยอดกีบที่พิมพ์ → ยอดจริง (พิมพ์เต็มจำนวนแล้วไม่คูณ) */
-  const lakAmount = (typed: number) => (typed >= LAK_FULL_AMOUNT ? typed : typed * lakMultiplier);
-  /** ยอดกีบที่พิมพ์ → หน่วยแบบย่อ ใช้เทียบยอดรวม — 30,000 = 30 เมื่อตัวคูณ 1,000 */
+  /** ยอดแทงกีบที่พิมพ์ → ยอดจริง (คูณเฉพาะ 1–999 · ตั้งแต่ 1,000 = พิมพ์เต็มจำนวนแล้ว) */
+  const lakAmount = (typed: number) => (typed >= LAK_FULL_BET_AMOUNT ? typed : typed * lakMultiplier);
+  /** ยอดแทงกีบที่พิมพ์ → หน่วยแบบย่อ ใช้เทียบยอดรวม — 5.000 = 5 เมื่อตัวคูณ 1,000 */
+  const betShort = (typed: number) => (typed >= LAK_FULL_BET_AMOUNT && lakMultiplier > 0 ? typed / lakMultiplier : typed);
+  /** ยอดรวมกีบที่พิมพ์ → หน่วยแบบย่อ — 30,000 = 30 เมื่อตัวคูณ 1,000 */
   const lakShort = (typed: number) => (typed >= LAK_FULL_AMOUNT && lakMultiplier > 0 ? typed / lakMultiplier : typed);
   const bets: ParsedBet[] = [];
   const issues: ParseIssue[] = [];
@@ -486,7 +493,7 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
   const addStakes = (stakes: readonly Stake[], lineOf: (stake: Omit<Stake, "typed">) => number) => {
     for (const { typed, ...stake } of stakes) {
       const lak = stake.currency === "LAK";
-      typedTotal += lak ? lakShort(typed) : typed;
+      typedTotal += lak ? betShort(typed) : typed;
       bets.push({ ...stake, line: lineOf(stake), amount: lak ? lakAmount(typed) : typed });
     }
   };
@@ -498,7 +505,7 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
     const count = unmarked.reduce((sum, entry) => sum + entry.stakes.length, 0);
     bets.splice(bets.length - count, count);
     for (const entry of unmarked) {
-      for (const { typed, currency } of entry.stakes) typedTotal -= currency === "LAK" ? lakShort(typed) : typed;
+      for (const { typed, currency } of entry.stakes) typedTotal -= currency === "LAK" ? betShort(typed) : typed;
     }
     unmarked.forEach((entry, i) => {
       const result = results[i];

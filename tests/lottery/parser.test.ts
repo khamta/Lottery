@@ -801,11 +801,14 @@ describe("parseTicket — กติกา", () => {
     expect(parseTicket("33 73 ตัว 20ล่าง").bets).toHaveLength(2);
   });
 
-  test("ยอดกีบตั้งแต่ 10,000 (หรือ 10.000) พิมพ์เต็มจำนวนแล้ว ไม่คูณ", () => {
-    expect(brief(parseTicket("32=10.000\n33=10,000\n34=9999").bets)).toEqual([
+  test("ยอดแทงกีบคูณเฉพาะ 1–999 · ตั้งแต่ 1,000 (หรือ 1.000) พิมพ์เต็มจำนวนแล้ว ไม่คูณ", () => {
+    expect(brief(parseTicket("32=10.000\n33=10,000\n34=9999\n35=999\n36=1000\n37=5.000").bets)).toEqual([
       "32 TOP LAK 10000",
       "33 TOP LAK 10000",
-      "34 TOP LAK 9999000",
+      "34 TOP LAK 9999",
+      "35 TOP LAK 999000",
+      "36 TOP LAK 1000",
+      "37 TOP LAK 5000",
     ]);
     expect(brief(parseTicket("32=20,000฿").bets)).toEqual(["32 TOP THB 20000"]);
     // ยอดรวมเทียบในหน่วยย่อ: 20 + 30,000 = 50 = ລວມ50,000
@@ -813,6 +816,22 @@ describe("parseTicket — กติกา", () => {
     expect(ticket.typedTotal).toBe(50);
     expect(ticket.declaredTotal).toBe(50);
     expect(ticket.needsReview).toBe(false);
+  });
+
+  test("ยอดเต็มจำนวน 5.000ກີບບົນ / 3.000ກີບລ່າງ / 1.000ກີບລາວ ไม่คูณ", () => {
+    const ticket = parseTicket(
+      "11 51 91 14 54 94 18 58 98 06 46 86 = 5.000ກີບບົນ\n\n11 51 91 14 54 94 18 58 98 06 46 86 = 3.000ກີບລ່າງ\n\n911 951 991 914 954 994 918 958 998 906 946 986 = 1.000ກີບລາວ",
+    );
+    expect(ticket.issues).toEqual([]);
+    const line = (n: number) => ticket.bets.filter((b) => b.line === n);
+    expect(line(1).every((b) => b.position === "TOP" && b.amount === 5000)).toBe(true);
+    expect(line(3).every((b) => b.position === "BOTTOM" && b.amount === 3000)).toBe(true);
+    expect(line(5).every((b) => b.position === "TOP" && b.amount === 1000)).toBe(true);
+    expect([line(1).length, line(3).length, line(5).length]).toEqual([12, 12, 12]);
+    // ยอดรวมแบบย่อยังเทียบได้: 12×5 + 12×3 + 12×1 = 108 (พัน)
+    expect(ticket.typedTotal).toBe(108);
+    // ยอดรวมแบบย่อเกิน 999 ยังคูณ (ລວມ1.800 = 1,800,000)
+    expect(parseTicket("32=1000*800\nລວມ1.800").declaredTotal).toBe(1800);
   });
 
   test("ລາວ200,000 = ยอดรวมที่แจ้ง", () => {
