@@ -21,6 +21,7 @@
     "template:check": "bun scripts/template-check.ts",
     "wa:worker": "bun worker/whatsapp.ts",
     "ocr:reapply": "bun worker/ocr-reapply.ts",
+    "tickets:reread": "bun worker/tickets-reread.ts",
     "postinstall": "prisma generate"
   },
   "prisma": {

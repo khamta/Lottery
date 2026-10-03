@@ -568,6 +568,17 @@ export async function revokeMessage(db: PrismaClient, waMessageId: string): Prom
 /** ผลการอ่านที่เทียบกันได้ — ข้อความเหมือนกันแต่ผลต่างกัน = เงื่อนไขที่เปลี่ยนมีผลกับโพยนี้ */
 const readKey = (read: Read | null) => (read ? JSON.stringify([read.fields, read.bets]) : "");
 
+/** ผลที่อ่านได้ตรงกับที่เก็บไว้ในโพย (สถานะ / ปัญหา / ยอด) — ใช้ตอนไม่มีเงื่อนไขชุดเดิมให้เทียบ */
+const sameAsStored = (
+  ticket: { status: string; issues: Prisma.JsonValue; totalLak: Prisma.Decimal; totalThb: Prisma.Decimal; betCount: number },
+  read: Read,
+) =>
+  ticket.status === read.fields.status &&
+  JSON.stringify(ticket.issues ?? []) === JSON.stringify(read.fields.issues ?? []) &&
+  Number(ticket.totalLak) === Number(read.fields.totalLak) &&
+  Number(ticket.totalThb) === Number(read.fields.totalThb) &&
+  ticket.betCount === read.fields.betCount;
+
 /**
  * เงื่อนไขอ่านโพยของแม่หวยเปลี่ยน (หน้า /read-rules) → อ่านโพยในงวดที่เปิดรับใหม่ด้วยเงื่อนไขชุดใหม่
  * ข้อความของโพยไม่ถูกแก้ — เงื่อนไขใช้ตอนอ่านเท่านั้น จึงเปลี่ยนกลับได้เสมอ
@@ -576,11 +587,13 @@ const readKey = (read: Read | null) => (read ? JSON.stringify([read.fields, read
  * ไม่แตะ: งวดที่ปิดแล้ว · โพยข้อความว่าง (ถอดรหัสไม่ได้ / รูปที่ยังรอ OCR) · โพยที่เงื่อนไขใหม่ทำให้ไม่เหลืออะไรเป็นโพย
  * เขียนเฉพาะโพยที่ผลการอ่านเปลี่ยนจริง และ audit ในนามระบบ (โพยจึงยังนับว่าไม่มีคนแตะ อ่านใหม่ได้อีกเมื่อเงื่อนไขเปลี่ยน)
  * คืนจำนวนโพยที่ผลเปลี่ยน
+ *
+ * previous = null → เทียบกับผลที่เก็บไว้แทน ใช้เมื่อตัวแยกข้อความ (parser.ts) อ่านได้มากขึ้น — `bun run tickets:reread`
  */
 export async function rereadTickets(
   db: PrismaClient,
   dealerId: string,
-  previous: readonly ReadRuleSpec[],
+  previous: readonly ReadRuleSpec[] | null,
   rules: readonly ReadRuleSpec[],
 ): Promise<number> {
   const tickets = await db.ticket.findMany({
@@ -607,7 +620,8 @@ export async function rereadTickets(
       reread(ticket.rawText, { lakMultiplier: ticket.lakMultiplier, rules: list }, imagePending);
 
     const next = read(rules);
-    if (!next || readKey(next) === readKey(read(previous))) continue;
+    if (!next) continue;
+    if (previous ? readKey(next) === readKey(read(previous)) : sameAsStored(ticket, next)) continue;
 
     await db.$transaction(async (tx) => {
       const updated = await rewriteTicket(tx, ticket, next.fields, next.bets);

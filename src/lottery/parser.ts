@@ -14,6 +14,13 @@
  *   =10.000 · =10,000      → ยอดกีบตั้งแต่ 10,000 = พิมพ์เต็มจำนวนแล้ว ไม่คูณ
  *   ລວມ150 · ລາວ200,000    → ยอดรวมที่ลูกค้าแจ้ง (ใช้ตรวจกับยอดที่คิดได้)
  *   ຫລັກ2-9=5              → เติมหลักร้อย 2 และ 9 หน้าเลข 2 ตัวทุกตัวด้านบน (08 → 208, 908) เป็นเลข 3 ตัวบน เลขละ 5
+ *   32 72 11 / ຫຼັກ 1 .3 .5ໂຕ500฿ → บรรทัดเลข 2 ตัวที่ไม่มียอดตามด้วย ຫລັກ = เลขฐานของ ຫລັກ เท่านั้น (ไม่ใช่รายการแทง)
+ *   เอาแต่3โต              → หมายเหตุ "เอาแต่เลข 3 ตัว" ไม่ใช่รายการแทง
+ *   04/44/84 / ລັກ2 / 22/62 / ລັກ8 / ໂຕ20 ບລ ເອົາທັງ2-3ໂຕ
+ *                          → หลายชุด "เลขฐาน + ລັກN" ที่ไม่มียอด ใช้ยอดบรรทัดท้ายร่วมกัน (204 244 284 … 822 862 บน 20)
+ *                            ເອົາທັງ2-3ໂຕ = แทงเลขฐาน 2 ตัวด้วยตามฝั่งที่ระบุ · ไม่มี = เลข 3 ตัวอย่างเดียว
+ *   919 / 959 / 989=10     → บรรทัดเลขเดี่ยวที่ไม่มียอดติดกัน ตามด้วยเลขเดี่ยวที่มียอด = ใช้ยอด/คำกำกับเดียวกันทุกเลข
+ *   24 / 64 / 07 / ປ່ອງ3   → ປ່ອງ / ຮູ = ยอดเลขละ ใช้กับทุกเลขที่ไม่มียอดในบรรทัดติดกันด้านบน (24 64 07 บน เลขละ 3)
  *
  * บรรทัดที่อ่านไม่ออกจะไม่ถูกเดา — คืนเป็น issue ให้คนตรวจ
  */
@@ -105,6 +112,9 @@ const SUFFIX_TOKENS: SuffixToken[] = [
   { text: "กีบ", currency: "LAK" },
   { text: "lak", currency: "LAK" },
   { text: "kip", currency: "LAK" },
+  // ລາວ ท้ายยอด = บอกว่าเป็นหวยลาว ไม่มีผลกับรายการ
+  { text: "ລາວ" },
+  { text: "ลาว" },
 ];
 // คำยาวก่อน กัน "ລ" ชนะ "ລ່າງ"
 SUFFIX_TOKENS.sort((a, b) => b.text.length - a.text.length);
@@ -119,7 +129,15 @@ const DASH_LINE = /^([^-]+?)\s*-\s*([^-]+)$/;
 /** ตัวคั่นระหว่างเลข */
 const NUMBER_SEPARATOR = /[.\-/,_\s+]+/;
 /** ໂຕ / ຕົວ / ตัว ระหว่างเลขกับยอด = เลขละ — "33 73 ໂຕ 20" อ่านเหมือน "33 73=20" */
-const EACH_WORD = /\s*(?:ໂຕ|ຕົວ|ตัว)\s*(?=\d)/u;
+const EACH_WORD = /\s*(?:ໂຕ|ຕົວ|ตัว|โต)\s*(?=\d)/u;
+/** เอาแต่3โต / ເອົາແຕ່3ໂຕ = ลูกค้าบอกว่าเอาแต่เลข 3 ตัว — หมายเหตุ ไม่ใช่รายการแทง */
+const ONLY_THREE_LINE = /^(?:เอาแต่|ເອົາແຕ່|ແຕ່)\s*3\s*(?:ตัว|โต|ໂຕ|ຕົວ)?$/u;
+/** ເອົາທັງ2-3ໂຕ / เอาทั้ง2-3ตัว = ชุด ລັກ ให้แทงเลขฐาน 2 ตัวด้วย ไม่ใช่เลข 3 ตัวอย่างเดียว */
+const TAKE_BOTH = /(?:ເອົາ|เอา)?\s*(?:ທັງ|ທັ້ງ|ทั้ง|ทัง)\s*2\s*[-,.\/&]?\s*3\s*(?:ໂຕ|ຕົວ|ตัว|โต)?/u;
+/** ໂຕ20 ບລ / =20 = บรรทัดยอดที่ไม่มีเลข — ใช้กับทุกชุด ລັກ ที่ยังไม่มียอดด้านบน */
+const SHARED_AMOUNT_LINE = /^(?:[=;:]|ໂຕ|ຕົວ|ตัว|โต)\s*(\d.*)$/u;
+/** ປ່ອງ3 / ຮູ3 = ยอดเลขละ 3 ของทุกเลขที่ไม่มียอดในบรรทัดติดกันด้านบน */
+const EACH_AMOUNT_LINE = /^(?:ປ່ອງ|ປອງ|ป่อง|ຮູ|รู)\s*(\d.*)$/u;
 /** zero-width space / joiner (U+200B–U+200D) และ BOM (U+FEFF) */
 const INVISIBLE = new RegExp(`[${String.fromCharCode(0x200b)}-${String.fromCharCode(0x200d)}${String.fromCharCode(0xfeff)}]`, "g");
 
@@ -160,7 +178,46 @@ function readSuffix(text: string) {
   return { position, currency };
 }
 
-type LineResult = { stakes: Array<Omit<ParsedBet, "line" | "amount"> & { typed: number }> } | { issue: ParseIssueCode };
+type Stake = Omit<ParsedBet, "line" | "amount"> & { typed: number };
+type LineResult = { stakes: Stake[] } | { issue: ParseIssueCode };
+type Amount = { first: number; second?: number; position?: PositionMark; currency: Currency };
+
+/** ส่วนยอดหลัง = / ໂຕ เช่น "100ລ່າງ" · "1000*1000฿" */
+function parseAmount(text: string): Amount | { issue: ParseIssueCode } {
+  const amount = text.trim().match(AMOUNT_PART);
+  if (!amount) return { issue: text.trim() ? "UNREADABLE" : "NO_AMOUNT" };
+
+  const first = toAmount(amount[1]);
+  const second = amount[2] === undefined ? undefined : toAmount(amount[2]);
+  const suffix = readSuffix(amount[3]);
+  if (first === null || second === null || !suffix) return { issue: "UNREADABLE" };
+
+  // "1000*1000" = บน × ล่าง อยู่แล้ว จึงห้ามมีคำกำกับฝั่งซ้ำ
+  if (second !== undefined && suffix.position) return { issue: "UNREADABLE" };
+  return { first, second, position: second !== undefined ? "BOTH" : suffix.position, currency: suffix.currency ?? "LAK" };
+}
+
+function stakesFor(numbers: readonly string[], { first, second, position = "TOP", currency }: Amount): LineResult {
+  const hasBottom = position !== "TOP";
+  // บน+ล่างที่มีเลข 2 ตัวปน (26.66.590=10ບລ) → เลข 3 ตัวลงบนอย่างเดียว · ล่างล้วน หรือมีแต่เลข 3 ตัว = พิมพ์ผิด
+  const threeDigitTopOnly = position === "BOTH" && numbers.some((n) => n.length === 2);
+  if (hasBottom && !threeDigitTopOnly && numbers.some((n) => n.length === 3)) return { issue: "THREE_DIGIT_BOTTOM" };
+
+  // เลข 3 ตัวที่ปนมากับ ບລ แยกลงไปเป็นแถวใหม่ต่อท้าย (เลข 2 ตัว บน/ล่าง ก่อน) ให้อ่านโพยไม่สับสนว่าลงล่างด้วย
+  const ordered = threeDigitTopOnly ? [...numbers.filter((n) => n.length === 2), ...numbers.filter((n) => n.length === 3)] : numbers;
+  const stakes = ordered.flatMap((number) => {
+    const base = { number, digits: number.length as 2 | 3, currency };
+    return [
+      ...(position !== "BOTTOM" ? [{ ...base, position: "TOP" as const, typed: first }] : []),
+      ...(hasBottom && number.length === 2 ? [{ ...base, position: "BOTTOM" as const, typed: second ?? first }] : []),
+    ];
+  });
+  return { stakes };
+}
+
+/** เติมหลักร้อยหน้าเลขฐาน — หลักร้อยเป็นวงนอก: [2, 9] × [08, 48] → 208 248 908 948 */
+const withHundreds = (hundreds: readonly string[], bases: readonly string[]) =>
+  hundreds.flatMap((digit) => bases.map((base) => `${digit}${base}`));
 
 function parseLine(line: string): LineResult {
   const text = /[=;:]/.test(line) ? line : line.replace(EACH_WORD, "=");
@@ -186,63 +243,34 @@ function parseLine(line: string): LineResult {
   if (numbers.length === 0) return { issue: "UNREADABLE" };
   if (!numbers.every((n) => /^\d{2,3}$/.test(n))) return { issue: "BAD_NUMBER" };
 
-  const amount = amountPart.trim().match(AMOUNT_PART);
-  if (!amount) return { issue: amountPart.trim() ? "UNREADABLE" : "NO_AMOUNT" };
-
-  const first = toAmount(amount[1]);
-  const second = amount[2] === undefined ? undefined : toAmount(amount[2]);
-  const suffix = readSuffix(amount[3]);
-  if (first === null || second === null || !suffix) return { issue: "UNREADABLE" };
-
-  // "1000*1000" = บน × ล่าง อยู่แล้ว จึงห้ามมีคำกำกับฝั่งซ้ำ
-  if (second !== undefined && suffix.position) return { issue: "UNREADABLE" };
-
-  const position: PositionMark = second !== undefined ? "BOTH" : (suffix.position ?? "TOP");
-  const currency = suffix.currency ?? "LAK";
-  const hasBottom = position !== "TOP";
-  // บน+ล่างที่มีเลข 2 ตัวปน (26.66.590=10ບລ) → เลข 3 ตัวลงบนอย่างเดียว · ล่างล้วน หรือมีแต่เลข 3 ตัว = พิมพ์ผิด
-  const threeDigitTopOnly = position === "BOTH" && numbers.some((n) => n.length === 2);
-  if (hasBottom && !threeDigitTopOnly && numbers.some((n) => n.length === 3)) return { issue: "THREE_DIGIT_BOTTOM" };
-
-  // เลข 3 ตัวที่ปนมากับ ບລ แยกลงไปเป็นแถวใหม่ต่อท้าย (เลข 2 ตัว บน/ล่าง ก่อน) ให้อ่านโพยไม่สับสนว่าลงล่างด้วย
-  const ordered = threeDigitTopOnly ? [...numbers.filter((n) => n.length === 2), ...numbers.filter((n) => n.length === 3)] : numbers;
-  const stakes = ordered.flatMap((number) => {
-    const base = { number, digits: number.length as 2 | 3, currency };
-    return [
-      ...(position !== "BOTTOM" ? [{ ...base, position: "TOP" as const, typed: first }] : []),
-      ...(hasBottom && number.length === 2 ? [{ ...base, position: "BOTTOM" as const, typed: second ?? first }] : []),
-    ];
-  });
-  return { stakes };
+  const amount = parseAmount(amountPart);
+  return "issue" in amount ? amount : stakesFor(numbers, amount);
 }
 
 /** ຫລັກ2-9=5 = เติมหลักร้อย 2 และ 9 หน้าเลข 2 ตัวทุกตัวในบรรทัดด้านบน เป็นเลข 3 ตัวบน เลขละ 5 */
-const HUNDREDS_LINE = /^(?:ຫລັກ|ຫຼັກ|หลัก)\s*(.*)$/iu;
+const HUNDREDS_LINE = /^(?:ຫລັກ|ຫຼັກ|ລັກ|หลัก)\s*(.*)$/iu;
 
-/** บรรทัด ຫລັກ… → รายการ · null = ไม่ใช่บรรทัดหลัก — bases = เลข 2 ตัวในบรรทัดด้านบน (ไม่ซ้ำ ตามลำดับ) */
-function parseHundredsLine(text: string, bases: readonly string[]): LineResult | null {
+/**
+ * บรรทัด ຫລັກ… → รายการ · null = ไม่ใช่บรรทัดหลัก — bases = เลข 2 ตัวในบรรทัดด้านบน (ไม่ซ้ำ ตามลำดับ)
+ * ລັກ2 ที่ไม่มียอด → { hundreds } ให้ parseTicket รอยอดจากบรรทัดท้ายชุด
+ */
+function parseHundredsLine(text: string, bases: readonly string[]): LineResult | { hundreds: string[] } | null {
   const match = text.match(HUNDREDS_LINE);
   if (!match) return null;
-  const parts = match[1].split(/[=;:]/);
-  if (parts.length !== 2) return { issue: "UNREADABLE" };
+  const body = /[=;:]/.test(match[1]) ? match[1] : match[1].replace(EACH_WORD, "=");
+  const parts = body.split(/[=;:]/);
+  if (parts.length > 2) return { issue: "UNREADABLE" };
 
   const digits = parts[0].split(NUMBER_SEPARATOR).filter(Boolean);
   if (digits.length === 0 || !digits.every((d) => /^\d$/.test(d))) return { issue: "BAD_NUMBER" };
+  if (parts.length === 1) return { hundreds: [...new Set(digits)] };
   if (bases.length === 0) return { issue: "UNREADABLE" };
 
-  const amount = parts[1].trim().match(AMOUNT_PART);
-  if (!amount) return { issue: parts[1].trim() ? "UNREADABLE" : "NO_AMOUNT" };
-  const typed = toAmount(amount[1]);
-  const suffix = readSuffix(amount[3]);
-  if (typed === null || !suffix) return { issue: "UNREADABLE" };
+  const amount = parseAmount(parts[1]);
+  if ("issue" in amount) return amount;
   // ผลเป็นเลข 3 ตัว จึงลงได้เฉพาะบน
-  if (amount[2] !== undefined || (suffix.position && suffix.position !== "TOP")) return { issue: "THREE_DIGIT_BOTTOM" };
-
-  const currency = suffix.currency ?? "LAK";
-  const stakes = [...new Set(digits)].flatMap((digit) =>
-    bases.map((base) => ({ number: `${digit}${base}`, digits: 3 as const, position: "TOP" as const, currency, typed })),
-  );
-  return { stakes };
+  if (amount.position && amount.position !== "TOP") return { issue: "THREE_DIGIT_BOTTOM" };
+  return stakesFor(withHundreds([...new Set(digits)], bases), amount);
 }
 
 export function parseTicket(message: string, options: ParseOptions = {}): ParsedTicket {
@@ -257,6 +285,27 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
   let declaredTotal: number | null = null;
   let typedTotal = 0;
   const rules = prepareReadRules(options.rules ?? []);
+  /** บรรทัดเลข 2 ตัวล้วนที่ไม่มียอด (ติดกันได้หลายบรรทัด) — ถ้าบรรทัดถัดไปเป็น ຫລັກ จะใช้เป็นเลขฐานแทน และไม่นับเป็นปัญหา */
+  let bare: { numbers: string[]; line: number; issues: ParseIssue[] } | null = null;
+  /** ชุด "เลขฐาน + ລັກ2" ที่ยังไม่มียอด — รอบรรทัดยอดท้ายชุด (ໂຕ20 ບລ) · ระหว่างรอ issue ของชุดยังค้างไว้ */
+  let groups: Array<{ bases: string[]; hundreds: string[]; baseLine: number; line: number; issues: ParseIssue[] }> = [];
+  /** ເອົາທັງ2-3ໂຕ — ชุด ລັກ แทงเลขฐาน 2 ตัวด้วย */
+  let takeBoth = false;
+  /**
+   * บรรทัดเลขที่ไม่มียอดติดกัน — รอยอดจากบรรทัดถัดไป:
+   * ປ່ອງ3 = ทุกเลขเลขละ 3 · เลขเดี่ยวที่มียอด (989=10) = ใช้ยอดเดียวกัน (เฉพาะเมื่อทุกบรรทัดที่รอเป็นเลขเดี่ยว)
+   */
+  let pending: Array<{ numbers: string[]; line: number; issue: ParseIssue }> = [];
+  const dropIssues = (list: readonly ParseIssue[]) => {
+    for (const issue of list) issues.splice(issues.indexOf(issue), 1);
+  };
+  const addStakes = (stakes: readonly Stake[], lineOf: (stake: Omit<Stake, "typed">) => number) => {
+    for (const { typed, ...stake } of stakes) {
+      const lak = stake.currency === "LAK";
+      typedTotal += lak ? lakShort(typed) : typed;
+      bets.push({ ...stake, line: lineOf(stake), amount: lak ? lakAmount(typed) : typed });
+    }
+  };
 
   message.split(/\r?\n/).forEach((raw, index) => {
     const line = index + 1;
@@ -270,33 +319,120 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
       notes.push(original);
       return;
     }
-    const text = ruled.trim();
+    let text = ruled.trim();
     if (!text) return;
 
-    if (!/\d/.test(text)) {
+    if (TAKE_BOTH.test(text)) {
+      takeBoth = true;
+      text = text.replace(TAKE_BOTH, "").trim();
+    }
+    if (!text || !/\d/.test(text) || ONLY_THREE_LINE.test(text)) {
       notes.push(original);
       return;
     }
 
     const total = text.match(TOTAL_LINE);
     if (total) {
+      pending = [];
       const value = toAmount(total[1]);
       if (value === null) issues.push({ code: "UNREADABLE", line, text: original });
       else declaredTotal = (declaredTotal ?? 0) + lakShort(value);
       return;
     }
 
-    const bases = [...new Set(bets.filter((bet) => bet.digits === 2).map((bet) => bet.number))];
-    const result = parseHundredsLine(text, bases) ?? parseLine(text);
-    if ("issue" in result) {
-      issues.push({ code: result.issue, line, text: original });
+    // ໂຕ20 ບລ ท้ายชุด ລັກ → ยอดเดียวกันทุกชุด: เลข 3 ตัวลงแถว ລັກ · เลขฐาน 2 ตัว (ເອົາທັງ2-3ໂຕ) ลงแถวเลขฐาน
+    const shared = groups.length > 0 ? text.match(SHARED_AMOUNT_LINE) : null;
+    if (shared) {
+      const amount = parseAmount(shared[1]);
+      const results = groups.map((group) =>
+        "issue" in amount
+          ? amount
+          : stakesFor([...(takeBoth ? group.bases : []), ...withHundreds(group.hundreds, group.bases)], amount),
+      );
+      const failed = results.find((result) => "issue" in result);
+      if (failed && "issue" in failed) {
+        issues.push({ code: failed.issue, line, text: original });
+      } else {
+        groups.forEach((group, i) => {
+          const result = results[i];
+          if ("issue" in result) return;
+          dropIssues(group.issues);
+          addStakes(result.stakes, (stake) => (stake.digits === 2 ? group.baseLine : group.line));
+        });
+      }
+      groups = [];
+      bare = null;
+      pending = [];
+      takeBoth = false;
       return;
     }
-    for (const { typed, ...stake } of result.stakes) {
-      const lak = stake.currency === "LAK";
-      typedTotal += lak ? lakShort(typed) : typed;
-      bets.push({ ...stake, line, amount: lak ? lakAmount(typed) : typed });
+
+    const each = text.match(EACH_AMOUNT_LINE);
+    if (each) {
+      const amount = parseAmount(each[1]);
+      const results = pending.map((wait) => ("issue" in amount ? amount : stakesFor(wait.numbers, amount)));
+      const failed = pending.length === 0 ? { issue: "UNREADABLE" as const } : results.find((result) => "issue" in result);
+      if (failed && "issue" in failed) {
+        issues.push({ code: failed.issue, line, text: original });
+      } else {
+        pending.forEach((wait, i) => {
+          const result = results[i];
+          if ("issue" in result) return;
+          dropIssues([wait.issue]);
+          addStakes(result.stakes, () => wait.line);
+        });
+      }
+      groups = [];
+      bare = null;
+      pending = [];
+      return;
     }
+
+    const prev = bare;
+    bare = null;
+    const waiting = pending;
+    pending = [];
+    const bases = prev?.numbers ?? [...new Set(bets.filter((bet) => bet.digits === 2).map((bet) => bet.number))];
+    const hundreds = parseHundredsLine(text, bases);
+    if (hundreds && "hundreds" in hundreds) {
+      // ລັກ2 ไม่มียอด — ต้องมีเลขฐานด้านบน แล้วรอยอดจากบรรทัดท้ายชุด
+      const issue: ParseIssue = { code: prev ? "NO_AMOUNT" : "UNREADABLE", line, text: original };
+      issues.push(issue);
+      if (prev) groups.push({ bases: prev.numbers, hundreds: hundreds.hundreds, baseLine: prev.line, line, issues: [...prev.issues, issue] });
+      else groups = [];
+      return;
+    }
+    if (hundreds && !("issue" in hundreds) && prev) dropIssues(prev.issues);
+    const result = hundreds ?? parseLine(text);
+    if ("issue" in result) {
+      const issue: ParseIssue = { code: result.issue, line, text: original };
+      issues.push(issue);
+      const numbers = text.split(NUMBER_SEPARATOR).filter(Boolean);
+      if (!hundreds && result.issue === "NO_AMOUNT" && numbers.length > 0 && numbers.every((n) => /^\d{2,3}$/.test(n))) {
+        pending = [...waiting, { numbers, line, issue }];
+      }
+      if (!hundreds && result.issue === "NO_AMOUNT" && numbers.every((n) => /^\d{2}$/.test(n))) {
+        bare = prev
+          ? { numbers: [...new Set([...prev.numbers, ...numbers])], line: prev.line, issues: [...prev.issues, issue] }
+          : { numbers: [...new Set(numbers)], line, issues: [issue] };
+        return;
+      }
+      groups = [];
+      return;
+    }
+    groups = [];
+    // บรรทัดนี้เป็นเลขเดี่ยวที่มียอด → เลขเดี่ยวที่รออยู่ด้านบนใช้ยอดเดียวกัน (อ่านส่วนท้ายซ้ำด้วยเลขของบรรทัดนั้น)
+    const lead = text.match(/^\d{2,3}(?!\d)/)?.[0];
+    const singles = waiting.every((wait) => wait.numbers.length === 1);
+    if (!hundreds && lead && singles && result.stakes.every((stake) => stake.number === lead)) {
+      for (const wait of waiting) {
+        const same = parseLine(wait.numbers[0] + text.slice(lead.length));
+        if ("issue" in same) continue;
+        dropIssues([wait.issue]);
+        addStakes(same.stakes, () => wait.line);
+      }
+    }
+    addStakes(result.stakes, () => line);
   });
   // ยอดเต็มจำนวนที่หารกลับเป็นหน่วยย่ออาจมีทศนิยม (15,500 = 15.5) — ปัดกันเศษทศนิยมของ float
   typedTotal = Math.round(typedTotal * 1000) / 1000;
