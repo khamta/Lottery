@@ -151,18 +151,44 @@ export function totalWinningStake(groups: StakeGroup[], keys: WinningKey[]): Mon
 /** อัตราจ่ายต่อ 1 หน่วยของงวด — 0 = ยังไม่ตั้ง (คิดตามยอดแทงจริงของเลขที่ถูก) */
 export type PayoutRates = { rate2Top: number; rate2Bottom: number; rate3Top: number };
 
+export type LotteryCode = "LAO" | "THAI" | "V3" | "V4" | "V5" | "V6" | "V7" | "V8" | "V9";
+
+/**
+ * สองกล่องของใบสรุป (ตามใบที่แม่หวยใช้): แต่ละกล่องหักเปอร์เซ็นต์ของตัวเอง
+ *  กล่องซ้าย = หวยเวียดนาม V3 V4 V8 V9 (ค่าเริ่มต้น 15%) · กล่องขวา = V5 V6 V7 + ลาว + ไทย (ค่าเริ่มต้น 30%)
+ */
+export const SETTLEMENT_LEFT: LotteryCode[] = ["V3", "V4", "V8", "V9"];
+export const SETTLEMENT_RIGHT: LotteryCode[] = ["V5", "V6", "V7", "LAO", "THAI"];
+
+/** งวดหนึ่งงวดที่อยู่ในใบสรุป */
+export type SettlementDraw = {
+  lottery: LotteryCode;
+  keys: WinningKey[] | null;
+  rates: PayoutRates;
+  stakes: StakeGroup[];
+};
+
 export type SettlementRow = { number: string; lak: number; thb: number };
 
-/** สรุปแบบใบส่งแม่หวย: ยอดรวม → หักเปอร์เซ็นต์ → เหลือ → หักยอดถูก 2 ตัว / 3 ตัว → ส่งแม่ */
-export type Settlement = {
-  percent: number;
+export type SettlementBox = {
+  /** ยอดรับแต่ละประเภทหวย (ตามลำดับในกล่อง) */
+  lines: { lottery: LotteryCode; amount: MoneyPair }[];
   total: MoneyPair;
-  commission: MoneyPair;
+  percent: number;
+  /** ยอดหลังหักเปอร์เซ็นต์ */
   net: MoneyPair;
+};
+
+/** ใบสรุปส่งแม่: (เหลือซ้าย + เหลือขวา) − ถูก 2 ตัว − ถูก 3 ตัว = เหลือ · เหลือ + ค้าง = ส่งแม่ */
+export type Settlement = {
+  left: SettlementBox;
+  right: SettlementBox;
   win2: MoneyPair;
   win3: MoneyPair;
+  remain: MoneyPair;
+  outstanding: MoneyPair;
   send: MoneyPair;
-  /** เลข 00–99 เรียงตามเลข: ยอดบน+ล่าง แยกกีบ/บาท (เลขที่ไม่มียอดเป็น 0) */
+  /** เลข 00–99 เรียงตามเลข: ยอดบน+ล่างของทุกงวดในใบ แยกกีบ/บาท (เลขที่ไม่มียอดเป็น 0) */
   rows: SettlementRow[];
   /** ผลรวมของ rows (เฉพาะเลข 2 ตัว) */
   rowsTotal: MoneyPair;
@@ -170,45 +196,56 @@ export type Settlement = {
 
 /** ปัดเป็นจำนวนเต็ม — เงินกีบ/บาทในใบสรุปไม่มีเศษ */
 const roundMoney = (pair: MoneyPair): MoneyPair => ({ lak: Math.round(pair.lak), thb: Math.round(pair.thb) });
+const plus = (a: MoneyPair, b: MoneyPair): MoneyPair => ({ lak: a.lak + b.lak, thb: a.thb + b.thb });
 const minus = (a: MoneyPair, b: MoneyPair): MoneyPair => ({ lak: a.lak - b.lak, thb: a.thb - b.thb });
 
-export function buildSettlement(
-  groups: StakeGroup[],
-  keys: WinningKey[] | null,
-  rates: PayoutRates,
-  percent: number,
-): Settlement {
-  const total = totalStake(groups);
+function settleBox(codes: LotteryCode[], byType: Map<LotteryCode, MoneyPair>, percent: number): SettlementBox {
+  const lines = codes.map((lottery) => ({ lottery, amount: byType.get(lottery) ?? emptyMoney() }));
+  const total = lines.reduce((sum, line) => plus(sum, line.amount), emptyMoney());
   const commission = roundMoney({ lak: (total.lak * percent) / 100, thb: (total.thb * percent) / 100 });
-  const net = minus(total, commission);
+  return { lines, total, percent, net: minus(total, commission) };
+}
 
+export function buildSettlement(
+  draws: SettlementDraw[],
+  percents: { left: number; right: number },
+  outstanding: MoneyPair = emptyMoney(),
+): Settlement {
+  const byType = new Map<LotteryCode, MoneyPair>();
   const win2 = emptyMoney();
   const win3 = emptyMoney();
-  for (const group of keys ? groups.filter((g) => isWinning(keys, g)) : []) {
-    const rate = group.digits === 3 ? rates.rate3Top : group.position === "TOP" ? rates.rate2Top : rates.rate2Bottom;
-    addMoney(group.digits === 3 ? win3 : win2, group.currency, group.amount * (rate > 0 ? rate : 1));
-  }
-
   const byNumber = new Map<string, SettlementRow>();
   for (let n = 0; n < 100; n++) {
     const number = String(n).padStart(2, "0");
     byNumber.set(number, { number, lak: 0, thb: 0 });
   }
-  for (const group of groups) {
-    const row = group.digits === 2 ? byNumber.get(group.number) : undefined;
-    if (row) row[group.currency === "LAK" ? "lak" : "thb"] += group.amount;
+
+  for (const draw of draws) {
+    byType.set(draw.lottery, plus(byType.get(draw.lottery) ?? emptyMoney(), totalStake(draw.stakes)));
+    for (const group of draw.stakes) {
+      const row = group.digits === 2 ? byNumber.get(group.number) : undefined;
+      if (row) row[group.currency === "LAK" ? "lak" : "thb"] += group.amount;
+      if (!draw.keys || !isWinning(draw.keys, group)) continue;
+      const { rate2Top, rate2Bottom, rate3Top } = draw.rates;
+      const rate = group.digits === 3 ? rate3Top : group.position === "TOP" ? rate2Top : rate2Bottom;
+      addMoney(group.digits === 3 ? win3 : win2, group.currency, group.amount * (rate > 0 ? rate : 1));
+    }
   }
+
+  const left = settleBox(SETTLEMENT_LEFT, byType, percents.left);
+  const right = settleBox(SETTLEMENT_RIGHT, byType, percents.right);
+  const wins = roundMoney(plus(win2, win3));
+  const remain = minus(plus(left.net, right.net), wins);
   const rows = [...byNumber.values()];
 
-  const wins = roundMoney({ lak: win2.lak + win3.lak, thb: win2.thb + win3.thb });
   return {
-    percent,
-    total,
-    commission,
-    net,
+    left,
+    right,
     win2: roundMoney(win2),
     win3: roundMoney(win3),
-    send: minus(net, wins),
+    remain,
+    outstanding,
+    send: plus(remain, outstanding),
     rows,
     rowsTotal: rows.reduce((sum, row) => ({ lak: sum.lak + row.lak, thb: sum.thb + row.thb }), emptyMoney()),
   };

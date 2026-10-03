@@ -7,6 +7,7 @@ export const drawsMessages = defineModuleMessages({
       draws: "งวด",
     },
     draws: {
+      lotteryHint: "หวยเวียดนาม (V3–V9) วันเดียวออกหลายรอบ — เปิดงวดแยกต่อรอบ · โพยจาก WhatsApp ลงงวดที่เปิดรับของประเภทเดียวกับกลุ่ม",
       title: "งวดหวย",
       subtitle: "เปิด/ปิดรับงวด และกรอกเลขที่ออก",
       add: "เปิดงวดใหม่",
@@ -58,6 +59,7 @@ export const drawsMessages = defineModuleMessages({
       draws: "ງວດ",
     },
     draws: {
+      lotteryHint: "ຫວຍຫວຽດນາມ (V3–V9) ມື້ດຽວອອກຫຼາຍຮອບ — ເປີດງວດແຍກຕໍ່ຮອບ · ໂພຍຈາກ WhatsApp ລົງງວດທີ່ເປີດຮັບຂອງປະເພດດຽວກັບກຸ່ມ",
       title: "ງວດຫວຍ",
       subtitle: "ເປີດ/ປິດຮັບງວດ ແລະ ປ້ອນເລກທີ່ອອກ",
       add: "ເປີດງວດໃໝ່",
@@ -109,6 +111,7 @@ export const drawsMessages = defineModuleMessages({
       draws: "Draws",
     },
     draws: {
+      lotteryHint: "Vietnam lottery (V3–V9) draws several times a day — open one draw per round · WhatsApp tickets go to the open draw of the group's lottery type",
       title: "Draws",
       subtitle: "Open and close draws and enter the winning numbers",
       add: "Open new draw",
@@ -160,6 +163,7 @@ export const drawsMessages = defineModuleMessages({
       draws: "期次",
     },
     draws: {
+      lotteryHint: "越南彩票（V3–V9）每天开奖多次 — 每轮单独开一期 · WhatsApp 投注进入与群组彩票类型相同的开放期",
       title: "彩票期次",
       subtitle: "开启/截止期次并录入开奖号码",
       add: "开启新期次",

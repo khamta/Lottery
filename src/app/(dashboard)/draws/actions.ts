@@ -28,6 +28,7 @@ function toData(input: DrawInput, current: DrawStatusValue | null) {
   const bottomResult = input.bottomResult || null;
   return {
     name: input.name,
+    lottery: input.lottery,
     drawDate: isoToDate(input.drawDate),
     status: nextDrawStatus({ topResult, bottomResult }, current),
     topResult,

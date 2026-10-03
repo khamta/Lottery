@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { lotteryTypeEnum } from "./draw";
+
 /** ข้อความ error เป็นคีย์ i18n — กฎเฉพาะ module ใช้ whatsapp.validation.* (src/i18n/modules/whatsapp.ts) */
 export const whatsappAccountSchema = z.object({
   name: z.string().trim().min(1, "whatsapp.validation.nameRequired").max(80, "validation.nameMax"),
@@ -19,7 +21,12 @@ export const deleteWhatsappAccountSchema = z.object({ id });
 export const whatsappCommandSchema = z.object({ id, command: z.enum(["connect", "logout", "sync"]) });
 
 /** ผูกกลุ่มกับแม่หวย — null = ไม่อ่านกลุ่มนี้ */
-export const assignWhatsappGroupSchema = z.object({ id, dealerId: z.string().min(1).nullable() });
+/** กลุ่มอ่านเข้าแม่หวยไหน (null = ไม่อ่าน) + ลงงวดของหวยประเภทไหน (ไม่ส่ง = คงค่าเดิม) */
+export const assignWhatsappGroupSchema = z.object({
+  id,
+  dealerId: z.string().min(1).nullable(),
+  lottery: lotteryTypeEnum.optional(),
+});
 
 export type WhatsappAccountInput = z.infer<typeof whatsappAccountSchema>;
 export type WhatsappCommand = z.infer<typeof whatsappCommandSchema>["command"];

@@ -7,6 +7,10 @@ import { defineModuleMessages } from "./define";
 export const lotteryMessages = defineModuleMessages({
   th: {
     lottery: {
+      typeLAO: "หวยลาว",
+      typeTHAI: "หวยไทย",
+      typeV: "{code} · หวยเวียดนาม",
+      lotteryType: "ประเภทหวย",
       positionTOP: "บน",
       positionBOTTOM: "ล่าง",
       currencyLAK: "กีบ",
@@ -58,6 +62,10 @@ export const lotteryMessages = defineModuleMessages({
   },
   lo: {
     lottery: {
+      typeLAO: "ຫວຍລາວ",
+      typeTHAI: "ຫວຍໄທ",
+      typeV: "{code} · ຫວຍຫວຽດນາມ",
+      lotteryType: "ປະເພດຫວຍ",
       positionTOP: "ບົນ",
       positionBOTTOM: "ລ່າງ",
       currencyLAK: "ກີບ",
@@ -109,6 +117,10 @@ export const lotteryMessages = defineModuleMessages({
   },
   en: {
     lottery: {
+      typeLAO: "Lao lottery",
+      typeTHAI: "Thai lottery",
+      typeV: "{code} · Vietnam lottery",
+      lotteryType: "Lottery",
       positionTOP: "Top",
       positionBOTTOM: "Bottom",
       currencyLAK: "Kip",
@@ -160,6 +172,10 @@ export const lotteryMessages = defineModuleMessages({
   },
   zh: {
     lottery: {
+      typeLAO: "老挝彩票",
+      typeTHAI: "泰国彩票",
+      typeV: "{code} · 越南彩票",
+      lotteryType: "彩票类型",
       positionTOP: "上",
       positionBOTTOM: "下",
       currencyLAK: "基普",

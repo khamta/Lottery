@@ -19,7 +19,18 @@ import { SettlementExport } from "./settlement-export";
  * — ลิงก์ดาวน์โหลดไป reports/export/route.ts
  * ส่งงวด / มุมมอง / จำนวนอันดับที่ server เลือกแล้วไปเสมอ ไฟล์จึงตรงกับที่เห็นบนจอแม้ URL ไม่ได้ระบุ
  */
-export async function ReportExport({ drawId, view, top }: { drawId: string; view: ReportView; top: TopOption }) {
+export async function ReportExport({
+  drawId,
+  drawDate,
+  view,
+  top,
+}: {
+  drawId: string;
+  /** YYYY-MM-DD — วันตั้งต้นของใบสรุปส่งแม่ */
+  drawDate: string;
+  view: ReportView;
+  top: TopOption;
+}) {
   const { t } = await getTranslations();
   const href = (format: "xlsx" | "pdf") => `/reports/export?${buildQueryString({}, { format, draw: drawId, view, top })}`;
 
@@ -46,7 +57,7 @@ export async function ReportExport({ drawId, view, top }: { drawId: string; view
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <SettlementExport drawId={drawId} />
+      <SettlementExport drawId={drawId} drawDate={drawDate} />
     </div>
   );
 }

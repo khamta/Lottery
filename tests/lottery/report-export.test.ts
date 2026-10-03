@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import ExcelJS from "exceljs";
 
-import { buildReportTable, buildSettlementSheet, type ReportExportInput } from "@/app/(dashboard)/reports/export-tables";
-import { toPercent } from "@/app/(dashboard)/reports/types";
+import {
+  buildReportTable,
+  buildSettlementSheet,
+  type ReportExportInput,
+  type SettlementExportInput,
+} from "@/app/(dashboard)/reports/export-tables";
+import { toAmount, toPercent } from "@/app/(dashboard)/reports/types";
 import { dictionaries } from "@/i18n/dictionaries";
 import { translateWith } from "@/i18n/translate";
 import type { StakeGroup } from "@/lottery/report";
@@ -14,6 +19,7 @@ import {
   tableToPdf,
   tableToXlsx,
   type ExportTable,
+  type SheetLine,
 } from "@/lottery/table-export";
 
 /**
@@ -181,66 +187,118 @@ describe("ใบสรุปส่งแม่ (layout=sheet)", () => {
     { digits: 2, position: "TOP" as const, number: "43" },
     { digits: 2, position: "BOTTOM" as const, number: "32" },
   ];
-  const sheetInput = (percent: number, rates = { rate2Top: 0, rate2Bottom: 0, rate3Top: 0 }) => {
-    const base = input();
-    return { t: base.t, intl: base.intl, draw: base.draw, keys, exportedAt: base.exportedAt, stakes: base.stakes, rates, percent };
+  const noRates = { rate2Top: 0, rate2Bottom: 0, rate3Top: 0 };
+  // ตัวเลขจากใบจริงของแม่หวย: LAO รับ 447,070 กีบ / 302,656 บาท · ถูก 2 ตัว 304,780 / 177,800 · ถูก 3 ตัว 3,500
+  const lao = {
+    name: "ງວດ 03/10/2026",
+    lottery: "LAO" as const,
+    keys,
+    rates: noRates,
+    stakes: [
+      stake("43", "TOP", "LAK", 304_780),
+      stake("43", "TOP", "THB", 177_800),
+      stake("243", "TOP", "LAK", 3_500),
+      stake("12", "BOTTOM", "LAK", 138_790),
+      stake("12", "BOTTOM", "THB", 124_856),
+    ],
   };
-  const sheetOptions = { ...optionsFor({ title: "sheet" } as ExportTable) };
+  const sheetInput = (overrides: Partial<SettlementExportInput> = {}): SettlementExportInput => ({
+    t: (key, params) => translateWith(dictionaries.lo, key, params),
+    intl: "lo-LA",
+    date: "2026-10-03",
+    draws: [lao],
+    exportedAt: new Date("2026-10-03T12:00:00Z"),
+    percents: { left: 15, right: 30 },
+    outstanding: { lak: 0, thb: 0 },
+    ...overrides,
+  });
+  const line = (lines: SheetLine[], label: string) => lines.find((item) => item.label === label)!;
+  const sheetOptions = optionsFor({ title: "sheet" } as ExportTable);
 
-  test("รวม → หักเปอร์เซ็นต์ที่ตั้งได้ → เหลือ → หักยอดถูก × อัตราจ่าย → ส่งแม่ · ตารางล่าง 00–99 มี 3 คอลัมน์", () => {
-    const sheet = buildSettlementSheet(sheetInput(30, { rate2Top: 0, rate2Bottom: 2, rate3Top: 0 }));
-    const row = (label: string) => sheet.summary.find((item) => item.label === label)!;
+  test("ได้ตัวเลขเดียวกับใบจริง: ขวา 447,070 × 30% → 312,949 · หักยอดถูก → เหลือ / ส่งแม่ 4,669 กีบ 34,059 บาท", () => {
+    const sheet = buildSettlementSheet(sheetInput());
 
-    expect(row("รวม")).toMatchObject({ lak: 1_050_000, thb: 200 });
-    expect(row("เปอร์เซ็นต์")).toMatchObject({ lak: "30%", thb: "30%" });
-    expect(row("เหลือ")).toMatchObject({ lak: 735_000, thb: 140 });
-    // 2 ตัวล่าง "32" แทง 100,000 × อัตรา 2 · 3 ตัว "243" ไม่ตั้งอัตรา = ยอดแทงจริง
-    expect(row("ถูก 2 ตัว")).toMatchObject({ lak: 200_000, thb: 0 });
-    expect(row("ถูก 3 ตัว")).toMatchObject({ lak: 150_000, thb: 0 });
-    expect(row("ส่งแม่")).toMatchObject({ lak: 385_000, thb: 140, style: "final" });
+    expect(sheet.left.map((item) => item.label)).toEqual(["V3", "V4", "V8", "V9", "ລວມ", "ເປີເຊັນ", "ເຫຼືອ"]);
+    expect(sheet.right.map((item) => item.label)).toEqual(["V5", "V6", "V7", "LAO", "THAI", "ລວມ", "ເປີເຊັນ", "ເຫຼືອ"]);
+    expect(line(sheet.right, "LAO")).toMatchObject({ lak: 447_070, thb: 302_656 });
+    expect(line(sheet.right, "ເປີເຊັນ")).toMatchObject({ lak: "30%", thb: "30%" });
+    expect(line(sheet.right, "ເຫຼືອ")).toMatchObject({ lak: 312_949, thb: 211_859 });
+    expect(line(sheet.left, "ເປີເຊັນ")).toMatchObject({ lak: "15%" });
+    expect(line(sheet.left, "ເຫຼືອ")).toMatchObject({ lak: 0, thb: 0 });
 
-    expect(sheet.tableHeader).toEqual(["ลำดับ", "กีบ", "บาท"]);
-    expect(sheet.rows).toHaveLength(100);
-    expect(sheet.rows[32]).toEqual(["32", 400_000, 0]);
-    expect(sheet.rows[72]).toEqual(["72", 500_000, 200]);
-    expect(sheet.tableTotal).toEqual(["รวม", 900_000, 200]);
-
-    expect(buildSettlementSheet(sheetInput(15)).summary[2]).toMatchObject({ lak: 892_500, thb: 170 });
+    expect(sheet.result.map((item) => [item.label, item.lak, item.thb])).toEqual([
+      ["ຖືກ 2ໂຕ", 304_780, 177_800],
+      ["ຖືກ 3ໂຕ", 3_500, 0],
+      ["ເຫຼືອ", 4_669, 34_059],
+      ["ຄ້າງ", 0, 0],
+      ["ສົ່ງແມ່", 4_669, 34_059],
+    ]);
   });
 
-  test("เปอร์เซ็นต์จาก URL: ค่าเริ่มต้น 30 · ตัดให้อยู่ใน 0–100", () => {
-    expect(toPercent(null)).toBe(30);
-    expect(toPercent("abc")).toBe(30);
-    expect(toPercent("25")).toBe(25);
-    expect(toPercent("12.5")).toBe(12.5);
-    expect(toPercent("150")).toBe(100);
-    expect(toPercent("-5")).toBe(0);
+  test("หลายงวดในวันเดียว: หวยเวียดนามลงกล่องซ้ายตามรอบ · เปอร์เซ็นต์แยกกล่อง · ค้างบวกเข้ายอดส่งแม่", () => {
+    const v3 = { name: "V3 ງວດ 03/10/2026", lottery: "V3" as const, keys: null, rates: noRates, stakes: [stake("12", "TOP", "LAK", 100_000)] };
+    const v8 = { name: "V8 ງວດ 03/10/2026", lottery: "V8" as const, keys: null, rates: noRates, stakes: [stake("12", "TOP", "LAK", 20_000)] };
+    const sheet = buildSettlementSheet(
+      sheetInput({ draws: [lao, v3, v8], percents: { left: 10, right: 30 }, outstanding: { lak: 1_000, thb: -59 } }),
+    );
+
+    expect(line(sheet.left, "V3")).toMatchObject({ lak: 100_000 });
+    expect(line(sheet.left, "V8")).toMatchObject({ lak: 20_000 });
+    expect(line(sheet.left, "ລວມ")).toMatchObject({ lak: 120_000 });
+    expect(line(sheet.left, "ເຫຼືອ")).toMatchObject({ lak: 108_000 });
+    // เหลือ = 108,000 + 312,949 − 304,780 − 3,500 · ส่งแม่ = เหลือ + ค้าง
+    expect(sheet.result[2]).toMatchObject({ lak: 112_669, thb: 34_059 });
+    expect(sheet.result[4]).toMatchObject({ lak: 113_669, thb: 34_000 });
+    expect(sheet.meta[0]).toContain("V3 ງວດ 03/10/2026");
+    // ตารางล่างรวมเลข 2 ตัวของทุกงวดในวัน
+    expect(sheet.rows[12]).toEqual(["12", 258_790, 124_856]);
+    expect(sheet.tableHeader).toEqual(["ລ/ດ", "ກີບ", "ບາດ"]);
   });
 
-  test("Excel: กล่องสรุป + ตาราง 3 คอลัมน์ ค่าเป็นตัวเลขจริง", async () => {
+  test("อัตราจ่ายของงวด (ถ้าตั้งไว้) คูณยอดถูก", () => {
+    const sheet = buildSettlementSheet(sheetInput({ draws: [{ ...lao, rates: { rate2Top: 2, rate2Bottom: 0, rate3Top: 0 } }] }));
+    expect(sheet.result[0]).toMatchObject({ lak: 609_560, thb: 355_600 });
+  });
+
+  test("ค่าจาก URL: เปอร์เซ็นต์ตัดให้อยู่ใน 0–100 (อ่านไม่ได้ = ค่าเริ่มต้น) · ยอดค้างอ่านไม่ได้ = 0", () => {
+    expect(toPercent(null, 15)).toBe(15);
+    expect(toPercent("abc", 30)).toBe(30);
+    expect(toPercent("12.5", 30)).toBe(12.5);
+    expect(toPercent("150", 30)).toBe(100);
+    expect(toPercent("-5", 30)).toBe(0);
+    expect(toAmount("1,500")).toBe(1500);
+    expect(toAmount("-20")).toBe(-20);
+    expect(toAmount(null)).toBe(0);
+  });
+
+  test("Excel: สองกล่องข้างกัน + ส่วนผลใต้กล่องซ้าย + ตาราง 3 คอลัมน์ · ลาว = Phetsarath OT · ตัวเลข = Times New Roman", async () => {
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load((await sheetToXlsx(buildSettlementSheet(sheetInput(30)), sheetOptions)) as unknown as ArrayBuffer);
+    await workbook.xlsx.load((await sheetToXlsx(buildSettlementSheet(sheetInput()), sheetOptions)) as unknown as ArrayBuffer);
     const ws = workbook.worksheets[0]!;
-    const values = (r: number) => [1, 2, 3].map((c) => ws.getCell(r, c).value);
-    const find = (label: string) => {
-      for (let r = 1; r <= ws.rowCount; r++) if (ws.getCell(r, 1).value === label) return r;
+    const find = (col: number, label: string) => {
+      for (let r = 1; r <= ws.rowCount; r++) if (ws.getCell(r, col).value === label) return r;
       throw new Error(label);
     };
 
-    expect(values(find("รวม"))).toEqual(["รวม", 1_050_000, 200]);
-    expect(values(find("ส่งแม่"))).toEqual(["ส่งแม่", 735_000 - 100_000 - 150_000, 140]);
-    expect(values(find("ลำดับ"))).toEqual(["ลำดับ", "กีบ", "บาท"]);
-    expect(values(find("72"))).toEqual(["72", 500_000, 200]);
-    expect(values(find("00"))).toEqual(["00", null, null]);
-    expect(ws.columnCount).toBe(3);
+    const lao = find(5, "LAO");
+    expect([ws.getCell(lao, 6).value, ws.getCell(lao, 7).value]).toEqual([447_070, 302_656]);
+    const send = find(1, "ສົ່ງແມ່");
+    expect([ws.getCell(send, 2).value, ws.getCell(send, 3).value]).toEqual([4_669, 34_059]);
+    expect(ws.getCell(send, 2).font.underline).toBe("double");
+    expect(ws.getCell(find(1, "V3"), 2).numFmt).toContain('"-"'); // ศูนย์แสดง -
+
+    expect(ws.getCell(send, 1).font.name).toBe("Phetsarath OT");
+    expect(ws.getCell(send, 2).font.name).toBe("Times New Roman");
+    expect(ws.getCell(find(5, "LAO"), 5).font.name).toBe("Times New Roman");
+    expect(ws.getCell(find(1, "72"), 2).value).toBeNull();
+    // ช่องที่มีทั้งตัวลาวและตัวเลข → rich text แยกฟอนต์ตามช่วง
+    const title = ws.getCell(1, 1).value as { richText: { text: string; font: { name: string } }[] };
+    expect(title.richText.find((run) => run.text.includes("2026"))!.font.name).toBe("Times New Roman");
+    expect(title.richText.find((run) => run.text.includes("ໃບ"))!.font.name).toBe("Phetsarath OT");
   });
 
   test("PDF: สร้างได้พร้อมฟอนต์ลาว", async () => {
-    const base = sheetInput(30);
-    const file = await sheetToPdf(
-      buildSettlementSheet({ ...base, t: (key, params) => translateWith(dictionaries.lo, key, params) }),
-      sheetOptions,
-    );
+    const file = await sheetToPdf(buildSettlementSheet(sheetInput()), sheetOptions);
     const text = file.toString("latin1");
     expect(text.startsWith("%PDF-")).toBe(true);
     expect(text).toContain("NotoSansLao");

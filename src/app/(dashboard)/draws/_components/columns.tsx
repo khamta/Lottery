@@ -17,6 +17,7 @@ import {
 import { toRoute } from "@/lib/query";
 import { formatDate } from "@/lib/utils";
 import { formatNumber } from "@/lottery/format";
+import { lotteryLabel } from "@/lottery/labels";
 import { statusKey, type DrawRow } from "../types";
 
 type ColumnOptions = {
@@ -43,6 +44,17 @@ export function getDrawColumns({ t, intl, onEdit, onSetStatus, onDelete }: Colum
       header: t("draws.name"),
       enableSorting: true,
       cell: ({ row }) => <p className="min-w-32 font-medium">{row.original.name}</p>,
+    },
+    {
+      id: "lottery",
+      accessorKey: "lottery",
+      header: t("lottery.lotteryType"),
+      enableSorting: true,
+      cell: ({ row }) => (
+        <Badge variant="outline" className="whitespace-nowrap">
+          {lotteryLabel(row.original.lottery, t)}
+        </Badge>
+      ),
     },
     {
       id: "drawDate",

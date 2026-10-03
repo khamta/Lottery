@@ -1,9 +1,11 @@
 import type { DrawStatusValue } from "@/lib/validations/draw";
+import type { LotteryTypeValue } from "@/lottery/labels";
 
 /** รูปแบบข้อมูลที่ส่งจาก server ไป client (Date -> string) */
 export type DrawRow = {
   id: string;
   name: string;
+  lottery: LotteryTypeValue;
   /** YYYY-MM-DD */
   drawDate: string;
   status: DrawStatusValue;
@@ -14,7 +16,7 @@ export type DrawRow = {
 };
 
 /** คอลัมน์ที่ยอมให้เรียงได้ — ชื่อต้องตรงกับ field ใน Prisma */
-export const DRAW_SORTABLE = ["name", "drawDate", "status", "updatedAt"] as const;
+export const DRAW_SORTABLE = ["name", "lottery", "drawDate", "status", "updatedAt"] as const;
 
 /** สถานะ -> คีย์ i18n (ห้ามเก็บข้อความตรง ๆ เพราะระบบรองรับ 4 ภาษา) */
 export const statusKey: Record<DrawStatusValue, string> = {

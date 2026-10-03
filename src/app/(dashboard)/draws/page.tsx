@@ -35,6 +35,7 @@ export default async function DrawsPage({ searchParams }: PageProps) {
     {
       id: string;
       name: string;
+      lottery: DrawRow["lottery"];
       drawDate: Date;
       status: DrawRow["status"];
       topResult: string | null;
@@ -49,6 +50,7 @@ export default async function DrawsPage({ searchParams }: PageProps) {
     select: {
       id: true,
       name: true,
+      lottery: true,
       drawDate: true,
       status: true,
       topResult: true,

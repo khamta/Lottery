@@ -1,5 +1,6 @@
 import type { DrawStatusValue } from "@/lib/validations/draw";
 import { formatDate } from "@/lib/utils";
+import { isoToDate } from "@/lottery/date";
 import { formatNumber } from "@/lottery/format";
 import { currencyKey, digitsKey, positionKey } from "@/lottery/labels";
 import type { Currency, Position } from "@/lottery/parser";
@@ -19,11 +20,13 @@ import {
   resolveLimit,
   sumTwoDigit,
   type LimitRule,
-  type PayoutRates,
+  type MoneyPair,
+  type Settlement,
+  type SettlementDraw,
   type StakeGroup,
   type WinningKey,
 } from "@/lottery/report";
-import type { ExportCell, ExportColumn, ExportTable, SheetExport } from "@/lottery/table-export";
+import type { ExportCell, ExportColumn, ExportTable, SheetExport, SheetLine } from "@/lottery/table-export";
 import { statusKey } from "../draws/types";
 import { billGroupName, viewKey, type ReportView, type TopOption } from "./types";
 
@@ -271,38 +274,48 @@ export function buildReportTable(input: ReportExportInput): ExportTable {
 export type SettlementExportInput = {
   t: ReportExportInput["t"];
   intl: string;
-  draw: { name: string; status: DrawStatusValue };
-  keys: WinningKey[] | null;
+  /** วันที่ของใบ (YYYY-MM-DD) — ใบหนึ่งรวมทุกงวดของวันนั้น (หวยเวียดนามหลายรอบ + ลาว + ไทย) */
+  date: string;
+  /** งวดของวันนั้น พร้อมชื่อไว้แสดงในหัวใบ */
+  draws: (SettlementDraw & { name: string })[];
   exportedAt: Date;
-  stakes: StakeGroup[];
-  rates: PayoutRates;
-  /** เปอร์เซ็นต์ที่หักจากยอดรวม (ผู้ใช้ตั้งเองตอนส่งออก) */
-  percent: number;
+  /** เปอร์เซ็นต์ที่หักของกล่องซ้าย (V3 V4 V8 V9) / กล่องขวา (V5 V6 V7 ลาว ไทย) — ผู้ใช้ตั้งเองตอนส่งออก */
+  percents: { left: number; right: number };
+  /** ยอดค้าง (ผู้ใช้กรอกเองตอนส่งออก) */
+  outstanding: MoneyPair;
 };
 
-/** ใบสรุปส่งแม่หวย: รวม → เปอร์เซ็นต์ → เหลือ → ถูก 2 ตัว / 3 ตัว → ส่งแม่ + ตารางเลข 00–99 (ลำดับ · กีบ · บาท) */
+/** ใบสรุปส่งแม่ของทั้งวัน: สองกล่องตามประเภทหวย → ถูก 2 ตัว / 3 ตัว → เหลือ → ค้าง → ส่งแม่ + ตารางเลข 00–99 */
 export function buildSettlementSheet(input: SettlementExportInput): SheetExport {
-  const { t, intl, draw, keys } = input;
-  const s = buildSettlement(input.stakes, keys, input.rates, input.percent);
-  const result = keys
-    ? t("reports.result", { top: keys[0]!.number, top2: keys[1]!.number, bottom: keys[2]!.number })
-    : t("reports.noResultYet");
-  const percent = `${formatNumber(s.percent, intl)}%`;
+  const { t, intl } = input;
+  const s = buildSettlement(input.draws, input.percents, input.outstanding);
+  const percent = (value: number) => `${formatNumber(value, intl)}%`;
+
+  const box = (part: Settlement["left"]): SheetLine[] => [
+    ...part.lines.map((line) => ({ label: line.lottery, lak: line.amount.lak, thb: line.amount.thb })),
+    { label: t("reports.sheetTotal"), lak: part.total.lak, thb: part.total.thb, style: { fill: true, underline: "single" } },
+    { label: t("reports.sheetPercent"), lak: percent(part.percent), thb: percent(part.percent), style: { fill: true } },
+    { label: t("reports.sheetNet"), lak: part.net.lak, thb: part.net.thb, style: { fill: true, underline: "single" } },
+  ];
+  const red = { red: true } as const;
 
   return {
-    title: `${t("reports.sheetTitle")} — ${draw.name}`,
+    title: `${t("reports.sheetTitle")} — ${formatDate(isoToDate(input.date), intl, "date")}`,
     meta: [
-      `${t(statusKey[draw.status])} · ${result}`,
+      input.draws.length
+        ? `${t("reports.sheetDraws")}: ${input.draws.map((draw) => draw.name).join(" · ")}`
+        : t("reports.sheetNoDraws"),
       `${t("reports.exportedAt")}: ${formatDate(input.exportedAt, intl)}`,
     ],
-    summaryHeader: ["", t("lottery.currencyLAK"), t("lottery.currencyTHB")],
-    summary: [
-      { label: t("reports.sheetTotal"), lak: s.total.lak, thb: s.total.thb, style: "total" },
-      { label: t("reports.sheetPercent"), lak: percent, thb: percent },
-      { label: t("reports.sheetNet"), lak: s.net.lak, thb: s.net.thb, style: "total" },
-      { label: t("reports.sheetWin2"), lak: s.win2.lak, thb: s.win2.thb, style: "result" },
-      { label: t("reports.sheetWin3"), lak: s.win3.lak, thb: s.win3.thb, style: "result" },
-      { label: t("reports.sheetSend"), lak: s.send.lak, thb: s.send.thb, style: "final" },
+    header: ["", t("lottery.currencyLAK"), t("lottery.currencyTHB")],
+    left: box(s.left),
+    right: box(s.right),
+    result: [
+      { label: t("reports.sheetWin2"), lak: s.win2.lak, thb: s.win2.thb, style: red },
+      { label: t("reports.sheetWin3"), lak: s.win3.lak, thb: s.win3.thb, style: red },
+      { label: t("reports.sheetNet"), lak: s.remain.lak, thb: s.remain.thb, style: { underline: "single" } },
+      { label: t("reports.sheetOutstanding"), lak: s.outstanding.lak, thb: s.outstanding.thb },
+      { label: t("reports.sheetSend"), lak: s.send.lak, thb: s.send.thb, style: { fill: true, red: true, bold: true, underline: "double" } },
     ],
     tableHeader: [t("reports.sheetSeq"), t("lottery.currencyLAK"), t("lottery.currencyTHB")],
     tableTotal: [t("reports.sheetTotal"), s.rowsTotal.lak, s.rowsTotal.thb],

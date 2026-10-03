@@ -48,6 +48,7 @@ export function DrawsView({ page }: { page: Paginated<DrawRow> }) {
     const results = { topResult: values.topResult || null, bottomResult: values.bottomResult || null };
     const shared = {
       name: values.name,
+      lottery: values.lottery,
       drawDate: values.drawDate,
       ...results,
       updatedAt: new Date().toISOString(),

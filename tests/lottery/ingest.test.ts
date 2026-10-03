@@ -19,7 +19,7 @@ import {
 type Row = Record<string, unknown>;
 
 const state = {
-  draws: [] as Array<{ id: string; dealerId: string; status: string; drawDate: Date; createdAt: Date }>,
+  draws: [] as Array<{ id: string; dealerId: string; status: string; drawDate: Date; createdAt: Date; lottery?: string }>,
   customers: [] as Array<{ id: string; dealerId: string; phone: string; lakMultiplier: number }>,
   tickets: new Map<string, Row>(),
   bets: [] as Row[],
@@ -51,9 +51,12 @@ const tx = {
   },
   draw: {
     // งวดที่เปิดรับล่าสุดของแม่หวย
-    findFirst: async ({ where }: { where: { dealerId: string; status: string } }) =>
+    findFirst: async ({ where }: { where: { dealerId: string; status: string; lottery: string } }) =>
       state.draws
-        .filter((draw) => draw.dealerId === where.dealerId && draw.status === where.status)
+        .filter(
+          (draw) =>
+            draw.dealerId === where.dealerId && draw.status === where.status && (draw.lottery ?? "LAO") === where.lottery,
+        )
         .sort((a, b) => +b.drawDate - +a.drawDate)[0] ?? null,
   },
   customer: {
@@ -275,6 +278,27 @@ describe("ingestMessage", () => {
       ["BNO260930151507", "group-1"],
       ["BNO260930151508", "group-2"],
     ]);
+  });
+});
+
+describe("หวยเวียดนาม — วันเดียวเปิดหลายงวด", () => {
+  test("ข้อความลงงวดที่เปิดรับของประเภทเดียวกับกลุ่ม · กลุ่มไม่ระบุประเภท = หวยลาว", async () => {
+    state.draws.push(
+      { id: "draw-v3", dealerId: "dealer-1", status: "OPEN", drawDate: new Date("2026-09-30"), createdAt: DRAW_OPENED_AT, lottery: "V3" },
+      { id: "draw-v4", dealerId: "dealer-1", status: "OPEN", drawDate: new Date("2026-09-30"), createdAt: DRAW_OPENED_AT, lottery: "V4" },
+    );
+
+    await ingestMessage(db, message("wa-v3", "32=300", { lottery: "V3" }));
+    await ingestMessage(db, message("wa-v4", "45=100", { lottery: "V4" }));
+    await ingestMessage(db, message("wa-lao", "12=100"));
+
+    expect([...state.tickets.values()].map((ticket) => ticket.drawId)).toEqual(["draw-v3", "draw-v4", "draw-1"]);
+  });
+
+  test("ไม่มีงวดเปิดของประเภทนั้น = ไม่นำเข้า (ไม่ไปลงงวดของหวยอื่น)", async () => {
+    const result = await ingestMessage(db, message("wa-v5", "32=300", { lottery: "V5" }));
+    expect(result).toMatchObject({ action: "skipped", reason: "no-open-draw" });
+    expect(state.tickets.size).toBe(0);
   });
 });
 

@@ -24,10 +24,12 @@ import {
 } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { siteConfig } from "@/config/site";
 import { drawSchema, type DrawInput } from "@/lib/validations/draw";
 import { useI18n } from "@/i18n/client";
 import { isoToDisplay, todayIso } from "@/lottery/date";
+import { LOTTERY_TYPES, lotteryLabel, type LotteryTypeValue } from "@/lottery/labels";
 import type { DrawRow } from "../types";
 
 /**
@@ -48,8 +50,25 @@ export function DrawDialog({ open, onOpenChange, draw, onSubmit }: DrawDialogPro
 
   const form = useForm<DrawInput>({
     resolver: zodResolver(drawSchema),
-    defaultValues: { name: "", drawDate: "", topResult: "", bottomResult: "" },
+    defaultValues: { name: "", lottery: "LAO", drawDate: "", topResult: "", bottomResult: "" },
   });
+
+  /** ชื่อตั้งต้นของงวด — หวยเวียดนามวันเดียวมีหลายงวด จึงมีรหัสรอบนำหน้า (ชื่องวดห้ามซ้ำในแม่หวยเดียวกัน) */
+  const autoName = React.useCallback(
+    (lottery: LotteryTypeValue, iso: string) => {
+      const name = t("draws.defaultName", { date: isoToDisplay(iso) });
+      return lottery === "LAO" ? name : `${lottery} ${name}`;
+    },
+    [t],
+  );
+
+  /** เปลี่ยนประเภทหวย/วันที่ของงวดใหม่ → ชื่อตั้งต้นตามไปด้วย (ถ้าผู้ใช้ยังไม่ได้แก้ชื่อเอง) */
+  function followAutoName(next: { lottery?: LotteryTypeValue; drawDate?: string }) {
+    if (isEdit) return;
+    const { lottery, drawDate, name } = form.getValues();
+    if (name !== autoName(lottery, drawDate)) return;
+    form.setValue("name", autoName(next.lottery ?? lottery, next.drawDate ?? drawDate));
+  }
 
   // sync ค่าเมื่อเปิด dialog (เพิ่มใหม่ = งวดของวันนี้, แก้ไข = เติมค่าเดิม)
   React.useEffect(() => {
@@ -59,18 +78,20 @@ export function DrawDialog({ open, onOpenChange, draw, onSubmit }: DrawDialogPro
       draw
         ? {
             name: draw.name,
+            lottery: draw.lottery,
             drawDate: draw.drawDate,
             topResult: draw.topResult ?? "",
             bottomResult: draw.bottomResult ?? "",
           }
         : {
-            name: t("draws.defaultName", { date: isoToDisplay(today) }),
+            name: autoName("LAO", today),
+            lottery: "LAO",
             drawDate: today,
             topResult: "",
             bottomResult: "",
           },
     );
-  }, [open, draw, form, t]);
+  }, [open, draw, form, autoName]);
 
   // zod ตรวจฝั่ง client แล้วค่อยส่งต่อ — server ตรวจซ้ำอีกชั้นเสมอ
   function handleValid(values: DrawInput) {
@@ -87,6 +108,38 @@ export function DrawDialog({ open, onOpenChange, draw, onSubmit }: DrawDialogPro
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleValid)} className="grid gap-4">
+            <FormField
+              control={form.control}
+              name="lottery"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("lottery.lotteryType")}</FormLabel>
+                  <Select
+                    value={field.value}
+                    onValueChange={(value) => {
+                      followAutoName({ lottery: value as LotteryTypeValue });
+                      field.onChange(value);
+                    }}
+                  >
+                    <FormControl>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {LOTTERY_TYPES.map((type) => (
+                        <SelectItem key={type} value={type}>
+                          {lotteryLabel(type, t)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>{t("draws.lotteryHint")}</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
@@ -108,7 +161,14 @@ export function DrawDialog({ open, onOpenChange, draw, onSubmit }: DrawDialogPro
                   <FormItem>
                     <FormLabel>{t("draws.drawDate")}</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} />
+                      <Input
+                        type="date"
+                        {...field}
+                        onChange={(event) => {
+                          followAutoName({ drawDate: event.target.value });
+                          field.onChange(event);
+                        }}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

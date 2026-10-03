@@ -123,6 +123,7 @@ export async function tableToXlsx(table: ExportTable, options: ExportOptions): P
     sheet.autoFilter = { from: { row: headerRow, column: 1 }, to: { row: headerRow, column: table.columns.length } };
   }
 
+  applyXlsxFonts(sheet);
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
@@ -345,23 +346,32 @@ export async function tableToPdf(table: ExportTable, options: ExportOptions): Pr
 // ──────────────────────────── ใบสรุปส่งแม่หวย ────────────────────────────
 
 /**
- * รูปแบบ "ใบสรุป" (เหมือนใบที่เขียนใน Excel เอง): กล่องสรุปยอด กีบ/บาท ด้านบน
- * + ตารางเลข 3 คอลัมน์ (ลำดับ · กีบ · บาท) ด้านล่าง — ข้อความแปลแล้วทั้งหมด ไฟล์นี้แค่จัดวาง
+ * รูปแบบ "ใบสรุป" (เหมือนใบที่แม่หวยเขียนใน Excel เอง)
+ *  ┌ กล่องซ้าย (V3 V4 V8 V9 · ລວມ · ເປີເຊັນ · ເຫຼືອ) ┐   ┌ กล่องขวา (V5 V6 V7 LAO THAI · ລວມ · ເປີເຊັນ · ເຫຼືອ) ┐
+ *  └ ใต้กล่องซ้าย: ຖືກ 2ໂຕ · ຖືກ 3ໂຕ · ເຫຼືອ · ຄ້າງ · ສົ່ງແມ່ ┘
+ *  ด้านล่าง: ตารางเลข 3 คอลัมน์ (ລ/ດ · ກີບ · ບາດ)
+ * ข้อความแปลแล้วทั้งหมด ไฟล์นี้แค่จัดวาง
  */
-export type SheetSummaryRow = {
-  label: string;
-  lak: ExportValue;
-  thb: ExportValue;
-  /** total = แถวรวม (พื้นสี) · result = ยอดถูก/ส่งแม่ (ตัวแดง) · final = ยอดส่งแม่ (ตัวแดงหนา พื้นสี) */
-  style?: "total" | "result" | "final";
+export type SheetStyle = {
+  /** พื้นสีเขียวอ่อน (แถวรวม / หัวตาราง) */
+  fill?: boolean;
+  red?: boolean;
+  bold?: boolean;
+  /** เส้นใต้ตัวเลข: single = ยอดรวม · double = ยอดส่งแม่ */
+  underline?: "single" | "double";
 };
+
+export type SheetLine = { label: string; lak: ExportValue; thb: ExportValue; style?: SheetStyle };
 
 export type SheetExport = {
   title: string;
   meta: string[];
   /** หัวคอลัมน์ของกล่องสรุป: [ว่าง, กีบ, บาท] */
-  summaryHeader: [string, string, string];
-  summary: SheetSummaryRow[];
+  header: [string, string, string];
+  left: SheetLine[];
+  right: SheetLine[];
+  /** ใต้กล่องซ้าย: ยอดถูก → เหลือ → ค้าง → ส่งแม่ */
+  result: SheetLine[];
   /** หัวคอลัมน์ของตารางล่าง: [ลำดับ, กีบ, บาท] */
   tableHeader: [string, string, string];
   /** แถวรวมเหนือรายการ (เหมือนในใบ) */
@@ -371,14 +381,41 @@ export type SheetExport = {
 
 const SHEET_FILL = "FFE2EFDA";
 const SHEET_RED = "FFDC2626";
+/** ฟอนต์ของไฟล์ Excel: ข้อความลาว = Phetsarath OT · ตัวเลขและตัวอื่น = Times New Roman */
+export const XLSX_FONTS = { lao: "Phetsarath OT", other: "Times New Roman" } as const;
+
+/**
+ * ตั้งฟอนต์ทุกช่องของชีต (ใช้กับไฟล์ Excel ทุกแบบ) — ช่องที่มีทั้งตัวลาวและตัวเลข/ละตินแบ่งเป็น rich text
+ * ให้แต่ละช่วงได้ฟอนต์ของตัวเอง โดยคงขนาด/ตัวหนา/สี/เส้นใต้เดิมของช่องไว้
+ */
+export function applyXlsxFonts(sheet: ExcelJS.Worksheet) {
+  sheet.eachRow({ includeEmpty: false }, (row) => {
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      const font = cell.font ?? {};
+      const value = cell.value;
+      if (typeof value !== "string" || !LAO.test(value)) {
+        cell.font = { ...font, name: XLSX_FONTS.other };
+        return;
+      }
+      const runs = splitRuns(value);
+      cell.font = { ...font, name: XLSX_FONTS.lao };
+      if (runs.length > 1) {
+        cell.value = {
+          richText: runs.map((run) => ({ text: run.text, font: { ...font, name: run.lao ? XLSX_FONTS.lao : XLSX_FONTS.other } })),
+        };
+      }
+    });
+  });
+}
 
 export async function sheetToXlsx(sheet: SheetExport, options: ExportOptions): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   workbook.created = options.exportedAt;
-  const ws = workbook.addWorksheet(options.sheetName.replace(/[:\/?*[\]]/g, " ").slice(0, 31), {
+  const ws = workbook.addWorksheet(options.sheetName.replace(/[:\\/?*[\]]/g, " ").slice(0, 31), {
     pageSetup: { fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 },
   });
-  ws.columns = [{ width: 16 }, { width: 18 }, { width: 18 }];
+  // กล่องซ้าย A–C · ช่องว่าง D · กล่องขวา E–G
+  ws.columns = [{ width: 12 }, { width: 16 }, { width: 16 }, { width: 4 }, { width: 12 }, { width: 16 }, { width: 16 }];
 
   ws.getCell(1, 1).value = sheet.title;
   ws.getCell(1, 1).font = { bold: true, size: 14 };
@@ -390,42 +427,46 @@ export async function sheetToXlsx(sheet: SheetExport, options: ExportOptions): P
   const border = { style: "thin" as const, color: { argb: "FF9CA3AF" } };
   const box = { top: border, bottom: border, left: border, right: border };
   const fill = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: SHEET_FILL } };
+  // ศูนย์ในกล่องสรุปแสดง "-" (เหมือนรูปแบบบัญชีใน Excel) แต่ยังเป็นตัวเลขจริง
+  const summaryFormat = (value: number) => (Number.isInteger(value) ? '#,##0;-#,##0;"-"' : '#,##0.00;-#,##0.00;"-"');
 
-  const put = (values: ExportValue[], style: { fill?: boolean; bold?: boolean; red?: boolean; underline?: boolean } = {}) => {
-    const row = ws.addRow(values.map((value) => (value === 0 ? null : value)));
-    for (let column = 1; column <= 3; column++) {
-      const cell = row.getCell(column);
-      const value = values[column - 1];
-      if (typeof value === "number") cell.numFmt = numberFormat(value);
+  /** เขียน 3 ช่อง (ป้าย · กีบ · บาท) ที่แถว row เริ่มคอลัมน์ col */
+  const put = (row: number, col: number, values: ExportValue[], style: SheetStyle = {}, zero: "dash" | "blank" = "dash") => {
+    values.forEach((value, index) => {
+      const cell = ws.getCell(row, col + index);
+      cell.value = zero === "blank" && value === 0 ? null : value;
+      if (typeof value === "number") cell.numFmt = zero === "dash" ? summaryFormat(value) : numberFormat(value);
       cell.border = box;
-      cell.alignment = { horizontal: column === 1 ? "center" : "right" };
+      cell.alignment = { horizontal: index === 0 ? "center" : "right", vertical: "middle" };
       cell.font = {
         bold: style.bold,
-        underline: style.underline && column > 1 ? "double" : undefined,
+        underline: index > 0 && style.underline ? (style.underline === "double" ? "double" : true) : undefined,
+        size: style.underline === "double" ? 13 : undefined,
         ...(style.red ? { color: { argb: SHEET_RED } } : {}),
       };
       if (style.fill) cell.fill = fill;
-    }
-    return row;
-  };
-
-  ws.addRow([]);
-  put(sheet.summaryHeader, { fill: true, bold: true });
-  for (const row of sheet.summary) {
-    put([row.label, row.lak, row.thb], {
-      fill: row.style === "total" || row.style === "final",
-      bold: row.style !== undefined,
-      red: row.style === "result" || row.style === "final",
-      underline: row.style === "final",
     });
-  }
+  };
+  const putLines = (row: number, col: number, lines: SheetLine[]) =>
+    lines.forEach((line, index) => put(row + index, col, [line.label, line.lak, line.thb], line.style));
 
-  ws.addRow([]);
-  const headerRow = put(sheet.tableHeader, { fill: true, bold: true }).number;
-  put(sheet.tableTotal, { fill: true, bold: true, underline: true });
-  for (const row of sheet.rows) put(row);
-  ws.views = [{ state: "frozen", ySplit: headerRow + 1 }];
+  const top = sheet.meta.length + 3;
+  put(top, 1, sheet.header, { fill: true, bold: true });
+  putLines(top + 1, 1, sheet.left);
+  put(top, 5, sheet.header, { fill: true, bold: true });
+  putLines(top + 1, 5, sheet.right);
+  const resultTop = top + 1 + sheet.left.length + 1; // เว้นหนึ่งแถวใต้กล่องซ้าย
+  putLines(resultTop, 1, sheet.result);
+  const lastSummary = ws.getRow(resultTop + sheet.result.length - 1);
+  lastSummary.height = 24; // แถวส่งแม่ตัวใหญ่
 
+  const tableTop = Math.max(resultTop + sheet.result.length, top + 1 + sheet.right.length) + 1;
+  put(tableTop, 1, sheet.tableHeader, { fill: true, bold: true });
+  put(tableTop + 1, 1, sheet.tableTotal, { fill: true, bold: true, underline: "single" }, "blank");
+  sheet.rows.forEach((row, index) => put(tableTop + 2 + index, 1, row, {}, "blank"));
+  ws.views = [{ state: "frozen", ySplit: tableTop + 1 }];
+
+  applyXlsxFonts(ws);
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
@@ -449,8 +490,9 @@ export async function sheetToPdf(sheet: SheetExport, options: ExportOptions): Pr
 
   const left = PAGE.margin;
   const pageWidth = doc.page.width - PAGE.margin * 2;
-  const widths = [110, 120, 120];
+  const widths = [72, 89, 89];
   const boxWidth = widths.reduce((sum, width) => sum + width, 0);
+  const rightX = left + pageWidth - boxWidth;
   const rowHeight = 17;
   const pad = 6;
   const RED = TONE.danger;
@@ -470,52 +512,57 @@ export async function sheetToPdf(sheet: SheetExport, options: ExportOptions): Pr
   }
   y += 8;
 
-  function drawRow(values: ExportValue[], style: { fill?: boolean; bold?: boolean; red?: boolean; underline?: boolean } = {}) {
-    if (style.fill) doc.rect(left, y, boxWidth, rowHeight).fill(FILL);
-    let x = left;
+  /** วาดหนึ่งแถว (ป้าย · กีบ · บาท) ที่ตำแหน่ง x, rowY — zero: ศูนย์แสดง "-" หรือเว้นว่าง */
+  function drawRow(x0: number, rowY: number, values: ExportValue[], style: SheetStyle = {}, zero: "dash" | "blank" = "dash") {
+    if (style.fill) doc.rect(x0, rowY, boxWidth, rowHeight).fill(FILL);
+    let x = x0;
     values.forEach((value, index) => {
       const width = widths[index]!;
-      const text = value === 0 ? "-" : display(value, intl);
-      const align = index === 0 ? "left" : "right";
+      const text = value === 0 ? (zero === "dash" ? "-" : "") : display(value, intl);
       const [line] = wrap(doc, { text, bold: style.bold, tone: style.red ? "danger" : undefined }, width - pad * 2, 1);
-      if (line) {
+      if (line && line.text) {
         // คอลัมน์แรก (ป้าย/ลำดับ) จัดกลาง · ตัวเลขชิดขวา
         const textX = index === 0 ? x + Math.max(pad, (width - widthOf(doc, line.text, style.bold)) / 2) : x + pad;
-        drawLine(doc, line, textX, y + 0.5, width - pad * 2, align);
-        if (style.underline && index > 0 && value !== null && value !== 0) {
+        drawLine(doc, line, textX, rowY + 0.5, width - pad * 2, index === 0 ? "left" : "right");
+        if (style.underline && index > 0 && value !== 0) {
           const lineWidth = widthOf(doc, line.text, style.bold);
-          const underY = y + rowHeight - 2;
           doc.lineWidth(0.6).strokeColor(style.red ? RED : COLOR.text);
-          doc.moveTo(x + width - pad - lineWidth, underY).lineTo(x + width - pad, underY).stroke();
+          for (const offset of style.underline === "double" ? [2, 0.5] : [2]) {
+            const underY = rowY + rowHeight - offset;
+            doc.moveTo(x + width - pad - lineWidth, underY).lineTo(x + width - pad, underY).stroke();
+          }
         }
       }
-      doc.rect(x, y, width, rowHeight).lineWidth(0.5).strokeColor("#9ca3af").stroke();
+      doc.rect(x, rowY, width, rowHeight).lineWidth(0.5).strokeColor("#9ca3af").stroke();
       x += width;
     });
+  }
+  const drawLines = (x0: number, startY: number, lines: SheetLine[]) =>
+    lines.forEach((line, index) => drawRow(x0, startY + index * rowHeight, [line.label, line.lak, line.thb], line.style));
+
+  drawRow(left, y, sheet.header, { fill: true, bold: true });
+  drawLines(left, y + rowHeight, sheet.left);
+  drawRow(rightX, y, sheet.header, { fill: true, bold: true });
+  drawLines(rightX, y + rowHeight, sheet.right);
+  const resultY = y + rowHeight * (sheet.left.length + 2);
+  drawLines(left, resultY, sheet.result);
+  y = Math.max(resultY + rowHeight * sheet.result.length, y + rowHeight * (sheet.right.length + 1)) + 16;
+
+  const tableHead = () => {
+    drawRow(left, y, sheet.tableHeader, { fill: true, bold: true });
     y += rowHeight;
-  }
-
-  drawRow(sheet.summaryHeader, { fill: true, bold: true });
-  for (const row of sheet.summary) {
-    drawRow([row.label, row.lak, row.thb], {
-      fill: row.style === "total" || row.style === "final",
-      bold: row.style !== undefined,
-      red: row.style === "result" || row.style === "final",
-      underline: row.style === "final",
-    });
-  }
-
-  y += 16;
-  const tableHead = () => drawRow(sheet.tableHeader, { fill: true, bold: true });
+  };
   tableHead();
-  drawRow(sheet.tableTotal, { fill: true, bold: true, underline: true });
+  drawRow(left, y, sheet.tableTotal, { fill: true, bold: true, underline: "single" }, "blank");
+  y += rowHeight;
   for (const row of sheet.rows) {
     if (y + rowHeight > bottom()) {
       doc.addPage();
       y = PAGE.margin;
       tableHead();
     }
-    drawRow(row);
+    drawRow(left, y, row, {}, "blank");
+    y += rowHeight;
   }
 
   const range = doc.bufferedPageRange();

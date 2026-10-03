@@ -9,6 +9,7 @@ import { DataTable } from "@/components/shared/data-table";
 import { useOptimisticList } from "@/hooks/use-optimistic-list";
 import { useI18n } from "@/i18n/client";
 import type { DealerOption } from "@/lottery/dealer";
+import { LOTTERY_TYPES, lotteryLabel, type LotteryTypeValue } from "@/lottery/labels";
 import type { Paginated } from "@/types";
 import { formatNumber } from "@/lottery/format";
 import { assignWhatsappGroup } from "../../actions";
@@ -28,7 +29,7 @@ function getGroupColumns({
   t: Translate;
   intl: string;
   dealers: DealerOption[];
-  onAssign: (row: WhatsappGroupRow, dealerId: string | null) => void;
+  onAssign: (row: WhatsappGroupRow, change: { dealerId: string | null; lottery: LotteryTypeValue }) => void;
 }): ColumnDef<WhatsappGroupRow>[] {
   return [
     {
@@ -60,7 +61,9 @@ function getGroupColumns({
       cell: ({ row }) => (
         <Select
           value={row.original.dealerId ?? NONE}
-          onValueChange={(value) => onAssign(row.original, value === NONE ? null : value)}
+          onValueChange={(value) =>
+            onAssign(row.original, { dealerId: value === NONE ? null : value, lottery: row.original.lottery })
+          }
         >
           <SelectTrigger className="w-full min-w-44 sm:w-56" aria-label={t("whatsapp.readInto")}>
             <SelectValue />
@@ -70,6 +73,31 @@ function getGroupColumns({
             {dealers.map((dealer) => (
               <SelectItem key={dealer.id} value={dealer.id}>
                 {dealer.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ),
+    },
+    {
+      id: "lottery",
+      header: t("lottery.lotteryType"),
+      enableSorting: false,
+      cell: ({ row }) => (
+        <Select
+          value={row.original.lottery}
+          disabled={!row.original.dealerId}
+          onValueChange={(value) =>
+            onAssign(row.original, { dealerId: row.original.dealerId, lottery: value as LotteryTypeValue })
+          }
+        >
+          <SelectTrigger className="w-full min-w-40 sm:w-52" aria-label={t("lottery.lotteryType")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {LOTTERY_TYPES.map((type) => (
+              <SelectItem key={type} value={type}>
+                {lotteryLabel(type, t)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -90,11 +118,11 @@ export function GroupsView({ page, dealers }: { page: Paginated<WhatsappGroupRow
         t,
         intl,
         dealers,
-        onAssign: (row, dealerId) => {
-          if (row.dealerId === dealerId) return;
+        onAssign: (row, change) => {
+          if (row.dealerId === change.dealerId && row.lottery === change.lottery) return;
           mutate({
-            patch: { type: "update", item: { ...row, dealerId } },
-            action: () => assignWhatsappGroup({ id: row.id, dealerId }),
+            patch: { type: "update", item: { ...row, ...change } },
+            action: () => assignWhatsappGroup({ id: row.id, ...change }),
           });
         },
       }),

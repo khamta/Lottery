@@ -169,6 +169,19 @@ enum DrawStatus {
   SETTLED // ออกผลและคิดรางวัลแล้ว
 }
 
+/// ประเภทหวย — ลาว / ไทย / หวยเวียดนามรอบ V3–V9 (วันหนึ่งออกหลายรอบ จึงมีหลายงวดต่อวัน)
+enum LotteryType {
+  LAO
+  THAI
+  V3
+  V4
+  V5
+  V6
+  V7
+  V8
+  V9
+}
+
 enum TicketStatus {
   CONFIRMED // นับยอดแล้ว
   REVIEW // อ่านข้อความได้ไม่ครบ รอคนตรวจ — ยังไม่นับยอด
@@ -225,12 +238,14 @@ model Dealer {
 
 /// งวดหวย
 model Draw {
-  id       String     @id @default(cuid())
+  id       String      @id @default(cuid())
   dealerId String
-  dealer   Dealer     @relation(fields: [dealerId], references: [id], onDelete: Restrict)
+  dealer   Dealer      @relation(fields: [dealerId], references: [id], onDelete: Restrict)
   name     String
-  drawDate DateTime   @db.Date
-  status   DrawStatus @default(OPEN)
+  drawDate DateTime    @db.Date
+  status   DrawStatus  @default(OPEN)
+  /// ประเภทหวยของงวด — วันเดียวมีได้หลายงวด (เช่น V3, V4 … LAO) · ข้อความ WhatsApp ลงงวดที่เปิดรับของประเภทเดียวกับกลุ่ม
+  lottery  LotteryType @default(LAO)
 
   /// เลข 3 ตัวบนที่ออก — 2 ตัวบน = 2 หลักท้ายของเลขนี้
   topResult    String?
@@ -250,6 +265,7 @@ model Draw {
 
   @@unique([dealerId, name])
   @@index([dealerId, status, drawDate])
+  @@index([dealerId, lottery, status])
   @@map("draws")
 }
 
@@ -300,7 +316,7 @@ model Ticket {
   betCount Int     @default(0)
 
   /// รหัสข้อความ WhatsApp — กันบอทนำเข้าข้อความเดิมซ้ำ
-  waMessageId String? @unique
+  waMessageId String?        @unique
   /// JID ของคนส่งในกลุ่ม — ใช้จับคู่ข้อความ "ລວມ" ที่ส่งตามมากับโพยก่อนหน้าของคนเดียวกัน
   senderId    String?
   /// ชื่อ/เบอร์คนส่งในกลุ่ม กรณีจับคู่กับลูกค้าไม่ได้
@@ -451,7 +467,9 @@ model WhatsappGroup {
   active    Boolean         @default(true)
 
   dealerId String?
-  dealer   Dealer? @relation(fields: [dealerId], references: [id], onDelete: SetNull)
+  dealer   Dealer?     @relation(fields: [dealerId], references: [id], onDelete: SetNull)
+  /// โพยจากกลุ่มนี้ลงงวดที่เปิดรับของหวยประเภทนี้
+  lottery  LotteryType @default(LAO)
 
   tickets Ticket[]
 

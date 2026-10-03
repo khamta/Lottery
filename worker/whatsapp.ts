@@ -47,7 +47,7 @@ import makeWASocket, {
   type WAMessage,
   type WASocket,
 } from "@whiskeysockets/baileys";
-import type { Prisma } from "@prisma/client";
+import type { LotteryType, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { removeTicketImage, saveTicketImage, sweepTicketImages, UPLOAD_ROOT } from "@/lottery/image-store";
@@ -112,8 +112,8 @@ function makeLogger(label: string) {
 
 // ------------------------------------------------------------------ สถานะในหน่วยความจำ
 
-/** กลุ่มที่อ่าน: แม่หวยที่ผูกไว้ + id ของกลุ่ม (โพยจำว่ามาจากกลุ่มไหน) */
-type GroupTarget = { dealerId: string; groupId: string };
+/** กลุ่มที่อ่าน: แม่หวยที่ผูกไว้ + id ของกลุ่ม (โพยจำว่ามาจากกลุ่มไหน) + ประเภทหวย (ลงงวดของประเภทนี้) */
+type GroupTarget = { dealerId: string; groupId: string; lottery: LotteryType };
 
 type Session = {
   id: string;
@@ -354,12 +354,12 @@ async function upsertGroup(accountId: string, group: Pick<GroupMetadata, "id" | 
 async function loadGroupMap(accountIds: string[]) {
   const rows = await prisma.whatsappGroup.findMany({
     where: { accountId: { in: accountIds }, dealerId: { not: null } },
-    select: { id: true, accountId: true, jid: true, dealerId: true },
+    select: { id: true, accountId: true, jid: true, dealerId: true, lottery: true },
   });
   const map = new Map<string, Map<string, GroupTarget>>();
   for (const row of rows) {
     if (!map.has(row.accountId)) map.set(row.accountId, new Map());
-    map.get(row.accountId)!.set(row.jid, { dealerId: row.dealerId!, groupId: row.id });
+    map.get(row.accountId)!.set(row.jid, { dealerId: row.dealerId!, groupId: row.id, lottery: row.lottery });
   }
   return map;
 }

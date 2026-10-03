@@ -43,6 +43,7 @@ describe("<DrawDialog /> (เปิดงวดใหม่ / แก้งวด
         draw={{
           id: "draw-1",
           name: "ງວດ 01/10/2026",
+          lottery: "LAO",
           drawDate: "2026-10-01",
           status: "OPEN",
           topResult: null,

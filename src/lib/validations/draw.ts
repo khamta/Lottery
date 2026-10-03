@@ -1,6 +1,9 @@
 import { z } from "zod";
 
+import { LOTTERY_TYPES } from "@/lottery/labels";
+
 export const drawStatusEnum = z.enum(["OPEN", "CLOSED", "SETTLED"]);
+export const lotteryTypeEnum = z.enum(LOTTERY_TYPES);
 
 /**
  * ข้อความ error เป็นคีย์ i18n — กฎเฉพาะ module ใช้ draws.validation.* (src/i18n/modules/draws.ts)
@@ -8,6 +11,8 @@ export const drawStatusEnum = z.enum(["OPEN", "CLOSED", "SETTLED"]);
  */
 const drawFields = z.object({
   name: z.string().trim().min(2, "draws.validation.nameMin").max(120, "validation.nameMax"),
+  /** ประเภทหวย — วันเดียวเปิดได้หลายงวด (หวยเวียดนาม V3–V9 ออกหลายรอบต่อวัน) */
+  lottery: lotteryTypeEnum.default("LAO"),
   /** วันที่ออก รูปแบบ YYYY-MM-DD (ค่าจาก <input type="date">) */
   drawDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "draws.validation.dateInvalid"),
   /** เลข 3 ตัวบนที่ออก — ว่างได้จนกว่าจะออกผล */

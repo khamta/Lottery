@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/empty-state";
 import { PageHeader } from "@/components/shared/page-header";
 import { getTranslations } from "@/i18n/server";
+import { dateToIso } from "@/lottery/date";
 import { getDealerContext } from "@/lottery/dealer";
 import { DealerSwitcher } from "@/lottery/components/dealer-switcher";
 import { NoDealer } from "@/lottery/components/no-dealer";
@@ -62,6 +63,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
       id: true,
       name: true,
       status: true,
+      drawDate: true,
       topResult: true,
       bottomResult: true,
     },
@@ -175,7 +177,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
             </Button>
           ))}
         </nav>
-        <ReportExport drawId={draw.id} view={view} top={top} />
+        <ReportExport drawId={draw.id} drawDate={dateToIso(draw.drawDate)} view={view} top={top} />
       </div>
 
       {view === "two" ? (

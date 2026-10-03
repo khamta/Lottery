@@ -31,13 +31,20 @@ export function toTopOption(value: unknown): TopOption {
 
 export type DrawOption = { id: string; name: string };
 
-/** เปอร์เซ็นต์ที่หักในใบสรุปส่งแม่ (?percent=) — ค่าเริ่มต้น 30 · ตัดให้อยู่ใน 0–100 */
-export const DEFAULT_PERCENT = 30;
+/** เปอร์เซ็นต์ที่หักในใบสรุปส่งแม่ (?pl= กล่องซ้าย V3 V4 V8 V9 · ?pr= กล่องขวา V5 V6 V7 ลาว ไทย) */
+export const DEFAULT_PERCENTS = { left: 15, right: 30 } as const;
 
-export function toPercent(value: unknown): number {
+/** อ่านเปอร์เซ็นต์จาก URL — อ่านไม่ได้ = fallback · ตัดให้อยู่ใน 0–100 */
+export function toPercent(value: unknown, fallback: number): number {
   const parsed = typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
-  if (!Number.isFinite(parsed)) return DEFAULT_PERCENT;
+  if (!Number.isFinite(parsed)) return fallback;
   return Math.min(100, Math.max(0, Math.round(parsed * 100) / 100));
+}
+
+/** อ่านยอดเงินจาก URL (ยอดค้าง) — ติดลบได้ · อ่านไม่ได้ = 0 */
+export function toAmount(value: unknown): number {
+  const parsed = typeof value === "string" ? Number(value.replace(/,/g, "")) : Number.NaN;
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;
 }
 
 /** ชื่อหัวกลุ่มในรายงานตามบิล — กลุ่มจริงใช้ชื่อกลุ่ม · ไม่รู้กลุ่ม / คีย์เอง ใช้ข้อความแปล */

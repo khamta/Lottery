@@ -7,7 +7,9 @@ export type WhatsappAccountDetail = WhatsappAccountRow & {
   pairingCode: string | null;
 };
 
-/** กลุ่มของบัญชี — dealerId = อ่านโพยเข้าแม่หวยไหน (null = ไม่อ่าน) */
+import type { LotteryTypeValue } from "@/lottery/labels";
+
+/** กลุ่มของบัญชี — dealerId = อ่านโพยเข้าแม่หวยไหน (null = ไม่อ่าน) · lottery = ลงงวดของหวยประเภทไหน */
 export type WhatsappGroupRow = {
   id: string;
   name: string;
@@ -15,6 +17,7 @@ export type WhatsappGroupRow = {
   size: number;
   active: boolean;
   dealerId: string | null;
+  lottery: LotteryTypeValue;
 };
 
 /** คอลัมน์ที่ยอมให้เรียงได้ — ชื่อต้องตรงกับ field ใน Prisma */

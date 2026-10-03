@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 
 import { logAudit } from "@/lib/audit";
 import { nextBillNo } from "./bill";
+import type { LotteryTypeValue } from "./labels";
 import { imageToTicketText, transcribeImage, type OcrResult } from "./image-text";
 import { DEFAULT_LAK_MULTIPLIER, parseTicket } from "./parser";
 import { READ_RULES_MAX, type ReadRuleSpec } from "./read-rules";
@@ -20,7 +21,8 @@ import {
  *
  * กติกา
  *  - ข้อความเป็นของแม่หวยที่กลุ่มนั้นผูกไว้ (dealerId) — งวดและลูกค้าที่จับคู่มาจากแม่หวยนั้นเท่านั้น
- *  - ข้อความลงงวดที่เปิดรับล่าสุดของแม่หวยเท่านั้น (ไม่มีงวดเปิด = ไม่นำเข้า)
+ *  - ข้อความลงงวดที่เปิดรับล่าสุดของแม่หวย ประเภทหวยเดียวกับกลุ่ม (ไม่มีงวดเปิด = ไม่นำเข้า)
+ *    หวยเวียดนามวันเดียวเปิดได้หลายงวด (V3–V9) — กลุ่มหนึ่งผูกกับประเภทเดียว จึงไม่ปนกัน
  *  - อ่านได้ไม่ครบ = โพยรอตรวจ ยังไม่นับยอด (บอทไม่เดา และไม่ยืนยันแทนคน)
  *  - ข้อความที่มีแต่ยอดรวม (ລວມ150) ต่อท้ายโพยล่าสุดของคนเดิม เพื่อใช้ตรวจยอด
  *  - ข้อความที่ WhatsApp ถอดรหัสไม่ได้ = โพยรอตรวจที่ข้อความว่าง ให้คนดูแชตแล้ววางข้อความเอง
@@ -45,6 +47,8 @@ type MessageMeta = MessageSender & {
   dealerId: string;
   /** กลุ่ม WhatsApp (whatsapp_groups.id) ที่ข้อความนี้มา — รายงานตามบิลจัดกลุ่มตามนี้ */
   groupId?: string | null;
+  /** ประเภทหวยที่กลุ่มผูกไว้ — ลงงวดที่เปิดรับของประเภทนี้ (ไม่ระบุ = หวยลาว) */
+  lottery?: LotteryTypeValue;
   /** เวลาที่ส่งในแชต — ไม่ระบุ = ตอนนี้ */
   sentAt?: Date;
   /** ข้อความที่ส่งมาระหว่างบอทไม่ได้ออนไลน์ (WhatsApp ส่งตามมาตอนต่อใหม่) */
@@ -162,8 +166,8 @@ function unreadable(text: string, lakMultiplier: number): Read {
 /** งวดที่จะลงโพย + ลูกค้าที่ตรงกับเบอร์คนส่ง (ของแม่หวยเดียวกัน) — คืนเหตุผลเมื่อไม่ควรนำเข้า */
 async function findTarget(tx: Tx, message: MessageMeta) {
   const draw = await tx.draw.findFirst({
-    where: { dealerId: message.dealerId, status: "OPEN" },
-    orderBy: { drawDate: "desc" },
+    where: { dealerId: message.dealerId, status: "OPEN", lottery: message.lottery ?? "LAO" },
+    orderBy: [{ drawDate: "desc" }, { createdAt: "desc" }],
     select: { id: true, createdAt: true },
   });
   if (!draw) return { skip: "no-open-draw" } as const;
