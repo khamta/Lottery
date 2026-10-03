@@ -20,9 +20,13 @@ export const siteConfig = {
     shortName: process.env.NEXT_PUBLIC_APP_SHORT_NAME ?? process.env.NEXT_PUBLIC_APP_NAME ?? "My App",
     /** หน้าแรกเมื่อเปิดจากไอคอนบนหน้าจอ */
     startUrl: "/dashboard",
-    /** สีพื้นไอคอน/แถบหัวแอป — ให้ใกล้เคียง --primary ใน globals.css */
-    brandColor: "#2563eb",
+    /** สีพื้นไอคอน/แถบหัวแอป — ต้องตรงกับ --primary ใน src/styles/brand.css */
+    brandColor: "#f54927",
     backgroundColor: "#ffffff",
+    /** พื้นภาพตอนเปิดแอปบน iOS โหมดมืด — ตรงกับ --background ของ .dark */
+    darkBackgroundColor: "#1c1f26",
+    /** โลโก้ที่วาดลงไอคอนตอนติดตั้ง (ไฟล์ใน public) — ย่อมาจาก public/img/logo.png */
+    logo: "public/img/logo-512.png",
   },
 };
 

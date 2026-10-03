@@ -7,6 +7,7 @@ import { appFontStack, fontVariables } from "./fonts";
 import { AppSplash } from "@/components/shared/app-splash";
 import { Providers } from "@/components/providers";
 import { siteConfig } from "@/config/site";
+import { appleStartupImages } from "@/lib/pwa-icon";
 import { getLocale } from "@/i18n/server";
 
 export const metadata: Metadata = {
@@ -14,7 +15,13 @@ export const metadata: Metadata = {
   description: siteConfig.description,
   applicationName: siteConfig.name,
   // ติดตั้งบน iOS ("เพิ่มไปยังหน้าจอโฮม") ให้เปิดแบบเต็มจอเหมือนแอป — manifest/ไอคอนดู src/app/manifest.ts
-  appleWebApp: { capable: true, title: siteConfig.pwa.shortName, statusBarStyle: "default" },
+  // startupImage = ภาพตอนเปิดแอปบน iOS (ทุกรุ่น/แนว/ธีม) แทนจอขาว — ดู splashScreens ใน src/lib/pwa-icon.tsx
+  appleWebApp: {
+    capable: true,
+    title: siteConfig.pwa.shortName,
+    statusBarStyle: "default",
+    startupImage: appleStartupImages,
+  },
   formatDetection: { telephone: false },
 };
 

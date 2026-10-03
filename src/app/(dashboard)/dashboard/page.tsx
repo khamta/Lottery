@@ -14,6 +14,7 @@ import { LiveRefresh } from "@/components/shared/live-refresh";
 import { PageHeader } from "@/components/shared/page-header";
 import { getTranslations } from "@/i18n/server";
 import { getDealerContext } from "@/lottery/dealer";
+import { InstallApp } from "@/lottery/components/install-app";
 import { DealerSwitcher } from "@/lottery/components/dealer-switcher";
 import { NoDealer } from "@/lottery/components/no-dealer";
 import { StatCards } from "@/lottery/components/stat-card";
@@ -56,8 +57,10 @@ export default async function DashboardPage() {
 
   // ไม่มีงวดเปิดรับ → แสดงงวดล่าสุดแทน
   const draw = openDraw ?? latestDraw;
+  // การ์ดชวนติดตั้งแอป (PWA) อยู่ท้ายทุกกรณีของหน้านี้ — ซ่อนเองเมื่อติดตั้งแล้ว
   const online = (
     <>
+      <InstallApp />
       <OnlineUsers users={onlineUsers} total={onlineTotal} currentUserId={user.id} />
       <LiveRefresh intervalMs={HEARTBEAT_MS} />
     </>
