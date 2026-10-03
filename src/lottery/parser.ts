@@ -5,6 +5,7 @@
  *   243=150                → 243 (3 ตัวบน) 150
  *   30.70=100ລ່າງ           → 30 และ 70 ล่าง เลขละ 100
  *   38.78.33.73=300ບລ      → บน 300 และล่าง 300 ทุกเลข
+ *   26.590.90=10ບລ         → 26 / 90 บนล่าง แล้วแยก 590 ลงแถวใหม่ (เลข 3 ตัวลงบนอย่างเดียว)
  *   78.87=1000*1000฿       → บน 1000 × ล่าง 1000 บาท
  *   772;5 · 762-5          → เลข 772 / 762 บน 5
  *   04_44_84_=20           → คั่นเลขด้วยขีดล่างได้
@@ -12,6 +13,7 @@
  *   33 73 073 ໂຕ 20         → ໂຕ / ຕົວ / ตัว = เลขละ (เหมือน =)
  *   =10.000 · =10,000      → ยอดกีบตั้งแต่ 10,000 = พิมพ์เต็มจำนวนแล้ว ไม่คูณ
  *   ລວມ150 · ລາວ200,000    → ยอดรวมที่ลูกค้าแจ้ง (ใช้ตรวจกับยอดที่คิดได้)
+ *   ຫລັກ2-9=5              → เติมหลักร้อย 2 และ 9 หน้าเลข 2 ตัวทุกตัวด้านบน (08 → 208, 908) เป็นเลข 3 ตัวบน เลขละ 5
  *
  * บรรทัดที่อ่านไม่ออกจะไม่ถูกเดา — คืนเป็น issue ให้คนตรวจ
  */
@@ -202,13 +204,44 @@ function parseLine(line: string): LineResult {
   const threeDigitTopOnly = position === "BOTH" && numbers.some((n) => n.length === 2);
   if (hasBottom && !threeDigitTopOnly && numbers.some((n) => n.length === 3)) return { issue: "THREE_DIGIT_BOTTOM" };
 
-  const stakes = numbers.flatMap((number) => {
+  // เลข 3 ตัวที่ปนมากับ ບລ แยกลงไปเป็นแถวใหม่ต่อท้าย (เลข 2 ตัว บน/ล่าง ก่อน) ให้อ่านโพยไม่สับสนว่าลงล่างด้วย
+  const ordered = threeDigitTopOnly ? [...numbers.filter((n) => n.length === 2), ...numbers.filter((n) => n.length === 3)] : numbers;
+  const stakes = ordered.flatMap((number) => {
     const base = { number, digits: number.length as 2 | 3, currency };
     return [
       ...(position !== "BOTTOM" ? [{ ...base, position: "TOP" as const, typed: first }] : []),
       ...(hasBottom && number.length === 2 ? [{ ...base, position: "BOTTOM" as const, typed: second ?? first }] : []),
     ];
   });
+  return { stakes };
+}
+
+/** ຫລັກ2-9=5 = เติมหลักร้อย 2 และ 9 หน้าเลข 2 ตัวทุกตัวในบรรทัดด้านบน เป็นเลข 3 ตัวบน เลขละ 5 */
+const HUNDREDS_LINE = /^(?:ຫລັກ|ຫຼັກ|หลัก)\s*(.*)$/iu;
+
+/** บรรทัด ຫລັກ… → รายการ · null = ไม่ใช่บรรทัดหลัก — bases = เลข 2 ตัวในบรรทัดด้านบน (ไม่ซ้ำ ตามลำดับ) */
+function parseHundredsLine(text: string, bases: readonly string[]): LineResult | null {
+  const match = text.match(HUNDREDS_LINE);
+  if (!match) return null;
+  const parts = match[1].split(/[=;:]/);
+  if (parts.length !== 2) return { issue: "UNREADABLE" };
+
+  const digits = parts[0].split(NUMBER_SEPARATOR).filter(Boolean);
+  if (digits.length === 0 || !digits.every((d) => /^\d$/.test(d))) return { issue: "BAD_NUMBER" };
+  if (bases.length === 0) return { issue: "UNREADABLE" };
+
+  const amount = parts[1].trim().match(AMOUNT_PART);
+  if (!amount) return { issue: parts[1].trim() ? "UNREADABLE" : "NO_AMOUNT" };
+  const typed = toAmount(amount[1]);
+  const suffix = readSuffix(amount[3]);
+  if (typed === null || !suffix) return { issue: "UNREADABLE" };
+  // ผลเป็นเลข 3 ตัว จึงลงได้เฉพาะบน
+  if (amount[2] !== undefined || (suffix.position && suffix.position !== "TOP")) return { issue: "THREE_DIGIT_BOTTOM" };
+
+  const currency = suffix.currency ?? "LAK";
+  const stakes = [...new Set(digits)].flatMap((digit) =>
+    bases.map((base) => ({ number: `${digit}${base}`, digits: 3 as const, position: "TOP" as const, currency, typed })),
+  );
   return { stakes };
 }
 
@@ -253,7 +286,8 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
       return;
     }
 
-    const result = parseLine(text);
+    const bases = [...new Set(bets.filter((bet) => bet.digits === 2).map((bet) => bet.number))];
+    const result = parseHundredsLine(text, bases) ?? parseLine(text);
     if ("issue" in result) {
       issues.push({ code: result.issue, line, text: original });
       return;

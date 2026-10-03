@@ -141,18 +141,43 @@ describe("parseTicket — กติกา", () => {
     expect(parseTicket("26.243=100ລ່າງ").issues.map((i) => i.code)).toEqual(["THREE_DIGIT_BOTTOM"]);
   });
 
-  test("บน+ล่างที่มีเลข 2 ตัวปน → เลข 3 ตัวลงบนอย่างเดียว", () => {
+  test("ຫລັກ2-9 → เติมหลักร้อยหน้าเลข 2 ตัวทุกตัวด้านบน เป็นเลข 3 ตัวบน", () => {
+    const ticket = parseTicket("08-48-88=20\n05-45-85=20\nຫລັກ2-9=5", { lakMultiplier: 1 });
+    const hundreds = ticket.bets.filter((b) => b.line === 3);
+
+    expect(ticket.issues).toEqual([]);
+    expect(hundreds.map((b) => b.number)).toEqual(
+      ["208", "248", "288", "205", "245", "285", "908", "948", "988", "905", "945", "985"],
+    );
+    expect(hundreds.every((b) => b.digits === 3 && b.position === "TOP" && b.amount === 5)).toBe(true);
+    expect(ticket.typedTotal).toBe(6 * 20 + 12 * 5);
+  });
+
+  test("ຫລັກ — เลขซ้ำด้านบนนับครั้งเดียว · ไม่มีเลข 2 ตัวด้านบน / ขอล่าง → รอตรวจ", () => {
+    const codes = (text: string) => parseTicket(text).issues.map((i) => i.code);
+
+    expect(parseTicket("08=20\n08=10ລ່າງ\nหลัก 3=5").bets.filter((b) => b.line === 3).map((b) => b.number)).toEqual([
+      "308",
+    ]);
+    expect(codes("ຫລັກ2-9=5")).toEqual(["UNREADABLE"]);
+    expect(codes("08=20\nຫລັກ2-9=5ລ່າງ")).toEqual(["THREE_DIGIT_BOTTOM"]);
+    expect(codes("08=20\nຫລັກ23=5")).toEqual(["BAD_NUMBER"]);
+  });
+
+  test("บน+ล่างที่มีเลข 2 ตัวปน → เลข 3 ตัวลงบนอย่างเดียว แยกลงแถวใหม่ต่อท้าย", () => {
     const brief = (text: string) =>
       parseTicket(text, { lakMultiplier: 1 }).bets.map((b) => `${b.number} ${b.position} ${b.amount}`);
 
     expect(brief("26.590.90=10ບລ")).toEqual([
       "26 TOP 10",
       "26 BOTTOM 10",
-      "590 TOP 10",
       "90 TOP 10",
       "90 BOTTOM 10",
+      "590 TOP 10",
     ]);
-    expect(brief("26.590=10*20")).toEqual(["26 TOP 10", "26 BOTTOM 20", "590 TOP 10"]);
+    expect(brief("590.26=10*20")).toEqual(["26 TOP 10", "26 BOTTOM 20", "590 TOP 10"]);
+    // ไม่มี ບລ → คงลำดับตามที่พิมพ์
+    expect(brief("590.26=10")).toEqual(["590 TOP 10", "26 TOP 10"]);
     expect(parseTicket("26.66.590.10.50.90=10ບລ").issues).toEqual([]);
   });
 
