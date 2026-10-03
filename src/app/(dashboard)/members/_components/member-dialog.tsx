@@ -41,6 +41,7 @@ type MemberDialogProps = {
 
 const emptyValues: CreateMemberInput = {
   name: "",
+  username: "",
   email: "",
   role: "USER",
   isActive: true,
@@ -66,7 +67,14 @@ export function MemberDialog({ open, onOpenChange, member, onSubmit }: MemberDia
     if (!open) return;
     form.reset(
       member
-        ? { ...emptyValues, name: member.name ?? "", email: member.email, role: member.role, isActive: member.isActive }
+        ? {
+            ...emptyValues,
+            name: member.name ?? "",
+            username: member.username ?? "",
+            email: member.email,
+            role: member.role,
+            isActive: member.isActive,
+          }
         : emptyValues,
     );
   }, [open, member, form]);
@@ -97,18 +105,39 @@ export function MemberDialog({ open, onOpenChange, member, onSubmit }: MemberDia
               />
               <FormField
                 control={form.control}
-                name="email"
+                name="username"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("members.email")}</FormLabel>
+                    <FormLabel>{t("account.username")}</FormLabel>
                     <FormControl>
-                      <Input type="email" autoComplete="off" placeholder="name@example.com" {...field} />
+                      <Input
+                        autoComplete="off"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        placeholder={t("account.usernamePlaceholder")}
+                        {...field}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
             </div>
+            <p className="-mt-2 text-xs text-muted-foreground">{t("account.usernameHint")}</p>
+
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("members.email")}</FormLabel>
+                  <FormControl>
+                    <Input type="email" autoComplete="off" placeholder="name@example.com" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={form.control}

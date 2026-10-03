@@ -19,10 +19,12 @@ let currentUser: { id: string; role: "ADMIN" | "USER" } | null = null;
 let nextId = 1;
 
 const userTable = {
-  findUnique: async ({ where }: { where: { id?: string; email?: string } }) => {
+  findUnique: async ({ where }: { where: { id?: string; email?: string; username?: string } }) => {
     const row = where.id
       ? db.users.get(where.id)
-      : [...db.users.values()].find((user) => user.email === where.email);
+      : [...db.users.values()].find((user) =>
+          where.username !== undefined ? user.username === where.username : user.email === where.email,
+        );
     if (!row) return null;
     return { ...row, _count: db.owned.get(row.id) ?? { dealers: 0, whatsappAccounts: 0 } };
   },
@@ -84,11 +86,12 @@ const { createMember, updateMember, setMemberActive, resetMemberPassword, delete
 const { createMemberSchema, updateMemberSchema } = await import("@/lib/validations/member");
 
 function seed(id: string, data: Partial<Row> = {}) {
-  db.users.set(id, { id, name: id, email: `${id}@test.local`, role: "USER", isActive: true, password: "x", ...data });
+  db.users.set(id, { id, name: id, username: id, email: `${id}@test.local`, role: "USER", isActive: true, password: "x", ...data });
 }
 
 const newUser = {
   name: "สมชาย ใจดี",
+  username: " Somchai ",
   email: "Somchai@Test.Local ",
   role: "USER" as const,
   isActive: true,
@@ -111,6 +114,16 @@ describe("schema", () => {
   test("อีเมลถูกตัดช่องว่างและแปลงเป็นตัวเล็ก", () => {
     const parsed = createMemberSchema.parse(newUser);
     expect(parsed.email).toBe("somchai@test.local");
+  });
+
+  test("ชื่อผู้ใช้ถูกตัดช่องว่างและแปลงเป็นตัวเล็ก", () => {
+    expect(createMemberSchema.parse(newUser).username).toBe("somchai");
+  });
+
+  test("ชื่อผู้ใช้สั้นเกิน / มีช่องว่าง / มี @ ไม่ผ่าน", () => {
+    for (const username of ["ab", "som chai", "som@chai"]) {
+      expect(createMemberSchema.safeParse({ ...newUser, username }).success).toBe(false);
+    }
   });
 
   test("รหัสผ่านไม่ตรงกัน / สั้นเกินไป ไม่ผ่าน", () => {
@@ -169,10 +182,22 @@ describe("createMember", () => {
     expect(db.users.size).toBe(2);
     expect(db.auditRows).toHaveLength(0);
   });
+
+  test("ชื่อผู้ใช้ซ้ำ = error และไม่สร้าง", async () => {
+    const result = await createMember({ ...newUser, username: "User-A" });
+    expect(result.ok).toBe(false);
+    expect(db.users.size).toBe(2);
+  });
 });
 
 describe("updateMember", () => {
-  const edit = { name: "ผู้ใช้ เอ", email: "user-a@test.local", role: "ADMIN" as const, isActive: true };
+  const edit = {
+    name: "ผู้ใช้ เอ",
+    username: "user-a",
+    email: "user-a@test.local",
+    role: "ADMIN" as const,
+    isActive: true,
+  };
 
   test("เปลี่ยนสิทธิ์เป็นผู้ดูแล + audit before/after", async () => {
     const result = await updateMember({ ...edit, id: "user-a" });
@@ -182,11 +207,17 @@ describe("updateMember", () => {
   });
 
   test("ลดสิทธิ์ตัวเองไม่ได้ แต่แก้ชื่อตัวเองได้", async () => {
-    const demote = await updateMember({ ...edit, email: "admin@test.local", role: "USER", id: "admin" });
+    const demote = await updateMember({ ...edit, username: "admin", email: "admin@test.local", role: "USER", id: "admin" });
     expect(demote.ok).toBe(false);
     expect(db.users.get("admin")!.role).toBe("ADMIN");
 
-    const rename = await updateMember({ ...edit, email: "admin@test.local", name: "หัวหน้า", id: "admin" });
+    const rename = await updateMember({
+      ...edit,
+      username: "admin",
+      email: "admin@test.local",
+      name: "หัวหน้า",
+      id: "admin",
+    });
     expect(rename.ok).toBe(true);
     expect(db.users.get("admin")!.name).toBe("หัวหน้า");
   });
@@ -195,6 +226,12 @@ describe("updateMember", () => {
     const result = await updateMember({ ...edit, email: "admin@test.local", id: "user-a" });
     expect(result.ok).toBe(false);
     expect(db.users.get("user-a")!.email).toBe("user-a@test.local");
+  });
+
+  test("เปลี่ยนชื่อผู้ใช้ไปซ้ำกับบัญชีอื่นไม่ได้", async () => {
+    const result = await updateMember({ ...edit, username: "admin", id: "user-a" });
+    expect(result.ok).toBe(false);
+    expect(db.users.get("user-a")!.username).toBe("user-a");
   });
 
   test("ไม่พบบัญชี", async () => {

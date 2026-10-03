@@ -22,7 +22,13 @@ export function SignOutDialog({
       title={t("user.signOut")}
       description={t("user.signOutConfirm")}
       confirmText={t("user.signOut")}
-      onConfirm={() => signOut({ callbackUrl: "/login" })}
+      onConfirm={async () => {
+        // ไม่ใช้ redirect ของ Auth.js — URL ที่ server ส่งกลับสร้างจาก host ที่ server เห็น
+        // (หลัง reverse proxy / docker จะกลายเป็น http://localhost:3010/login)
+        // ให้เบราว์เซอร์เปลี่ยนหน้าเองด้วย path สัมพัทธ์ จึงอยู่บนโดเมนจริงที่ผู้ใช้เปิดอยู่เสมอ
+        await signOut({ redirect: false });
+        window.location.assign("/login");
+      }}
     />
   );
 }

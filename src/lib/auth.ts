@@ -12,14 +12,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
   providers: [
     Credentials({
-      credentials: { email: {}, password: {} },
+      credentials: { identifier: {}, password: {} },
       async authorize(credentials) {
         const parsed = loginSchema.safeParse(credentials);
         if (!parsed.success) return null;
 
-        const user = await prisma.user.findUnique({
-          where: { email: parsed.data.email },
-        });
+        // มี "@" = อีเมล (เทียบแบบไม่สนตัวพิมพ์ เพราะบัญชีเก่าอาจเก็บตัวใหญ่ไว้) · ไม่มี = username (เก็บตัวเล็กเสมอ)
+        const { identifier } = parsed.data;
+        const user = identifier.includes("@")
+          ? await prisma.user.findFirst({ where: { email: { equals: identifier, mode: "insensitive" } } })
+          : await prisma.user.findUnique({ where: { username: identifier } });
         if (!user?.password || !user.isActive) return null;
 
         const ok = await bcrypt.compare(parsed.data.password, user.password);

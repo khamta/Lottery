@@ -5,10 +5,20 @@ import { z } from "zod";
  * เพราะ schema ตัวเดียวกันถูกใช้ทั้งฝั่ง server (ที่ไม่รู้ภาษาของผู้ใช้) และฝั่ง client
  * ตัวแปลอยู่ที่ FormMessage / handleResult
  */
+/** เข้าสู่ระบบด้วยอีเมลหรือชื่อผู้ใช้ก็ได้ — มี "@" = อีเมล ไม่มี = username (ดู src/lib/auth.ts) */
 export const loginSchema = z.object({
-  email: z.string().min(1, "validation.emailRequired").email("validation.emailInvalid"),
+  identifier: z.string().trim().toLowerCase().min(1, "account.identifierRequired"),
   password: z.string().min(1, "validation.passwordRequired"),
 });
+
+/** ชื่อผู้ใช้: 3–30 ตัว a-z 0-9 . _ - เก็บเป็นตัวเล็กเสมอ (ห้ามมี "@" เพื่อแยกจากอีเมลตอน login) */
+export const usernameRule = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3, "account.usernameMin")
+  .max(30, "account.usernameMax")
+  .regex(/^[a-z0-9._-]+$/, "account.usernameInvalid");
 
 /** กฎรหัสผ่านชุดเดียว — ใช้ทั้งตอนสมัครและตอนเปลี่ยนรหัสผ่านในหน้าโปรไฟล์ */
 export const passwordRule = z

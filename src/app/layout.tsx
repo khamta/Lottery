@@ -25,16 +25,17 @@ export const metadata: Metadata = {
   formatDetection: { telephone: false },
 };
 
-/** ตั้งค่าให้แสดงผลเต็มจอมือถือ (ชิดขอบ/ใต้รอยบาก) และแถบสถานะเปลี่ยนสีตามธีม */
+/**
+ * ตั้งค่าให้แสดงผลเต็มจอมือถือ (ชิดขอบ/ใต้รอยบาก)
+ * แถบหัวหน้าต่าง PWA (เดสก์ท็อป) และแถบสถานะมือถือใช้สีหลักของแบรนด์ทั้งโหมดสว่าง/มืด
+ * (meta theme-color จะ override theme_color ใน manifest จึงต้องตั้งให้ตรงกัน)
+ */
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
   viewportFit: "cover",
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#1c1f26" },
-  ],
+  themeColor: siteConfig.pwa.brandColor,
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

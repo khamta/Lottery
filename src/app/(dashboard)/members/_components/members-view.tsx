@@ -44,7 +44,13 @@ export function MembersView({ page }: { page: Paginated<MemberRow> }) {
 
   function handleSave(values: MemberInput | CreateMemberInput) {
     // ค่าที่ได้ผ่าน zod แล้ว (อีเมลตัดช่องว่าง + ตัวเล็ก) — ฟอร์มแก้ไขไม่มีช่องรหัสผ่าน
-    const shared: MemberInput = { name: values.name, email: values.email, role: values.role, isActive: values.isActive };
+    const shared: MemberInput = {
+      name: values.name,
+      username: values.username,
+      email: values.email,
+      role: values.role,
+      isActive: values.isActive,
+    };
 
     if (editing) {
       mutate({

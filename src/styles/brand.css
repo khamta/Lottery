@@ -46,3 +46,47 @@ html {
     overscroll-behavior: contain;
   }
 }
+
+/*
+ * ลูกบอลเลขหวยลอยไปมาทั่วพื้นที่สีส้มในหน้า login (src/app/(auth)/layout.tsx)
+ * ขยับด้วย top/left เป็น % ของกรอบ จึงวิ่งได้ทั่วทั้งพื้นที่ · แต่ละลูกใช้เส้นทาง/ความเร็ว/จุดเริ่มต่างกัน
+ * ลอยตลอดเวลาเสมอ (ตั้งใจไม่ปิดตาม prefers-reduced-motion — Windows ที่ปิด "Animation effects" จะเห็นลูกบอลนิ่ง)
+ */
+.lotto-ball {
+  animation-name: var(--ball-path);
+  animation-duration: var(--ball-duration, 14s);
+  animation-delay: var(--ball-delay, 0s);
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-direction: alternate;
+  will-change: top, left, transform;
+}
+
+@keyframes lotto-path-1 {
+  0% { top: 8%; left: 10%; transform: rotate(-8deg); }
+  25% { top: 30%; left: 72%; transform: rotate(6deg); }
+  50% { top: 78%; left: 58%; transform: rotate(-4deg); }
+  75% { top: 62%; left: 6%; transform: rotate(10deg); }
+  100% { top: 20%; left: 40%; transform: rotate(-6deg); }
+}
+@keyframes lotto-path-2 {
+  0% { top: 70%; left: 80%; transform: rotate(5deg); }
+  25% { top: 12%; left: 60%; transform: rotate(-10deg); }
+  50% { top: 40%; left: 15%; transform: rotate(8deg); }
+  75% { top: 85%; left: 30%; transform: rotate(-5deg); }
+  100% { top: 50%; left: 85%; transform: rotate(6deg); }
+}
+@keyframes lotto-path-3 {
+  0% { top: 45%; left: 45%; transform: rotate(0deg); }
+  25% { top: 82%; left: 82%; transform: rotate(12deg); }
+  50% { top: 6%; left: 85%; transform: rotate(-6deg); }
+  75% { top: 18%; left: 5%; transform: rotate(8deg); }
+  100% { top: 88%; left: 12%; transform: rotate(-10deg); }
+}
+@keyframes lotto-path-4 {
+  0% { top: 88%; left: 50%; transform: rotate(-4deg); }
+  25% { top: 55%; left: 88%; transform: rotate(8deg); }
+  50% { top: 10%; left: 30%; transform: rotate(-12deg); }
+  75% { top: 35%; left: 62%; transform: rotate(4deg); }
+  100% { top: 75%; left: 4%; transform: rotate(-6deg); }
+}

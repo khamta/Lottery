@@ -11,6 +11,7 @@ async function main() {
     update: {},
     create: {
       email: "admin@example.com",
+      username: "admin",
       name: "Admin",
       password,
       role: Role.ADMIN,

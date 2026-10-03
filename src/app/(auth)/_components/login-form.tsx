@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { signIn } from "next-auth/react";
-import { Eye, EyeOff, LogIn } from "lucide-react";
+import { Eye, EyeOff, KeyRound, LogIn, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,7 @@ import { loginSchema, type LoginInput } from "@/lib/validations/auth";
 import { siteConfig } from "@/config/site";
 import { useI18n } from "@/i18n/client";
 
+/** เข้าสู่ระบบด้วยชื่อผู้ใช้หรืออีเมล + รหัสผ่าน (ตรวจที่ authorize ใน src/lib/auth.ts) */
 export function LoginForm() {
   const { t } = useI18n();
   const router = useRouter();
@@ -34,7 +35,7 @@ export function LoginForm() {
 
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: "", password: "" },
+    defaultValues: { identifier: "", password: "" },
   });
 
   async function onSubmit(values: LoginInput) {
@@ -42,7 +43,8 @@ export function LoginForm() {
     const res = await signIn("credentials", { ...values, redirect: false });
 
     if (res?.error) {
-      notify.error(t("auth.loginFailed"), t("auth.loginFailedDesc"));
+      notify.error(t("auth.loginFailed"), t("account.loginFailedDesc"));
+      form.setFocus("password");
       return;
     }
 
@@ -59,22 +61,34 @@ export function LoginForm() {
   }, [router]);
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1.5">
-        <h1 className="text-2xl font-semibold tracking-tight">{t("auth.loginTitle")}</h1>
-        <p className="text-sm text-muted-foreground">{t("auth.loginSubtitle")}</p>
+    <div className="space-y-7">
+      <div className="space-y-2">
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{t("account.welcome")}</h1>
+        <p className="text-sm text-muted-foreground">{t("account.loginSubtitle")}</p>
       </div>
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-5">
           <FormField
             control={form.control}
-            name="email"
+            name="identifier"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{t("auth.email")}</FormLabel>
+                <FormLabel>{t("account.identifier")}</FormLabel>
                 <FormControl>
-                  <Input type="email" placeholder="you@example.com" autoComplete="email" {...field} />
+                  <div className="relative">
+                    <UserRound className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder={t("account.identifierPlaceholder")}
+                      autoComplete="username"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      autoFocus
+                      className="h-11 pl-10"
+                      {...field}
+                    />
+                  </div>
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -89,17 +103,18 @@ export function LoginForm() {
                 <FormLabel>{t("auth.password")}</FormLabel>
                 <FormControl>
                   <div className="relative">
+                    <KeyRound className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       type={showPassword ? "text" : "password"}
                       placeholder="••••••••"
                       autoComplete="current-password"
-                      className="pr-10"
+                      className="h-11 pr-11 pl-10"
                       {...field}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword((v) => !v)}
-                      className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
+                      className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                       aria-label={showPassword ? t("auth.hidePassword") : t("auth.showPassword")}
                     >
                       {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
@@ -113,14 +128,19 @@ export function LoginForm() {
 
           <Button
             type="submit"
+            size="lg"
             loading={form.formState.isSubmitting}
             disabled={redirecting}
-            className="w-full"
+            className="h-11 w-full text-base"
           >
             <LogIn /> {t("auth.loginTitle")}
           </Button>
         </form>
       </Form>
+
+      <p className="rounded-lg bg-muted px-3 py-2.5 text-center text-xs text-muted-foreground">
+        {t("account.forgotHint")}
+      </p>
 
       {siteConfig.enableRegister ? (
         <p className="text-center text-sm text-muted-foreground">

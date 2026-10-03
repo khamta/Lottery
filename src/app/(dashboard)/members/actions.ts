@@ -29,8 +29,15 @@ import {
  */
 
 /** ฟิลด์ที่บันทึกใน audit log — ไม่ส่ง hash รหัสผ่าน / รูปโปรไฟล์ */
-const auditView = (user: { name: string | null; email: string; role: string; isActive: boolean }) => ({
+const auditView = (user: {
+  name: string | null;
+  username: string | null;
+  email: string;
+  role: string;
+  isActive: boolean;
+}) => ({
   name: user.name,
+  username: user.username,
   email: user.email,
   role: user.role,
   isActive: user.isActive,
@@ -44,6 +51,11 @@ function revalidateMembers() {
 async function assertEmailFree(tx: Prisma.TransactionClient, email: string, exceptId?: string) {
   const taken = await tx.user.findUnique({ where: { email }, select: { id: true } });
   if (taken && taken.id !== exceptId) throw new Error("auth.emailTaken");
+}
+
+async function assertUsernameFree(tx: Prisma.TransactionClient, username: string, exceptId?: string) {
+  const taken = await tx.user.findUnique({ where: { username }, select: { id: true } });
+  if (taken && taken.id !== exceptId) throw new Error("account.usernameTaken");
 }
 
 /** ห้ามลดสิทธิ์/ปิดใช้งานตัวเอง (แก้ชื่อ/อีเมลตัวเองได้) */
@@ -60,6 +72,7 @@ export const createMember = createAction(
 
     const member = await prisma.$transaction(async (tx) => {
       await assertEmailFree(tx, input.email);
+      await assertUsernameFree(tx, input.username);
       const member = await tx.user.create({ data: { ...input, password: hash } });
 
       await logAudit(tx, {
@@ -92,6 +105,7 @@ export const updateMember = createAction(
 
       assertNotSelfLock(user.id, before, input);
       if (input.email !== before.email) await assertEmailFree(tx, input.email, id);
+      if (input.username !== before.username) await assertUsernameFree(tx, input.username, id);
 
       const member = await tx.user.update({
         where: { id },

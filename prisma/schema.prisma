@@ -32,6 +32,8 @@ enum AuditAction {
 model User {
   id            String    @id @default(cuid())
   name          String?
+  /// ชื่อผู้ใช้สำหรับเข้าสู่ระบบแทนอีเมล — ตัวเล็กเสมอ (a-z 0-9 . _ -) · null = ยังไม่ได้ตั้ง (บัญชีเก่า/OAuth)
+  username      String?   @unique
   email         String    @unique
   emailVerified DateTime?
   /// URL รูปโปรไฟล์ที่ใช้แสดงผล — อัปโหลดเองจะเป็น /api/avatar/<id>?v=<เวลา>, login ผ่าน OAuth จะเป็น URL ภายนอก

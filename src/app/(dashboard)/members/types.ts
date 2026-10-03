@@ -4,6 +4,7 @@ import type { MemberRoleValue } from "@/lib/validations/member";
 export type MemberRow = {
   id: string;
   name: string | null;
+  username: string | null;
   email: string;
   role: MemberRoleValue;
   isActive: boolean;

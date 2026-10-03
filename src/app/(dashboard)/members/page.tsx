@@ -34,6 +34,7 @@ export default async function MembersPage({ searchParams }: PageProps) {
     ? {
         OR: [
           { name: { contains: params.q, mode: "insensitive" as const } },
+          { username: { contains: params.q, mode: "insensitive" as const } },
           { email: { contains: params.q, mode: "insensitive" as const } },
         ],
       }
@@ -44,6 +45,7 @@ export default async function MembersPage({ searchParams }: PageProps) {
     {
       id: string;
       name: string | null;
+      username: string | null;
       email: string;
       role: MemberRow["role"];
       isActive: boolean;
@@ -62,6 +64,7 @@ export default async function MembersPage({ searchParams }: PageProps) {
     select: {
       id: true,
       name: true,
+      username: true,
       email: true,
       role: true,
       isActive: true,

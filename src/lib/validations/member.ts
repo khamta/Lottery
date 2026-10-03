@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { nameRule, passwordRule } from "@/lib/validations/auth";
+import { nameRule, passwordRule, usernameRule } from "@/lib/validations/auth";
 
 /**
  * จัดการบัญชีผู้ใช้ (เฉพาะผู้ดูแลระบบ) — ข้อความ error เป็นคีย์ i18n
@@ -10,6 +10,7 @@ export const memberRoleEnum = z.enum(["ADMIN", "USER"]);
 
 const memberFields = {
   name: nameRule,
+  username: usernameRule,
   email: z.string().trim().toLowerCase().email("validation.emailInvalid"),
   role: memberRoleEnum,
   isActive: z.boolean(),

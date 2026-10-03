@@ -10,12 +10,17 @@ import {
 } from "@/lib/validations/profile";
 
 describe("loginSchema", () => {
-  test("ผ่านเมื่อข้อมูลถูกต้อง", () => {
-    expect(loginSchema.safeParse({ email: "a@b.com", password: "123456" }).success).toBe(true);
+  test("ผ่านเมื่อใช้อีเมล", () => {
+    expect(loginSchema.safeParse({ identifier: "a@b.com", password: "123456" }).success).toBe(true);
   });
 
-  test("ไม่ผ่านเมื่ออีเมลผิดรูปแบบ", () => {
-    const result = loginSchema.safeParse({ email: "not-an-email", password: "x" });
+  test("ผ่านเมื่อใช้ชื่อผู้ใช้ — ตัดช่องว่างและแปลงเป็นตัวเล็ก", () => {
+    const result = loginSchema.safeParse({ identifier: "  Admin ", password: "x" });
+    expect(result.success && result.data.identifier).toBe("admin");
+  });
+
+  test("ไม่ผ่านเมื่อไม่กรอกชื่อผู้ใช้/อีเมล", () => {
+    const result = loginSchema.safeParse({ identifier: "  ", password: "x" });
     expect(result.success).toBe(false);
   });
 });

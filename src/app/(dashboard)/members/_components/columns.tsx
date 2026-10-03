@@ -50,6 +50,9 @@ export function getMemberColumns({
             {row.original.name ?? "-"}
             {row.original.isSelf ? <Badge variant="secondary">{t("members.you")}</Badge> : null}
           </p>
+          {row.original.username ? (
+            <p className="font-mono text-xs text-foreground/80">@{row.original.username}</p>
+          ) : null}
           <p className="text-xs text-muted-foreground">{row.original.email}</p>
         </div>
       ),
