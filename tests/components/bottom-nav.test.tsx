@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
 
-let currentPath = "/products";
+import { navGroups } from "@/config/nav";
+
+let currentPath = "/dashboard";
 
 mock.module("next/navigation", () => ({
   usePathname: () => currentPath,
@@ -13,52 +15,68 @@ const { BottomNav } = await import("@/components/layout/bottom-nav");
 
 afterEach(cleanup);
 
+// อ่านเมนูจริงจาก config/nav.ts — เทสต์ตรวจ "กติกา" ของแถบล่าง ไม่ผูกกับเมนูของ project ใด project หนึ่ง
+const itemsFor = (role: "ADMIN" | "USER") =>
+  navGroups.flatMap((group) => group.items).filter((item) => !item.roles || item.roles.includes(role));
+
+const tabHrefs = () =>
+  Array.from(document.querySelectorAll("nav li a")).map((a) => a.getAttribute("href"));
+
 describe("<BottomNav /> (เมนูล่างจอสำหรับมือถือ)", () => {
-  test("ADMIN มี 5 เมนู → แสดง 3 แท็บแรก + ปุ่มเพิ่มเติม (ตั้งค่า / ประวัติการใช้งาน อยู่ใน sheet)", () => {
-    render(<BottomNav role="ADMIN" />);
+  for (const role of ["ADMIN", "USER"] as const) {
+    test(`${role}: เมนูไม่เกิน 4 แสดงครบเป็นแท็บ · เกิน 4 แสดง 3 อันแรก + ปุ่มเพิ่มเติม`, () => {
+      const items = itemsFor(role);
+      render(<BottomNav role={role} />);
 
-    expect(screen.getByText("ແຜງຄວບຄຸມ")).toBeDefined();
-    expect(screen.getByText("ສິນຄ້າ")).toBeDefined();
-    expect(screen.getByText("ຜູ້ໃຊ້ງານ")).toBeDefined();
-    expect(screen.getByText("ເພີ່ມເຕີມ")).toBeDefined();
-    expect(screen.queryByText("ຕັ້ງຄ່າ")).toBeNull();
-    expect(screen.queryByText("ປະຫວັດການນຳໃຊ້")).toBeNull();
-    expect(document.querySelectorAll("nav li")).toHaveLength(4);
-  });
+      const hasMore = items.length > 4;
+      const expected = (hasMore ? items.slice(0, 3) : items).map((item) => item.href);
 
-  test("USER มี 3 เมนู → แสดงครบเป็นแท็บ ไม่มีปุ่มเพิ่มเติม และไม่เห็นประวัติการใช้งาน", () => {
-    render(<BottomNav role="USER" />);
-
-    expect(screen.getByText("ຕັ້ງຄ່າ")).toBeDefined();
-    expect(screen.queryByText("ເພີ່ມເຕີມ")).toBeNull();
-    expect(screen.queryByText("ປະຫວັດການນຳໃຊ້")).toBeNull();
-    expect(document.querySelectorAll("nav li")).toHaveLength(3);
-  });
+      expect(tabHrefs()).toEqual(expected);
+      expect(document.querySelectorAll("nav li")).toHaveLength(expected.length + (hasMore ? 1 : 0));
+      expect(screen.queryByText("ເພີ່ມເຕີມ") !== null).toBe(hasMore);
+    });
+  }
 
   test("แท็บไม่เกิน 4 ช่องเสมอ — เมนูที่เกินจะไปอยู่ปุ่มเพิ่มเติม", () => {
-    // กติกา: items <= 4 แสดงหมด, items > 4 แสดง 3 อัน + ปุ่มเพิ่มเติม
     render(<BottomNav role="ADMIN" />);
     expect(document.querySelectorAll("nav li").length).toBeLessThanOrEqual(4);
   });
 
   test("USER ไม่เห็นเมนูที่จำกัดสิทธิ์ ADMIN", () => {
     render(<BottomNav role="USER" />);
-    expect(screen.queryByText("ຜູ້ໃຊ້ງານ")).toBeNull();
+
+    const adminOnly = navGroups
+      .flatMap((group) => group.items)
+      .filter((item) => item.roles && !item.roles.includes("USER"))
+      .map((item) => item.href);
+
+    expect(tabHrefs().filter((href) => adminOnly.includes(href as never))).toEqual([]);
   });
 
   test("แท็บของหน้าปัจจุบันถูกทำเครื่องหมาย aria-current", () => {
-    currentPath = "/products";
+    const [first] = itemsFor("USER");
+    currentPath = first!.href;
     render(<BottomNav role="USER" />);
 
-    const active = screen.getByText("ສິນຄ້າ").closest("a");
+    const active = document.querySelector(`nav a[href="${first!.href}"]`);
+    expect(active?.getAttribute("aria-current")).toBe("page");
+  });
+
+  test("หน้าย่อยของเมนูก็นับว่าอยู่ในแท็บนั้น", () => {
+    const [first] = itemsFor("USER");
+    currentPath = `${first!.href}/123`;
+    render(<BottomNav role="USER" />);
+
+    const active = document.querySelector(`nav a[href="${first!.href}"]`);
     expect(active?.getAttribute("aria-current")).toBe("page");
   });
 
   test("แท็บอื่นไม่ถูกทำเครื่องหมาย", () => {
-    currentPath = "/products";
+    const [first, second] = itemsFor("USER");
+    currentPath = first!.href;
     render(<BottomNav role="USER" />);
 
-    const other = screen.getByText("ແຜງຄວບຄຸມ").closest("a");
+    const other = document.querySelector(`nav a[href="${second!.href}"]`);
     expect(other?.getAttribute("aria-current")).toBeNull();
   });
 
