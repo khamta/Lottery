@@ -124,6 +124,8 @@ const SUFFIX_TOKENS: SuffixToken[] = [
   { text: "ພ" },
   { text: "พัน" },
   { text: "พ" },
+  // 5k = 5 พัน (kip ยาวกว่าจึงถูกเลือกก่อน)
+  { text: "k" },
 ];
 // คำยาวก่อน กัน "ລ" ชนะ "ລ່າງ"
 SUFFIX_TOKENS.sort((a, b) => b.text.length - a.text.length);
@@ -132,6 +134,10 @@ SUFFIX_TOKENS.sort((a, b) => b.text.length - a.text.length);
 const AMOUNT = String.raw`\d{1,3}(?:[.,]\d{3})+(?!\d)|\d[\d,]*`;
 /** ລາວ200,000 = ยอดรวมของโพยหวยลาว */
 const TOTAL_LINE = new RegExp(String.raw`^(?:ລວມ|รวม|total|ລາວ|ลาว)[^\d]*(${AMOUNT})`, "i");
+/** =15/ລາວ · =15 ລາວ = ยอดรวมของโพยหวยลาว (ລາວ ต่อท้ายแทนนำหน้า) */
+const LAO_TOTAL_TAIL = new RegExp(String.raw`^[=:]\s*(${AMOUNT})\s*[/\s]*(?:ລາວ|ลาว)\s*$`, "iu");
+/** ລ120 = ລວມ120 (ລ ตัวเดียวนำหน้ายอดเปล่า ๆ = ย่อของ ລວມ ไม่ใช่ ລ່າງ) */
+const SHORT_TOTAL_LINE = new RegExp(String.raw`^ລ\s*[=:]?\s*(${AMOUNT})\s*(?:฿|₭|ກີບ|ບາດ|บาท|ພັນ|ພ|k)?\s*$`, "iu");
 /** หน่วยเต็มของยอดรวม: ລວມ:1ລ້ານ = 1,000,000 กีบ · ລວມ5ແສນ = 500,000 กีบ */
 const TOTAL_UNITS: Record<string, number> = { ລ້ານ: 1_000_000, ລານ: 1_000_000, ล้าน: 1_000_000, ແສນ: 100_000, แสน: 100_000 };
 const TOTAL_UNIT_LINE = /^(?:ລວມ|รวม|total|ລາວ|ลาว)[^\d]*(\d+(?:[.,]\d+)?)\s*(ລ້ານ|ລານ|ล้าน|ແສນ|แสน)/iu;
@@ -140,6 +146,13 @@ const AMOUNT_EACH_PREFIX = /^(?:ໂຕ|ຕົວ|ตัว|โต|ປ່ອງ|�
 const THB_WORD =/฿|บาท|ບາດ|thb|baht/i;
 const LAK_WORD = /₭|ກີບ|กีบ|\bkip\b|\blak\b/i;
 const AMOUNT_PART = new RegExp(String.raw`^(${AMOUNT})(?:\s*[*x×]\s*(${AMOUNT}))?(.*)$`, "i");
+/** ขีดคั่นเลข 3 ตัวขึ้นไป (มียอดหลัง = ได้): 605-645-685 · 406-446-486=1 */
+const DASH_NUMBERS_LINE = /^\d{2,3}(?:\s*-\s*\d{2,3}){2,}\s*(?:[=;:].*)?$/;
+/**
+ * หลายเลขคั่นด้วย . , / ช่องว่าง + ขีดตัวเดียว + ยอดที่เป็นเลขแทงไม่ได้ (หลักเดียว / 4 หลักขึ้นไป / มีคำกำกับ)
+ * "11.51.91-5" · "22.62-5ພັນ" — บอกว่าโพยนี้ใช้ขีดคั่นยอด
+ */
+const DASH_AMOUNT_LINE = /^\d{2,3}(?:\s*[.,/\s]\s*\d{2,3})+\s*-\s*(?:\d(?![\d,.])|\d{4,}|\d{1,3}[.,]\d{3}|\d+\s*[^\d\s-])/u;
 /** ขีดตัวเดียวคั่นเลขกับยอด: 762-5 · 570 57 70-30,000 */
 const DASH_LINE = /^([^-]+?)\s*-\s*([^-]+)$/;
 /** ตัวคั่นระหว่างเลข */
@@ -148,6 +161,41 @@ const NUMBER_SEPARATOR = /[.\-/,_\s+]+/;
 const EACH_WORD = /\s*(?:ໂຕ|ຕົວ|ตัว|โต|ປ່ອງ|ປອງ|ป่อง|ຮູ|รู|hu)\s*(?:ລະ|ละ)?\s*(?=\d)/iu;
 /** เอาแต่3โต / ເອົາແຕ່3ໂຕ = ลูกค้าบอกว่าเอาแต่เลข 3 ตัว — หมายเหตุ ไม่ใช่รายการแทง */
 const ONLY_THREE_LINE = /^(?:เอาแต่|ເອົາແຕ່|ແຕ່)\s*3\s*(?:ตัว|โต|ໂຕ|ຕົວ)?$/u;
+/** คำบอกจำนวนลาว/ไทย (หลักหน่วย) */
+const UNIT_WORDS: Record<string, number> = {
+  ໜຶ່ງ: 1, ນຶ່ງ: 1, ເອັດ: 1, หนึ่ง: 1, เอ็ด: 1,
+  ສອງ: 2, สอง: 2, ສາມ: 3, สาม: 3, ສີ່: 4, สี่: 4, ຫ້າ: 5, ห้า: 5,
+  ຫົກ: 6, หก: 6, ເຈັດ: 7, เจ็ด: 7, ແປດ: 8, แปด: 8, ເກົ້າ: 9, เก้า: 9,
+};
+const UNIT_WORD = Object.keys(UNIT_WORDS).join("|");
+/** [หน่วย]ສິບ[หน่วย] · ຊາວ/ยี่สิบ[หน่วย] · หน่วย (ສີບ = สะกดผิดที่พบบ่อยของ ສິບ) */
+const NUMBER_WORD = `(?:(${UNIT_WORD})?(ສິບ|ສີບ|สิบ)|(ຊາວ|ยี่สิบ))?(${UNIT_WORD})?`;
+/** คำบอกจำนวนที่ตามด้วย ພັນ / พัน: "ສອງພັນ" "ສິບຫ້າພັນ" "ຊາວພັນ" */
+const NUMBER_WORDS_THOUSAND = new RegExp(`()${NUMBER_WORD}(?=\\s*(?:ພັນ|พัน))`, "gu");
+/** คำบอกจำนวนหลัง ໂຕ / ໂຕລະ / ຮູ / ປ່ອງ / = : "ໂຕລະຫ້າສິບ" */
+const NUMBER_WORDS_EACH = new RegExp(`((?:ໂຕ|ຕົວ|ตัว|โต|ປ່ອງ|ປອງ|ป่อง|ຮູ|รู|=)\\s*(?:ລະ|ละ)?\\s*)${NUMBER_WORD}`, "gu");
+
+const toDigits = (match: string, prefix: string, tensUnit?: string, ten?: string, twenty?: string, unit?: string) => {
+  if (!ten && !twenty && !unit) return match;
+  const tens = ten ? (tensUnit ? UNIT_WORDS[tensUnit] : 1) * 10 : twenty ? 20 : 0;
+  return `${prefix}${tens + (unit ? UNIT_WORDS[unit] : 0)}`;
+};
+
+/**
+ * ยอดที่เขียนเป็นคำ → ตัวเลข: "ໂຕສອງພັນ" → "ໂຕ2ພັນ" · "ໂຕລະຫ້າສີບ" → "ໂຕລະ50"
+ * แปลงเฉพาะคำที่ตามด้วย ພັນ / พัน หรืออยู่หลัง ໂຕ / ຮູ / ປ່ອງ / = — ชื่อคนไม่โดนแปลง
+ */
+function numberWordsToDigits(text: string) {
+  return text.replace(NUMBER_WORDS_THOUSAND, toDigits).replace(NUMBER_WORDS_EACH, toDigits);
+}
+
+/** คำทักทาย / "ซื้อเลข" หน้าเลขแรก: "ສບດຊື້ເລກ807;07:…" → "807;07:…" */
+const GREETING_PREFIX = /^(?:(?:ສະບາຍດີ|ສບດ|ຂໍຊື້|ຊື້|ເລກ|ສະບາຍ|สวัสดี|ขอซื้อ|ซื้อ|เลข)\s*)+(?=\d)/u;
+
+/** เส้นคั่นท้ายโพย: _____ / ----- / ===== / ..... (3 ตัวขึ้นไป) */
+const DIVIDER_LINE = /^[\s_\-=—–─.*~]{3,}$/u;
+/** ตัวเลขเปล่า ๆ ใต้เส้นคั่น = ยอดรวม: 101.000 · 101,000 · 101 (ต่อท้ายสกุลเงินได้) */
+const DIVIDED_TOTAL = /^(\d{1,3}(?:[.,]\d{3})+|\d+)\s*(?:฿|₭|ກີບ|กีบ|บาท|ບາດ)?$/u;
 /** วันที่ d/m/yyyy · d-m-yy · yyyy-mm-dd (คั่นด้วย / - . ได้) */
 const DATE = /(?<!\d)(?:(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4}|\d{2})|\d{4}[/.\-]\d{1,2}[/.\-]\d{1,2})(?!\d)/g;
 /** เบอร์โทร: ตัวเลขติดกัน 8 หลักขึ้นไป หรือกลุ่มที่มีเลข 4 หลัก (020 5555 1234 / 020-555-1234) */
@@ -156,12 +204,13 @@ const PHONE = /\+?(?<!\d)(?:\d{8,}|\d{2,4}[\s-]\d{3,4}[\s-]\d{4})(?!\d)/g;
 /**
  * บรรทัดที่ตัวเลขทุกตัวเป็นวันที่หรือเบอร์โทร (ที่เหลือเป็นชื่อ/อีโมจิ) — ไม่ใช่รายการแทง
  * รับเฉพาะรูปแบบที่เป็นเลขแทงไม่ได้: ปี 4 หลัก / วันหรือเดือนหลักเดียว / เลข 4 หลักขึ้นไป
- * ("30.10.26" อาจเป็นเลข 30 10 26 จึงไม่ถือเป็นวันที่)
+ * ("30.10.26" อาจเป็นเลข 30 10 26 จึงไม่ถือเป็นวันที่) — มีตัวหนังสือในบรรทัดด้วย ("ຊື້ເລກ…02/10/26") = วันที่แน่นอน
  */
 function isDateOrPhoneLine(text: string) {
+  const words = /\p{L}/u.test(text);
   const rest = text
     .replace(DATE, (match, day?: string, month?: string, year?: string) =>
-      day === undefined || year!.length === 4 || day.length === 1 || month!.length === 1 ? "" : match,
+      day === undefined || year!.length === 4 || day.length === 1 || month!.length === 1 || words ? "" : match,
     )
     .replace(PHONE, "");
   return rest !== text && !/\d/.test(rest);
@@ -173,7 +222,11 @@ const SHARED_AMOUNT_LINE = /^(?:[=;:]\s*(?:ໂຕ|ຕົວ|ตัว|โต)?|(
 /** 22_10 = เลข 22 ยอด 10 — เลขเดียว ขีดล่างตัวเดียว ไม่มี = ; : */
 const UNDERSCORE_LINE = /^\s*\d{2,3}\s*_\s*\d[^_=;:]*$/;
 /** ตัวท้ายที่ลงท้ายด้วย ພັນ / ພ / พัน / พ = ยอดแน่นอน: "32_72_29_69_5ພັນ" = "32_72_29_69=5ພັນ" */
-const THOUSAND_TAIL = /^(.*\d)\s*[_.,\-/\s]+\s*(\d[\d,.]*\s*(?:ພັນ|ພ|พัน|พ)[^\d=;:]*)$/u;
+const THOUSAND_TAIL = /^(.*\d)\s*[_.,\-/\s]+\s*(\d[\d,.]*\s*(?:ພັນ|ພ|พัน|พ|k)[^\d=;:]*)$/iu;
+/** หลัง / ตัวท้ายเป็นเลขหลักเดียวหรือ 4 หลักขึ้นไป (เป็นเลขแทงไม่ได้) = ยอด: "18.58.98/2" = "18.58.98=2" */
+const SLASH_TAIL = /^(.*\d)\s*\/\s*((?:\d|\d{4,})(?!\d)[^\d=;:/]*)$/u;
+/** ตัวท้ายเป็นเลขหลักเดียว (ไม่มีใครแทงเลขตัวเดียว) = ยอด ไม่ว่าคั่นด้วยอะไร: "030 3" · "32.72.5ບລ" · "32_72_5" */
+const SINGLE_DIGIT_TAIL = /^(.*\d)\s*[_.,\-/\s]+\s*(\d(?![\d,.])[^\d=;:]*)$/u;
 /** ປ່ອງ3 / ຮູ3 = ยอดเลขละ 3 ของทุกเลขที่ไม่มียอดในบรรทัดติดกันด้านบน */
 const EACH_AMOUNT_LINE = /^(?:ປ່ອງ|ປອງ|ป่อง|ຮູ|รู|hu)\s*(\d.*)$/iu;
 /**
@@ -200,6 +253,8 @@ function normalize(text: string) {
     .replace(FULL_WIDTH, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
     .replace(/[໐-໙]/g, (d) => String(d.charCodeAt(0) - 0x0ed0))
     .replace(/[๐-๙]/g, (d) => String(d.charCodeAt(0) - 0x0e50))
+    // ປອ່ງ = ປ່ອງ ที่วางไม้เอกผิดที่ (หน้าจอดูเหมือนกัน)
+    .replace(/ປອ່ງ/g, "ປ່ອງ")
     .trim();
 }
 
@@ -210,7 +265,8 @@ function toAmount(text: string) {
 }
 
 function readSuffix(text: string) {
-  let rest = text.toLowerCase().replace(/[\s.+/\-]/g, "");
+  // วงเล็บรอบคำกำกับไม่มีผล: "(ບລ)" = "ບລ"
+  let rest = text.toLowerCase().replace(/[\s.+/\-()[\]（）]/g, "");
   let position: PositionMark | undefined;
   let currency: Currency | undefined;
 
@@ -235,6 +291,23 @@ type Stake = Omit<ParsedBet, "line" | "amount"> & { typed: number };
 type LineResult = { stakes: Stake[]; amount?: Amount } | { issue: ParseIssueCode };
 type Amount = { first: number; second?: number; position?: PositionMark; currency: Currency };
 
+/**
+ * คำกำกับท้ายยอดที่มีชื่อลูกค้าต่อท้าย: "ກີບ ອ້າຍຊານ" → คำกำกับ "ກີບ" (ชื่อไม่นับ)
+ * ชื่อ = คำท้ายที่คั่นด้วยช่องว่าง เป็นตัวหนังสือล้วน ยาว 2 ตัวขึ้นไป · คำที่ติดกับยอด ("100ບ ອ້າຍ") ต้องเป็นคำกำกับเสมอ
+ * (ບ ตัวเดียวกำกวม จึงตัดเป็นชื่อไม่ได้)
+ */
+function readSuffixWithoutName(text: string) {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const attached = !/^\s/.test(text);
+  for (let keep = words.length - 1; keep >= (attached ? 1 : 0); keep--) {
+    const name = words.slice(keep).join("");
+    if (!/^[\p{L}\p{M}]{2,}$/u.test(name)) continue;
+    const suffix = readSuffix(words.slice(0, keep).join(" "));
+    if (suffix) return suffix;
+  }
+  return null;
+}
+
 /** ส่วนยอดหลัง = / ໂຕ เช่น "100ລ່າງ" · "1000*1000฿" */
 function parseAmount(text: string, fallback: Currency = "LAK"): Amount | { issue: ParseIssueCode } {
   // =ໂຕ5ພັນ / =ຮູລະ10 — คำว่า "เลขละ" หลัง = ไม่มีผลกับยอด
@@ -243,7 +316,7 @@ function parseAmount(text: string, fallback: Currency = "LAK"): Amount | { issue
 
   const first = toAmount(amount[1]);
   const second = amount[2] === undefined ? undefined : toAmount(amount[2]);
-  const suffix = readSuffix(amount[3]);
+  const suffix = readSuffix(amount[3]) ?? readSuffixWithoutName(amount[3]);
   if (first === null || second === null || !suffix) return { issue: "UNREADABLE" };
 
   // "1000*1000" = บน × ล่าง อยู่แล้ว จึงห้ามมีคำกำกับฝั่งซ้ำ
@@ -273,12 +346,19 @@ function stakesFor(numbers: readonly string[], { first, second, position = "TOP"
 const withHundreds = (hundreds: readonly string[], bases: readonly string[]) =>
   hundreds.flatMap((digit) => bases.map((base) => `${digit}${base}`));
 
-function parseLine(line: string, fallback: Currency = "LAK"): LineResult {
+/**
+ * dashNumbers = โพยนี้ใช้ขีดคั่นเลข (มีบรรทัด "605-645-685") → "724-764" เป็นเลข 2 ตัว ไม่ใช่เลข 724 ยอด 764
+ * dashAmounts = โพยนี้ใช้ขีดคั่นยอด (มีบรรทัด "11.51.91-5") → "22.62-10" = 22 62 ยอด 10
+ */
+function parseLine(line: string, fallback: Currency = "LAK", dashNumbers = false, dashAmounts = false): LineResult {
   // มี ໂຕ / ຮູ / hu คั่นยอดแล้ว (ไม่มี =) → ; : ที่เหลือคั่นระหว่างเลข: "06;46;506 hu 20" = "06,46,506=20"
   const each = !line.includes("=") && EACH_WORD.test(line);
   // เลขเดียว + ขีดล่างตัวเดียว + ยอด: "22_10" = "22=10" (หลายขีด "04_44_84_=20" ยังเป็นตัวคั่นเลข)
   const underscore = !each && UNDERSCORE_LINE.test(line);
-  const thousand = !each && !/[=;:]/.test(line) ? line.match(THOUSAND_TAIL) : null;
+  const thousand =
+    !each && !/[=;:]/.test(line)
+      ? (line.match(THOUSAND_TAIL) ?? line.match(SLASH_TAIL) ?? line.match(SINGLE_DIGIT_TAIL))
+      : null;
   // มี = ตัวเดียว → ; : หน้า = คั่นระหว่างเลข: "24;64;28=100*50" = "24,64,28=100*50"
   const single = line.split("=").length === 2;
   const text = each
@@ -301,7 +381,9 @@ function parseLine(line: string, fallback: Currency = "LAK"): LineResult {
     // หลายเลขรับเฉพาะเมื่อหลังขีดไม่ใช่เลข 2-3 หลักเปล่า ๆ (30,000 / 5 / 100ລ່າງ) — "38.78-33" อาจเป็นเลขทั้งหมด
     const dash = text.match(DASH_LINE);
     const tokens = text.split(NUMBER_SEPARATOR).filter(Boolean);
-    if (dash && (tokens.length === 2 || !/^\d{2,3}$/.test(dash[2].trim()))) {
+    // สองตัวและหลังขีดเป็นเลข 2-3 หลัก ("35-50") = เลข-ยอด เว้นแต่โพยนี้ใช้ขีดคั่นเลข
+    const bareRight = /^\d{2,3}$/.test(dash?.[2].trim() ?? "");
+    if (dash && (!bareRight || (tokens.length === 2 && !dashNumbers) || dashAmounts)) {
       [, numbersPart, amountPart] = dash;
     } else {
       return { issue: tokens.every((t) => /^\d{2,3}$/.test(t)) ? "NO_AMOUNT" : "UNREADABLE" };
@@ -368,6 +450,10 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
     normalized.some((text) => TOTAL_LINE.test(text) && THB_WORD.test(text)) && !normalized.some((text) => LAK_WORD.test(text))
       ? "THB"
       : "LAK";
+  // มีบรรทัดที่ขีดคั่นเลข 3 ตัวขึ้นไป (605-645-685 / 406-446-486=1) → ขีดในโพยนี้คั่นเลข ไม่ใช่คั่นยอด
+  const dashNumbers = normalized.some((text) => DASH_NUMBERS_LINE.test(text));
+  // มีบรรทัด "เลข.เลข-ยอด" ที่หลังขีดเป็นยอดแน่นอน (11.51.91-5 / -5ພັນ) → ขีดในโพยนี้คั่นยอด
+  const dashAmounts = !dashNumbers && normalized.some((text) => DASH_AMOUNT_LINE.test(text));
   /** บรรทัดเลข 2 ตัวล้วนที่ไม่มียอด (ติดกันได้หลายบรรทัด) — ถ้าบรรทัดถัดไปเป็น ຫລັກ จะใช้เป็นเลขฐานแทน และไม่นับเป็นปัญหา */
   let bare: { numbers: string[]; line: number; issues: ParseIssue[] } | null = null;
   /** ชุด "เลขฐาน + ລັກ2" ที่ยังไม่มียอด — รอบรรทัดยอดท้ายชุด (ໂຕ20 ບລ) · ระหว่างรอ issue ของชุดยังค้างไว้ */
@@ -378,7 +464,8 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
    * บรรทัดเลขที่ไม่มียอดติดกัน — รอยอดจากบรรทัดถัดไป:
    * ປ່ອງ3 = ทุกเลขเลขละ 3 · เลขเดี่ยวที่มียอด (989=10) = ใช้ยอดเดียวกัน (เฉพาะเมื่อทุกบรรทัดที่รอเป็นเลขเดี่ยว)
    */
-  let pending: Array<{ numbers: string[]; line: number; issue: ParseIssue }> = [];
+  /** continued = บรรทัดลงท้ายด้วยตัวคั่น ("02-04-06-") = เขียนต่อบรรทัดถัดไป */
+  let pending: Array<{ numbers: string[]; line: number; issue: ParseIssue; continued?: boolean }> = [];
   /** หัวยอด (ລາວ ບົນ-ລ່າງ ຮູ10) — ยอดของบรรทัดเลขที่ไม่มียอดด้านล่าง · used = มีเลขใช้แล้ว */
   let heading: { amount: Amount; line: number; text: string; used: boolean } | null = null;
   /** หัวยอดที่ไม่มีเลขใช้เลย = อ่านไม่ออก (เหมือน ປ່ອງ3 ที่ไม่มีเลขรอด้านบน) */
@@ -391,6 +478,8 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
    * เปลี่ยนฝั่งของบรรทัดเหล่านี้: "22_10 / 62_10 / ລ່າງ" = 22 62 ล่าง เลขละ 10 · รายการของบรรทัดเหล่านี้อยู่ท้าย bets เสมอ
    */
   let unmarked: Array<{ numbers: string[]; line: number; amount: Amount; stakes: Stake[] }> = [];
+  /** บรรทัดก่อนหน้าเป็นเส้นคั่น (_____) — ตัวเลขเปล่า ๆ บรรทัดถัดไปเป็นยอดรวม */
+  let afterDivider = false;
   const dropIssues = (list: readonly ParseIssue[]) => {
     for (const issue of list) issues.splice(issues.indexOf(issue), 1);
   };
@@ -436,7 +525,7 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
       return;
     }
     // ธง / อีโมจิ (🇱🇦 💰 ✅ ❤️) ไม่มีผลกับรายการ — ตัดออกก่อนอ่าน · บรรทัดที่มีแต่อีโมจิเก็บเป็นหมายเหตุ
-    let text = ruled.replace(EMOJI, "").trim();
+    let text = numberWordsToDigits(ruled.replace(EMOJI, "").trim().replace(GREETING_PREFIX, "")).trim();
     if (!text) {
       if (ruled.trim()) notes.push(original);
       return;
@@ -457,7 +546,20 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
     // ไม่มีตัวเลข (ชื่อ คำทักทาย) · เอาแต่3โต · วันที่ / เบอร์โทร (03/10/2026🇱🇦 · ນາງ ແອ໋ມ 02055551234) = หมายเหตุ
     if (!text || !/\d/.test(text) || ONLY_THREE_LINE.test(text) || (!TOTAL_LINE.test(text) && isDateOrPhoneLine(text))) {
       notes.push(original);
+      if (DIVIDER_LINE.test(text)) afterDivider = true;
       return;
+    }
+    // ตัวเลขเปล่า ๆ ใต้เส้นคั่น (_____ / -----) = ยอดรวม เหมือน ລວມ101.000
+    const divided = afterDivider ? text.match(DIVIDED_TOTAL) : null;
+    afterDivider = false;
+    if (divided) {
+      const value = toAmount(divided[1]);
+      if (value !== null) {
+        pending = [];
+        closeHeading();
+        declaredTotal = (declaredTotal ?? 0) + lakShort(value);
+        return;
+      }
     }
     const run = unmarked;
     unmarked = [];
@@ -476,7 +578,7 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
       return;
     }
 
-    const total = text.match(TOTAL_LINE);
+    const total = text.match(TOTAL_LINE) ?? text.match(LAO_TOTAL_TAIL) ?? text.match(SHORT_TOTAL_LINE);
     if (total) {
       pending = [];
       closeHeading();
@@ -552,7 +654,7 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
       return;
     }
     if (hundreds && !("issue" in hundreds) && prev) dropIssues(prev.issues);
-    const result = hundreds ?? parseLine(text, fallback);
+    const result = hundreds ?? parseLine(text, fallback, dashNumbers, dashAmounts);
     if ("issue" in result) {
       const numbers = text.split(NUMBER_SEPARATOR).filter(Boolean);
       // เลขไม่มียอดใต้หัวยอด (ລາວ ບົນ-ລ່າງ ຮູ10) → ใช้ยอดของหัว
@@ -566,7 +668,7 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
       const issue: ParseIssue = { code: result.issue, line, text: original };
       issues.push(issue);
       if (!hundreds && result.issue === "NO_AMOUNT" && numbers.length > 0 && numbers.every((n) => /^\d{2,3}$/.test(n))) {
-        pending = [...waiting, { numbers, line, issue }];
+        pending = [...waiting, { numbers, line, issue, continued: /[-,./_]\s*$/.test(text) }];
       }
       if (!hundreds && result.issue === "NO_AMOUNT" && numbers.every((n) => /^\d{2}$/.test(n))) {
         bare = prev
@@ -579,7 +681,12 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
     }
     groups = [];
     // บรรทัดนี้มียอด (เลขเดียวหรือหลายเลข: 989=10 · 509,549,589 ໂຕ20) → เลขเดี่ยวที่รออยู่ด้านบนใช้ยอด/คำกำกับเดียวกัน
-    const singles = waiting.every((wait) => wait.numbers.length === 1);
+    // บรรทัดที่รอ: เลขเดี่ยว · หลายเลขที่มีเลข 3 ตัว (บรรทัดต่อ "506.546" / "586.599.598/1")
+    // · ลงท้ายด้วยตัวคั่น ("02-04-06-" = เขียนต่อบรรทัดล่าง)
+    // หลายเลขที่เป็นเลข 2 ตัวล้วนอื่น ๆ ไม่รับ — อาจเป็นเลขฐานของ ຫລັກ ("32 72 11" / "45=20" ยังรอตรวจ)
+    const singles = waiting.every(
+      (wait) => wait.numbers.length === 1 || wait.continued || wait.numbers.some((n) => n.length === 3),
+    );
     const filled: typeof unmarked = [];
     if (!hundreds && result.amount && singles) {
       for (const wait of waiting) {
