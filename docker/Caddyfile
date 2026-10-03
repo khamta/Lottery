@@ -1,0 +1,26 @@
+# Reverse proxy — ใช้กับ docker-compose.prod.yml  ที่อยู่มาจาก APP_SITE ใน .env ของเซิร์ฟเวอร์
+#   ยังไม่มี DNS : APP_SITE="http://:3002" → HTTP ธรรมดา รับทุก host/IP ที่พอร์ตนี้ (ขึ้นต้นด้วย http:// = ไม่ทำ HTTPS)
+#                 ห้ามใส่ IP ตรง ๆ (http://192.168.1.10:3002) — request ที่ Host เป็น IP อื่น (public IP ผ่าน port-forward) จะได้หน้าว่าง
+#   เข้าผ่านโดเมนของเซิร์ฟเวอร์อื่น (ทำ HTTPS ที่นั่นแล้วส่งต่อมาที่ http://<IP>:3002) — ใช้ค่าเดิม ตั้งแค่ TRUSTED_PROXIES (ดู DEPLOY.md)
+
+{
+	servers {
+		# เชื่อ X-Forwarded-Proto/Host/For จาก reverse proxy หน้าเรา — ไม่งั้น Caddy เขียนทับเป็น "http"
+		# ตั้ง TRUSTED_PROXIES ใน .env เป็น IP ของเซิร์ฟเวอร์นั้น (หลายค่าคั่นด้วยช่องว่าง) ค่าเริ่มต้นเชื่อเฉพาะวงแลน
+		trusted_proxies static {$TRUSTED_PROXIES:private_ranges}
+	}
+}
+
+{$APP_SITE} {
+	encode zstd gzip
+	# แอปใน container ฟังพอร์ต 3000 เสมอ (3002 คือพอร์ตที่ browser ใช้ ตั้งใน APP_SITE)
+	reverse_proxy app:3000
+}
+
+# Prisma Studio — ไม่มี login ในตัว จึงบังคับ basic auth ที่นี่ (รหัสผ่านอยู่ใน STUDIO_PASSWORD ของ .env บนเซิร์ฟเวอร์)
+http://:5556 {
+	basic_auth {
+		{$STUDIO_USER} {$STUDIO_PASSWORD_HASH}
+	}
+	reverse_proxy studio:5555
+}

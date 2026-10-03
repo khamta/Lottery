@@ -1,0 +1,174 @@
+# CI/CD: test → build image (GitHub) → push GHCR → deploy บนเซิร์ฟเวอร์ผ่าน self-hosted runner
+#
+#   push ขึ้น main   → test + build + push (:latest, :sha-xxxxxxx) + deploy
+#   pull request     → test + build (ไม่ push, ไม่ deploy)
+#   Actions → Run workflow → deploy ด้วยมือได้
+#
+# image 2 ตัว: ghcr.io/khamta/lottery (เว็บ/บอท/migrate/studio) และ ghcr.io/khamta/lottery-ocr (บริการ OCR)
+#
+# เซิร์ฟเวอร์เดียวกับ SACDMS (อยู่ในวงแลน ไม่มี public IP) — runner ของ SACDMS ผูกกับ repo นั้น จึงติดตั้ง runner
+# อีกตัวสำหรับ repo นี้ (label `lottery`, user `lottery`, /opt/actions-runner-lottery) ด้วย docker/setup-server.sh — ดู DEPLOY.md
+# ไม่ต้องตั้ง secret ใด ๆ (ใช้ GITHUB_TOKEN ของ workflow pull image)
+#
+# Variables (ไม่บังคับ): DEPLOY_PATH (ค่าเริ่มต้น /opt/lottery), NEXT_PUBLIC_APP_NAME, NEXT_PUBLIC_APP_URL — ฝังตอน build
+
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # ตรงกับ Dockerfile (oven/bun:1.3.1)
+          bun-version: 1.3.1
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - suffix: ""
+            context: .
+          # ocr ไม่ค่อยเปลี่ยน — cache ทำให้ build ซ้ำแทบไม่เสียเวลา และเซิร์ฟเวอร์ไม่ต้องโหลด layer เดิมใหม่
+          - suffix: "-ocr"
+            context: ./ocr
+    steps:
+      - uses: actions/checkout@v4
+
+      # ชื่อ image บน GHCR ต้องเป็นตัวพิมพ์เล็ก (repo ชื่อ khamta/Lottery)
+      - id: image
+        run: |
+          echo "name=${REGISTRY}/${GITHUB_REPOSITORY,,}${{ matrix.suffix }}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ steps.image.outputs.sha_tag }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # build arg ที่ Dockerfile ไม่ได้ประกาศ (ocr) ถูกข้ามไปเฉย ๆ
+          build-args: |
+            NEXT_PUBLIC_APP_NAME=${{ vars.NEXT_PUBLIC_APP_NAME || 'Lottery' }}
+            NEXT_PUBLIC_APP_URL=${{ vars.NEXT_PUBLIC_APP_URL || 'http://localhost:3002' }}
+            NEXT_PUBLIC_TIME_ZONE=${{ vars.NEXT_PUBLIC_TIME_ZONE || 'Asia/Vientiane' }}
+          cache-from: type=gha,scope=lottery${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=lottery${{ matrix.suffix }}
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    # รันบนเซิร์ฟเวอร์เอง (self-hosted runner ที่ติดตั้งด้วย docker/setup-server.sh) — label ไม่ซ้ำกับ runner ของ SACDMS
+    runs-on: [self-hosted, linux, lottery]
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/lottery' }}
+      COMPOSE_FILE: docker-compose.prod.yml
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            docker-compose.prod.yml
+            .env.production.example
+            docker/Caddyfile
+          sparse-checkout-cone-mode: false
+
+      - name: Image tags
+        run: |
+          base="${REGISTRY}/${GITHUB_REPOSITORY,,}"
+          echo "APP_IMAGE=${base}:sha-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "OCR_IMAGE=${base}-ocr:sha-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      # คัดลอกไฟล์ที่ compose ต้องใช้ไปโฟลเดอร์ deploy (.env ของเซิร์ฟเวอร์ไม่ถูกแตะ)
+      - name: Sync compose files
+        run: |
+          test -f "$DEPLOY_PATH/.env" || { echo "::error::missing $DEPLOY_PATH/.env — run docker/setup-server.sh first"; exit 1; }
+          install -d "$DEPLOY_PATH/docker" "$DEPLOY_PATH/uploads"
+          cp docker-compose.prod.yml .env.production.example "$DEPLOY_PATH/"
+          cp docker/Caddyfile "$DEPLOY_PATH/docker/"
+          # รหัสผ่าน Prisma Studio (Caddy basic auth ที่พอร์ต 5556) — สร้างครั้งแรกครั้งเดียว ดูรหัสได้ใน .env บนเซิร์ฟเวอร์
+          # hash เป็น bcrypt มี "$" จึงครอบด้วย ' ' ไม่ให้ compose แปลเป็นตัวแปร
+          if ! grep -q '^STUDIO_PASSWORD_HASH=' "$DEPLOY_PATH/.env"; then
+            pw="$(openssl rand -base64 24 | tr -d '/+=')"
+            hash="$(docker run --rm caddy:2-alpine caddy hash-password --plaintext "$pw")"
+            printf '\n# Prisma Studio: http://<IP>:5556 (สร้างโดย deploy)\nSTUDIO_USER="admin"\nSTUDIO_PASSWORD="%s"\nSTUDIO_PASSWORD_HASH='"'"'%s'"'"'\n' "$pw" "$hash" >> "$DEPLOY_PATH/.env"
+            echo "generated Prisma Studio password → STUDIO_PASSWORD in $DEPLOY_PATH/.env"
+          fi
+
+      - name: Pull & restart
+        working-directory: ${{ env.DEPLOY_PATH }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          # ดึงเฉพาะ image ของเรา (app/worker/migrate/studio ใช้ image เดียวกัน) — postgres / caddy ที่ยังไม่มีในเครื่อง `up -d` ดึงให้เอง
+          docker compose pull app ocr
+          docker logout ghcr.io
+          # migrate ต้องจบสำเร็จก่อน app/worker เริ่ม — ถ้า migration พัง up จะล้ม ให้ดู log ของ migrate
+          docker compose up -d --remove-orphans || { docker compose logs --tail 80 migrate; exit 1; }
+          # Caddyfile เป็น bind mount — compose ไม่ recreate caddy เมื่อไฟล์เปลี่ยน จึงสั่ง reload เอง
+          docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+          # บันทึก image ที่ deploy ล่าสุด — restart/`docker compose up` ด้วยมือภายหลังจะได้ตัวเดียวกัน
+          for key in APP_IMAGE OCR_IMAGE; do
+            val="${!key}"
+            if grep -q "^$key=" .env; then sed -i "s|^$key=.*|$key=\"$val\"|" .env; else echo "$key=\"$val\"" >> .env; fi
+          done
+
+      - name: Health check
+        working-directory: ${{ env.DEPLOY_PATH }}
+        run: |
+          for i in $(seq 1 30); do
+            if docker compose exec -T app node -e "fetch('http://localhost:3000/login').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))" 2>/dev/null; then
+              echo "deployed $APP_IMAGE"
+              docker image prune -f
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::app did not become healthy"
+          docker compose logs --tail 80 app
+          exit 1

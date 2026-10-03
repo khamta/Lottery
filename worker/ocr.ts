@@ -1,13 +1,16 @@
 /**
- * คิวอ่านรูปโพยของบอท — รูปถูกเก็บเข้าฐานข้อมูลแล้ว (ingestImage) คิวนี้ค่อยอ่านทีละรูป
+ * คิวอ่านรูปโพยของบอท — รูปถูกบันทึกเป็นไฟล์และเข้าตารางแล้ว (ingestImage) คิวนี้ค่อยอ่านทีละรูป
  *
- *   รูปในฐานข้อมูล → บริการ OCR (ocr/server.py) → imageToTicketText → applyOcr (ตัวแยกข้อความชุดเดียวกับข้อความปกติ)
+ *   ไฟล์รูปใน uploads (path ใน ticket_images) → บริการ OCR (ocr/server.py)
+ *     → ขั้นที่ 1 transcribeImage (ทุกอย่างที่อ่านได้) + ขั้นที่ 2 imageToTicketText (กรองตามกติกา) → applyOcr (ตัวแยกข้อความชุดเดียวกับข้อความปกติ)
+ *   กติกาเปลี่ยน → bun run ocr:reapply อ่านรูปเก่าใหม่จากผล OCR ที่เก็บไว้ (worker/ocr-reapply.ts)
  *
  * อ่านทีละรูปตามลำดับ เพราะ OCR ใช้ CPU เต็มที่อยู่แล้ว (~5-10 วินาที/รูป) และไม่ให้ข้อความปกติต้องรอรูป
  * บริการ OCR ยังไม่พร้อม/ล่ม → ลองใหม่เป็นระยะ ไม่ตัดสินว่าอ่านไม่ได้ทันที
  * บอทรีสตาร์ต → รูปที่ยังไม่ได้อ่าน (ocrStatus = PENDING) กลับเข้าคิวเอง (resumeOcr)
  */
 import { prisma } from "@/lib/prisma";
+import { readTicketImage } from "@/lottery/image-store";
 import { applyOcr } from "@/lottery/ingest";
 import { imageToTicketText, type OcrResult } from "@/lottery/image-text";
 
@@ -47,16 +50,18 @@ async function readImage(data: Uint8Array, mimeType: string): Promise<OcrResult>
   return result;
 }
 
-async function readTicketImage(ticketId: string) {
+async function ocrTicketImage(ticketId: string) {
   const image = await prisma.ticketImage.findUnique({
     where: { ticketId },
-    select: { data: true, mimeType: true, ocrStatus: true },
+    select: { path: true, mimeType: true, ocrStatus: true },
   });
   if (!image || image.ocrStatus !== "PENDING") return;
 
   try {
     const started = Date.now();
-    const ocr = await readImage(image.data, image.mimeType);
+    const data = image.path ? await readTicketImage(image.path) : null;
+    if (!data) throw new BadImageError(`image file missing: ${image.path ?? "(no path)"}`);
+    const ocr = await readImage(data, image.mimeType);
     const text = imageToTicketText(ocr);
     const result = await applyOcr(prisma, ticketId, { text, ocr });
     attempts.delete(ticketId);
@@ -86,7 +91,7 @@ async function drain() {
     while (queue.length > 0) {
       const ticketId = queue.shift()!;
       // รูปเดียวพังต้องไม่ทำให้คิวหยุด
-      await readTicketImage(ticketId).catch((error) => console.error(`[OCR] อ่านรูปของโพย ${ticketId} ไม่สำเร็จ`, error));
+      await ocrTicketImage(ticketId).catch((error) => console.error(`[OCR] อ่านรูปของโพย ${ticketId} ไม่สำเร็จ`, error));
     }
   } finally {
     running = false;

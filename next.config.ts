@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   typedRoutes: true,
+  // ส่งออกโพย (src/lottery/ticket-export.ts) — pdfkit อ่านไฟล์ข้อมูลของตัวเองจาก node_modules ตอนรัน ห้าม bundle
+  serverExternalPackages: ["pdfkit", "exceljs"],
   images: {
     remotePatterns: [{ protocol: "https", hostname: "**" }],
   },

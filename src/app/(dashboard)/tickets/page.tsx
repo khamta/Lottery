@@ -2,24 +2,25 @@ import type { Metadata } from "next";
 
 import { prisma } from "@/lib/prisma";
 import { buildOrderBy, paginate, parseListParams } from "@/lib/query";
+import { LiveRefresh } from "@/components/shared/live-refresh";
 import { PageHeader } from "@/components/shared/page-header";
 import { getTranslations } from "@/i18n/server";
 import { getDealerContext } from "@/lottery/dealer";
+import { rulesOf } from "@/lottery/ingest";
 import { DealerSwitcher } from "@/lottery/components/dealer-switcher";
 import { NoDealer } from "@/lottery/components/no-dealer";
 import type { PageProps } from "@/types";
 import { TicketsView } from "./_components/tickets-view";
-import { TICKET_SORTABLE, isTicketStatus, type TicketRow } from "./types";
+import { readTicketFilters, ticketWhere } from "./filters";
+import { TICKET_SORTABLE, type TicketRow } from "./types";
 
 export const metadata: Metadata = { title: "Tickets" };
 
 /** จำนวนตัวเลือกในฟอร์ม/ตัวกรอง — จำกัดไว้กันดึงทั้งตาราง */
 const DRAW_OPTIONS = 30;
 const CUSTOMER_OPTIONS = 500;
-
-function first(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value;
-}
+/** มีรูปที่บอทยังอ่านไม่เสร็จในหน้านี้ → refresh ถี่ ๆ ให้ข้อความที่อ่านได้ (และสถานะนับยอด) ขึ้นเอง — OCR ใช้ ~5-10 วินาที/รูป */
+const OCR_REFRESH_MS = 3_000;
 
 export default async function TicketsPage({ searchParams }: PageProps) {
   const { t } = await getTranslations();
@@ -33,7 +34,8 @@ export default async function TicketsPage({ searchParams }: PageProps) {
     defaultOrder: "desc",
   });
 
-  const [draws, customers] = await Promise.all([
+  // rules = เงื่อนไขอ่านโพยของแม่หวย (หน้า /read-rules) — ให้ตัวอย่างในหน้าต่างโพยอ่านได้ตรงกับที่ server บันทึก
+  const [draws, customers, rules] = await Promise.all([
     prisma.draw.findMany({
       where: { dealerId: current.id },
       orderBy: { drawDate: "desc" },
@@ -46,35 +48,18 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       take: CUSTOMER_OPTIONS,
       select: { id: true, name: true, lakMultiplier: true },
     }),
+    rulesOf(prisma, current.id),
   ]);
 
-  // ตัวกรองจาก URL (?draw=<id>|all&status=REVIEW) — ไม่ระบุงวด = งวดที่เปิดรับล่าสุด
-  const drawParam = (first(raw.draw) ?? "").slice(0, 50);
-  const drawId =
-    drawParam === "all" ? null : drawParam || (draws.find((draw) => draw.status === "OPEN")?.id ?? null);
-  const statusParam = first(raw.status);
-  const status = isTicketStatus(statusParam) ? statusParam : null;
-
-  // โพยเป็นของแม่หวยผ่านงวด — ?draw= ของแม่หวยอื่นจึงไม่เจออะไร
-  const conditions: Record<string, unknown>[] = [{ draw: { dealerId: current.id } }];
-  if (drawId) conditions.push({ drawId });
-  if (status) conditions.push({ status });
-  if (params.q) {
-    conditions.push({
-      OR: [
-        { rawText: { contains: params.q, mode: "insensitive" as const } },
-        { note: { contains: params.q, mode: "insensitive" as const } },
-        { senderName: { contains: params.q, mode: "insensitive" as const } },
-        { customer: { name: { contains: params.q, mode: "insensitive" as const } } },
-      ],
-    });
-  }
-  const where = { AND: conditions };
+  // ตัวกรองจาก URL (?draw=<id>|all&status=REVIEW) — ไม่ระบุงวด = งวดที่เปิดรับล่าสุด · ไฟล์ส่งออกใช้ชุดเดียวกัน
+  const filters = readTicketFilters(raw, draws);
+  const where = ticketWhere(current.id, filters, params.q);
 
   const page = await paginate<
     TicketRow,
     {
       id: string;
+      billNo: string;
       drawId: string;
       draw: { name: string };
       customerId: string | null;
@@ -86,7 +71,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       lakMultiplier: number;
       note: string | null;
       issues: unknown;
-      image: { ocrStatus: TicketRow["ocrStatus"] } | null;
+      image: { ocrStatus: TicketRow["ocrStatus"]; transcript: string | null } | null;
       betCount: number;
       totalLak: unknown;
       totalThb: unknown;
@@ -98,6 +83,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
     orderBy: buildOrderBy(params) ?? { createdAt: "desc" },
     select: {
       id: true,
+      billNo: true,
       drawId: true,
       draw: { select: { name: true } },
       customerId: true,
@@ -109,8 +95,8 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       lakMultiplier: true,
       note: true,
       issues: true,
-      // เฉพาะสถานะ — ข้อมูลรูปดึงแยกทีละรูปตอนเปิดดู
-      image: { select: { ocrStatus: true } },
+      // สถานะ + ข้อความทุกอย่างที่อ่านได้จากรูป (ขั้นที่ 1) — ตัวรูปดึงแยกทีละรูปตอนเปิดดู
+      image: { select: { ocrStatus: true, transcript: true } },
       betCount: true,
       totalLak: true,
       totalThb: true,
@@ -122,6 +108,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       customerName: customer?.name ?? null,
       issueCount: Array.isArray(issues) ? issues.length : 0,
       ocrStatus: image?.ocrStatus ?? null,
+      ocrTranscript: image?.transcript ?? null,
       totalLak: Number(row.totalLak),
       totalThb: Number(row.totalThb),
       createdAt: row.createdAt.toISOString(),
@@ -135,7 +122,8 @@ export default async function TicketsPage({ searchParams }: PageProps) {
         description={t("tickets.subtitle")}
         action={<DealerSwitcher dealers={dealers} currentId={current.id} />}
       />
-      <TicketsView page={page} draws={draws} customers={customers} filters={{ drawId, status }} />
+      {page.rows.some((row) => row.ocrStatus === "PENDING") ? <LiveRefresh intervalMs={OCR_REFRESH_MS} /> : null}
+      <TicketsView page={page} draws={draws} customers={customers} rules={rules} filters={filters} />
     </>
   );
 }

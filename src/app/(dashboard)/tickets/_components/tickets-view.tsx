@@ -10,6 +10,7 @@ import { useOptimisticList } from "@/hooks/use-optimistic-list";
 import { useI18n } from "@/i18n/client";
 import type { TicketInput } from "@/lib/validations/ticket";
 import { DEFAULT_LAK_MULTIPLIER, parseTicket } from "@/lottery/parser";
+import type { ReadRuleSpec } from "@/lottery/read-rules";
 import { summarizeTicket } from "@/lottery/ticket";
 import type { Paginated } from "@/types";
 import { createTicket, deleteTicket, deleteTickets, updateTicket } from "../actions";
@@ -22,17 +23,22 @@ export function TicketsView({
   page,
   draws,
   customers,
+  rules,
   filters,
 }: {
   page: Paginated<TicketRow>;
   draws: DrawOption[];
   customers: CustomerOption[];
+  /** เงื่อนไขอ่านโพยของแม่หวย (read-rules.ts) */
+  rules: ReadRuleSpec[];
   filters: TicketFilterValues;
 }) {
   const { t, intl } = useI18n();
   const { rows, isPending, mutate, tempId } = useOptimisticList(page.rows);
 
-  const [editing, setEditing] = React.useState<TicketRow | null>(null);
+  const [selected, setEditing] = React.useState<TicketRow | null>(null);
+  // ข้อมูลล่าสุดของโพยที่เปิดอยู่ — หน้า refresh เองระหว่างรออ่านรูป หน้าต่างจึงเห็นข้อความที่อ่านจากรูปทันทีที่เสร็จ
+  const editing = selected ? (rows.find((row) => row.id === selected.id) ?? selected) : null;
   const [formOpen, setFormOpen] = React.useState(false);
   const [deleting, setDeleting] = React.useState<TicketRow | null>(null);
   // รายการที่เลือกด้วย checkbox แล้วกด "ลบที่เลือก" (clear = ล้าง checkbox หลังยืนยัน)
@@ -59,7 +65,7 @@ export function TicketsView({
     // แยกข้อความฝั่ง client ด้วยตัวแยกชุดเดียวกับ server เพื่อให้แถวขึ้นยอดทันที
     const customer = customers.find((option) => option.id === values.customerId) ?? null;
     const lakMultiplier = customer?.lakMultiplier ?? DEFAULT_LAK_MULTIPLIER;
-    const summary = summarizeTicket(parseTicket(values.text, { lakMultiplier }), values.force);
+    const summary = summarizeTicket(parseTicket(values.text, { lakMultiplier, rules }), values.force);
 
     const shared = {
       drawId: values.drawId,
@@ -90,9 +96,11 @@ export function TicketsView({
           type: "create",
           item: {
             id: tempId(),
+            billNo: null, // server ออกเลขให้ตอนบันทึก
             source: "MANUAL",
             senderName: null,
             ocrStatus: null,
+            ocrTranscript: null,
             createdAt: new Date().toISOString(),
             ...shared,
           },
@@ -163,6 +171,7 @@ export function TicketsView({
         ticket={editing}
         draws={draws}
         customers={customers}
+        rules={rules}
         defaultDrawId={filters.drawId}
         onSubmit={handleSave}
       />

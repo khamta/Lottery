@@ -212,6 +212,7 @@ model Dealer {
   customers Customer[]
   limits    Limit[]
   groups    WhatsappGroup[]
+  readRules ReadRule[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -281,6 +282,9 @@ model Ticket {
   customer   Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
   source     TicketSource @default(MANUAL)
   status     TicketStatus
+  /// เลขบิล = ปีเดือนวันเวลาของโพย yyMMddHHmmss (เวลาลาว) เช่น 261002143015 · ไม่ซ้ำทั้งระบบ
+  /// โพยที่เข้ามาในวินาทีเดียวกัน (จากหลายกลุ่ม/หลายเครื่อง) ต่อท้าย -2, -3 … (ดู src/lottery/bill.ts)
+  billNo     String       @unique
 
   rawText       String  @db.Text
   lakMultiplier Int
@@ -315,20 +319,29 @@ model Ticket {
   @@map("tickets")
 }
 
-/// รูปโพยจาก WhatsApp — เก็บในฐานข้อมูลเพื่อให้คนตรวจเทียบกับข้อความที่ OCR แปลงได้ (ดู src/lottery/image-text.ts)
-/// แยกตารางจาก tickets เพื่อไม่ให้การดึงรายการโพยลากข้อมูลรูปมาด้วย
+/// รูปโพยจาก WhatsApp — ให้คนตรวจเทียบกับข้อความที่ OCR แปลงได้ (ดู src/lottery/image-text.ts)
+/// ตัวไฟล์อยู่ในโฟลเดอร์ uploads ของโปรเจกต์ ตารางนี้เก็บแค่ path (ดู src/lottery/image-store.ts)
 model TicketImage {
-  id       String @id @default(cuid())
-  ticketId String @unique
-  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  id       String  @id @default(cuid())
+  ticketId String  @unique
+  ticket   Ticket  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   mimeType String
-  data     Bytes
+  /// path ของไฟล์ใต้โฟลเดอร์ uploads เช่น tickets/2026-10/<uuid>.jpg
+  path     String?
+  /// รูปแบบเดิมที่เก็บไฟล์ในฐานข้อมูล — docker/migrate.ts ย้ายออกเป็นไฟล์แล้วล้างเป็น null ทุกครั้งที่เริ่มระบบ
+  /// ไม่มีโค้ดอ่านคอลัมน์นี้แล้ว ลบทิ้งได้ใน migration ถัดไปเมื่อทุกเครื่องย้ายรูปครบ
+  data     Bytes?
 
-  ocrStatus OcrStatus @default(PENDING)
-  /// ผลดิบจากบริการ OCR — เก็บไว้ปรับปรุงตัวแปลงภายหลัง
-  ocr       Json?
-  ocrError  String?
-  ocrAt     DateTime?
+  ocrStatus  OcrStatus @default(PENDING)
+  /// ผลดิบจากบริการ OCR — เก็บไว้ปรับปรุงตัวแปลงภายหลัง และอ่านใหม่เมื่อกติกาเปลี่ยน (bun run ocr:reapply)
+  ocr        Json?
+  /// ขั้นที่ 1: ทุกอย่างที่ OCR อ่านได้จากรูป ไม่ตัดอะไรทิ้ง (transcribeImage)
+  transcript String?
+  /// ขั้นที่ 2: ข้อความโพยที่กรองตามกติกาแล้ว (imageToTicketText) ที่ใส่ไว้หน้าข้อความของโพยครั้งล่าสุด
+  /// null = ยังไม่เคยใส่ (หรือคนแก้ข้อความก่อน OCR อ่านเสร็จ)
+  ocrText    String?
+  ocrError   String?
+  ocrAt      DateTime?
 
   createdAt DateTime @default(now())
 
@@ -440,4 +453,33 @@ model WhatsappGroup {
   @@unique([accountId, jid])
   @@index([dealerId])
   @@map("whatsapp_groups")
+}
+
+/// ชนิดเงื่อนไขอ่านโพย — ใช้ตามลำดับ ข้าม → แทนคำ → รูปแบบ (ดู src/lottery/read-rules.ts)
+enum ReadRuleKind {
+  SKIP
+  REPLACE
+  PATTERN
+}
+
+/// เงื่อนไขอ่านโพยที่ผู้ใช้กำหนดเอง — ลูกค้าพิมพ์รูปแบบใหม่ ผู้ใช้สอนระบบเพิ่มได้เองที่หน้า /read-rules
+/// ใช้กับทุกข้อความโพยของแม่หวยนี้ (แชต คีย์เอง และข้อความที่อ่านจากรูป) ทุกครั้งที่อ่าน — ข้อความเดิมของโพยไม่ถูกแก้
+model ReadRule {
+  id       String       @id @default(cuid())
+  dealerId String
+  dealer   Dealer       @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  kind     ReadRuleKind
+  /// ข้อความ/รูปแบบที่ค้นหา เช่น "ລ {N} x{A}"
+  find     String
+  /// ผลลัพธ์ เช่น "{N}={A}ລ່າງ" — SKIP ไม่ใช้ (ว่าง)
+  replace  String       @default("")
+  /// ตัวอย่างข้อความ/หมายเหตุว่าเงื่อนไขนี้มีไว้ทำอะไร
+  note     String?
+  isActive Boolean      @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([dealerId, isActive, createdAt])
+  @@map("read_rules")
 }

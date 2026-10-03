@@ -20,7 +20,7 @@
  * จึงมีความเสี่ยงที่เบอร์จะถูกแบน — ควรใช้เบอร์แยกสำหรับบอท
  *
  * รูปโพย
- *   ลูกค้าส่งรูป (ลายมือ/แคปหน้าจอ) แทนข้อความ → บอทดาวน์โหลดรูปเก็บเข้าฐานข้อมูลเป็นโพยรอตรวจทันที
+ *   ลูกค้าส่งรูป (ลายมือ/แคปหน้าจอ) แทนข้อความ → บอทดาวน์โหลดรูปเป็นไฟล์ใน uploads/ (ฐานข้อมูลเก็บแค่ path) เป็นโพยรอตรวจทันที
  *   แล้วส่งเข้าคิวอ่านด้วย OCR (worker/ocr.ts · บริการ ocr ใน docker-compose) — อ่านเสร็จข้อความโพยขึ้นในโพยนั้นเอง
  *
  * ข้อความที่ถอดรหัสไม่ได้
@@ -50,6 +50,7 @@ import makeWASocket, {
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { removeTicketImage, saveTicketImage, sweepTicketImages, UPLOAD_ROOT } from "@/lottery/image-store";
 import {
   editMessage,
   ingestImage,
@@ -72,6 +73,8 @@ const GROUP_RESYNC_MS = 30 * 60 * 1000;
 const UNDECRYPTED_WAIT_MS = 60_000;
 /** รูปใหญ่เกินนี้ไม่ใช่รูปโพย (WhatsApp ย่อรูปเหลือไม่เกินราว 2 MB) — บริการ OCR รับได้ไม่เกิน 15 MB */
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+/** ลบไฟล์รูปของโพยที่ไม่มีแล้ว (ถูกลบ/รวม) ทุกเท่านี้ */
+const IMAGE_SWEEP_MS = 24 * 60 * 60 * 1000;
 
 const time = () => new Date().toLocaleTimeString("en-GB");
 const log = (...args: unknown[]) => console.log(time(), ...args);
@@ -301,17 +304,36 @@ async function handleImage(
     { logger: makeLogger(label), reuploadRequest: sock.updateMediaMessage },
   );
 
-  const result = await ingestImage(prisma, {
-    id: message.key.id!,
-    dealerId,
-    ...sender,
-    sentAt: sentAtOf(message),
-    offline,
-    image: { data: new Uint8Array(data), mimeType: image.mimeType },
-    caption: image.caption,
+  // ไฟล์ลงโฟลเดอร์ uploads ก่อน ฐานข้อมูลเก็บแค่ path — ไม่ได้ใช้ (ซ้ำ/ไม่มีงวดเปิด/ผิดพลาด) ลบทิ้ง
+  const path = await saveTicketImage(new Uint8Array(data), image.mimeType);
+  let used = false;
+  try {
+    const result = await ingestImage(prisma, {
+      id: message.key.id!,
+      dealerId,
+      ...sender,
+      sentAt: sentAtOf(message),
+      offline,
+      image: { path, mimeType: image.mimeType },
+      caption: image.caption,
+    });
+    reportIngest(label, sender, result);
+    if (result.action === "image" || result.action === "recovered") {
+      used = true;
+      enqueueOcr(result.ticketId);
+    }
+  } finally {
+    if (!used) await removeTicketImage(path).catch(() => undefined);
+  }
+}
+
+/** ไฟล์รูปของโพยที่ถูกลบ/รวมไปแล้ว — ลบตอนบอทเริ่มและทุก IMAGE_SWEEP_MS */
+async function sweepImages() {
+  const removed = await sweepTicketImages(async (paths) => {
+    const rows = await prisma.ticketImage.findMany({ where: { path: { in: paths } }, select: { path: true } });
+    return new Set(rows.map((row) => row.path!));
   });
-  reportIngest(label, sender, result);
-  if (result.action === "image" || result.action === "recovered") enqueueOcr(result.ticketId);
+  if (removed > 0) log(`ลบไฟล์รูปโพยที่ไม่มีโพยแล้ว ${removed} ไฟล์`);
 }
 
 // ------------------------------------------------------------------ กลุ่ม
@@ -622,6 +644,9 @@ await prisma.whatsappAccount.count().catch((error) => {
   process.exit(1);
 });
 
-log(`บอท WhatsApp เริ่มทำงาน — session อยู่ที่ ${AUTH_ROOT} · ตั้งค่าบัญชีที่หน้าเว็บ /whatsapp`);
+log(`บอท WhatsApp เริ่มทำงาน — session อยู่ที่ ${AUTH_ROOT} · รูปโพยอยู่ที่ ${UPLOAD_ROOT} · ตั้งค่าบัญชีที่หน้าเว็บ /whatsapp`);
 void loop();
 await resumeOcr(log).catch((error) => console.error("[OCR] อ่านรายการรูปค้างอ่านไม่สำเร็จ", error));
+const sweep = () => sweepImages().catch((error) => console.error("ลบไฟล์รูปโพยที่ไม่มีโพยแล้วไม่สำเร็จ", error));
+void sweep();
+setInterval(sweep, IMAGE_SWEEP_MS);

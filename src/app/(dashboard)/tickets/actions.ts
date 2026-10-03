@@ -7,8 +7,10 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { createAction } from "@/lib/action";
 import { logAudit, logAuditMany } from "@/lib/audit";
+import { nextBillNo } from "@/lottery/bill";
 import { requireDealerId } from "@/lottery/dealer";
 import { DEFAULT_LAK_MULTIPLIER } from "@/lottery/parser";
+import { rulesOf } from "@/lottery/ingest";
 import { readTicketText } from "@/lottery/ticket";
 import {
   createTicketSchema,
@@ -39,7 +41,9 @@ async function readTicket(tx: Prisma.TransactionClient, input: TicketInput, deal
     : null;
   if (input.customerId && !customer) throw new Error("tickets.customerNotFound");
 
-  const read = readTicketText(input.text, customer?.lakMultiplier ?? DEFAULT_LAK_MULTIPLIER, input.force);
+  // เงื่อนไขอ่านโพยที่ผู้ใช้กำหนดเองของแม่หวย (หน้า /read-rules)
+  const rules = await rulesOf(tx, dealerId);
+  const read = readTicketText(input.text, { lakMultiplier: customer?.lakMultiplier ?? DEFAULT_LAK_MULTIPLIER, rules }, input.force);
   if (!read) throw new Error("tickets.noBets");
 
   return {
@@ -70,7 +74,8 @@ export const createTicket = createAction(
     const ticket = await prisma.$transaction(async (tx) => {
       const { data, bets } = await readTicket(tx, input, dealerId);
 
-      const ticket = await tx.ticket.create({ data: { ...data, source: "MANUAL", createdById: user.id } });
+      const billNo = await nextBillNo(tx);
+      const ticket = await tx.ticket.create({ data: { ...data, billNo, source: "MANUAL", createdById: user.id } });
       if (bets.length > 0) {
         await tx.bet.createMany({ data: bets.map((bet) => ({ ...bet, ticketId: ticket.id })) });
       }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
-import { imageToTicketText, type OcrBox, type OcrResult } from "@/lottery/image-text";
+import { IMAGE_RULES, imageToTicketText, transcribeImage, type OcrBox, type OcrResult } from "@/lottery/image-text";
 import { parseTicket } from "@/lottery/parser";
 
 /**
@@ -121,5 +121,54 @@ describe("imageToTicketText — ลายมือ", () => {
 
   test("ไม่มีอะไรอ่านได้ → ข้อความว่าง", () => {
     expect(imageToTicketText({ paddle: [], tesseract: [] })).toBe("");
+  });
+});
+
+describe("transcribeImage — ขั้นที่ 1 เขียนทุกอย่างที่อ่านได้", () => {
+  test("ไม่ตัดอะไรทิ้ง: วันที่ ชื่อ ตัวเลขหลักเดียว และกล่องที่อ่านไม่ออกยังอยู่ครบ", async () => {
+    const ocr = await fixture(1);
+    const transcript = transcribeImage(ocr);
+
+    for (const { text } of ocr.paddle) expect(transcript).toContain(text.trim());
+    expect(transcript).toContain("30.9.26");
+    // ขั้นที่ 2 ตัดวันที่ทิ้ง
+    expect(imageToTicketText(ocr)).not.toContain("30.9.26");
+  });
+
+  test("จัดเป็นบรรทัดตามตำแหน่ง กล่องในบรรทัดเดียวกันเรียงซ้าย→ขวา ห่างกันมาก = คนละคอลัมน์", () => {
+    const transcript = transcribeImage({
+      paddle: [
+        box("5", 110, 2, 130, 42),
+        box("526", 0, 0, 100, 40),
+        box("74:20", 400, 0, 500, 40),
+        box("30.9.26", 0, 60, 140, 100),
+      ],
+      tesseract: [],
+    });
+
+    expect(transcript).toBe("526 5      74:20\n30.9.26");
+  });
+
+  test("PaddleOCR อ่านไม่ได้เลย → ใช้บรรทัดของ Tesseract", () => {
+    expect(transcribeImage({ paddle: [], tesseract: [{ text: "ລວມ 150", conf: 90 }] })).toBe("ລວມ 150");
+  });
+});
+
+describe("IMAGE_RULES — ขั้นที่ 2 กรองตามกติกา", () => {
+  const ocr = { paddle: [box("30.9.26", 0, 0, 140, 40), box("47:50", 0, 60, 100, 100)], tesseract: [] };
+
+  test("ทุกกติกามี id ไม่ซ้ำ และมีคำอธิบาย", () => {
+    const ids = IMAGE_RULES.map((rule) => rule.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const rule of IMAGE_RULES) expect(rule.rule.length).toBeGreaterThan(0);
+  });
+
+  test("กติกาที่ส่งเข้าไปเป็นตัวตัดสินว่าอะไรถูกกรอง", () => {
+    expect(imageToTicketText(ocr)).toBe("47=50");
+    // ไม่มีกติกาวันที่ → วันที่ผ่านไปให้ parser (อ่านไม่ออก)
+    expect(imageToTicketText(ocr, IMAGE_RULES.filter((rule) => rule.id !== "date"))).toBe("30.9.26\n47=50");
+    // กติกาเพิ่ม: ข้ามเลข 47
+    const skip47 = { id: "skip-47", rule: "ข้ามเลข 47", stage: "entry" as const, skip: (text: string) => text.startsWith("47=") };
+    expect(imageToTicketText(ocr, [...IMAGE_RULES, skip47])).toBe("");
   });
 });

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import type { LimitRule, StakeGroup, WinningKey } from "./report";
+import { addMoney, emptyMoney, type LimitRule, type MoneyPair, type StakeGroup, type WinningKey } from "./report";
 
 /**
  * คิวรีที่ dashboard กับรายงานใช้ร่วมกัน — รวมยอดที่ฐานข้อมูล (groupBy) ไม่ดึงรายการแทงทีละแถว
@@ -75,4 +75,48 @@ export async function getTicketCounts(drawId: string) {
     prisma.ticket.count({ where: { drawId, status: "REVIEW" } }),
   ]);
   return { confirmed, review };
+}
+
+/** จำนวนลูกค้าในรายงานตามลูกค้า — เรียงตามยอดซื้อกีบมากไปน้อย */
+export const CUSTOMER_SUMMARY_MAX = 200;
+
+export type CustomerSummary = {
+  /** null = โพยที่ไม่ระบุลูกค้า (รวมเป็นแถวเดียว) */
+  customerId: string | null;
+  name: string | null;
+  tickets: number;
+  stake: MoneyPair;
+  /** ยอดแทงของเลขที่ถูก (ยอดจริง ยังไม่คูณอัตราจ่าย) — งวดที่ยังไม่กรอกผลเป็น 0 */
+  won: MoneyPair;
+};
+
+/** สรุปตามลูกค้าของงวด: ยอดซื้อ · ยอดแทงของเลขที่ถูก — หน้ารายงานและไฟล์ส่งออกใช้ชุดเดียวกัน */
+export async function getCustomerSummary(drawId: string, keys: WinningKey[] | null): Promise<CustomerSummary[]> {
+  const [groups, winners] = await Promise.all([
+    prisma.ticket.groupBy({
+      by: ["customerId"],
+      where: { drawId, status: "CONFIRMED" },
+      _sum: { totalLak: true, totalThb: true },
+      _count: { _all: true },
+      orderBy: { _sum: { totalLak: "desc" } },
+      take: CUSTOMER_SUMMARY_MAX,
+    }),
+    keys ? getWinningBets(drawId, keys) : [],
+  ]);
+  if (groups.length === 0) return [];
+
+  const ids = groups.flatMap((group) => (group.customerId ? [group.customerId] : []));
+  const customers = await prisma.customer.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+  const nameOf = new Map(customers.map((customer) => [customer.id, customer.name]));
+
+  const won = new Map<string | null, MoneyPair>();
+  for (const bet of winners) won.set(bet.customerId, addMoney(won.get(bet.customerId) ?? emptyMoney(), bet.currency, bet.amount));
+
+  return groups.map((group) => ({
+    customerId: group.customerId,
+    name: group.customerId ? (nameOf.get(group.customerId) ?? null) : null,
+    tickets: group._count._all,
+    stake: { lak: Number(group._sum.totalLak ?? 0), thb: Number(group._sum.totalThb ?? 0) },
+    won: won.get(group.customerId) ?? emptyMoney(),
+  }));
 }

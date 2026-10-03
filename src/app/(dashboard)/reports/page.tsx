@@ -29,6 +29,7 @@ import { formatNumber } from "@/lottery/format";
 import { statusKey } from "../draws/types";
 import { CustomersSection } from "./_components/customers-section";
 import { LimitsSection } from "./_components/limits-section";
+import { ReportExport } from "./_components/report-export";
 import { ReportFilters } from "./_components/report-filters";
 import { ThreeDigitSection } from "./_components/three-digit-section";
 import { WinnersSection } from "./_components/winners-section";
@@ -159,19 +160,22 @@ export default async function ReportsPage({ searchParams }: PageProps) {
 
       <StatCards stats={stats} />
 
-      <nav className="flex flex-wrap gap-2" aria-label={t("reports.views")}>
-        {REPORT_VIEWS.map((item) => (
-          <Button key={item} asChild size="sm" variant={item === view ? "default" : "outline"}>
-            <Link
-              href={toRoute(`/reports?${buildQueryString(raw, { view: item })}`)}
-              aria-current={item === view ? "page" : undefined}
-            >
-              {t(viewKey[item])}
-              {item === "limits" && overLimits.length > 0 ? ` (${overLimits.length})` : ""}
-            </Link>
-          </Button>
-        ))}
-      </nav>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <nav className="flex flex-wrap gap-2" aria-label={t("reports.views")}>
+          {REPORT_VIEWS.map((item) => (
+            <Button key={item} asChild size="sm" variant={item === view ? "default" : "outline"}>
+              <Link
+                href={toRoute(`/reports?${buildQueryString(raw, { view: item })}`)}
+                aria-current={item === view ? "page" : undefined}
+              >
+                {t(viewKey[item])}
+                {item === "limits" && overLimits.length > 0 ? ` (${overLimits.length})` : ""}
+              </Link>
+            </Button>
+          ))}
+        </nav>
+        <ReportExport drawId={draw.id} view={view} top={top} />
+      </div>
 
       {view === "two" ? (
         twoDigit.length > 0 ? (

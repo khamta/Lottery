@@ -7,22 +7,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { prisma } from "@/lib/prisma";
 import { EmptyState } from "@/components/shared/empty-state";
 import { getTranslations } from "@/i18n/server";
-import { getWinningBets } from "@/lottery/queries";
-import { addMoney, emptyMoney, type MoneyPair, type WinningKey } from "@/lottery/report";
+import { getCustomerSummary } from "@/lottery/queries";
+import type { WinningKey } from "@/lottery/report";
 import { formatNumber } from "@/lottery/format";
-
-/** จำนวนลูกค้าที่แสดง — เรียงตามยอดซื้อกีบมากไปน้อย */
-const CUSTOMERS_MAX = 200;
-
-/** โพยที่ไม่ระบุลูกค้ารวมเป็นแถวเดียว */
-const NO_CUSTOMER = "";
 
 /**
  * สรุปตามลูกค้า: ยอดซื้อ · ยอดแทงของเลขที่ถูก (ยอดจริง ยังไม่คูณอัตราจ่าย)
- * ยอดถูกแสดงเมื่องวดกรอกผลแล้ว
+ * ยอดถูกแสดงเมื่องวดกรอกผลแล้ว · ข้อมูลชุดเดียวกับไฟล์ส่งออก (getCustomerSummary)
  */
 export async function CustomersSection({
   drawId,
@@ -32,34 +25,10 @@ export async function CustomersSection({
   keys: WinningKey[] | null;
 }) {
   const { t, intl } = await getTranslations();
+  const rows = await getCustomerSummary(drawId, keys);
 
-  const [groups, winners] = await Promise.all([
-    prisma.ticket.groupBy({
-      by: ["customerId"],
-      where: { drawId, status: "CONFIRMED" },
-      _sum: { totalLak: true, totalThb: true },
-      _count: { _all: true },
-      orderBy: { _sum: { totalLak: "desc" } },
-      take: CUSTOMERS_MAX,
-    }),
-    keys ? getWinningBets(drawId, keys) : [],
-  ]);
-
-  if (groups.length === 0) {
+  if (rows.length === 0) {
     return <EmptyState title={t("reports.emptyBets")} description={t("reports.emptyBetsDesc")} />;
-  }
-
-  const ids = groups.flatMap((group) => (group.customerId ? [group.customerId] : []));
-  const customers = await prisma.customer.findMany({
-    where: { id: { in: ids } },
-    select: { id: true, name: true },
-  });
-  const nameOf = new Map(customers.map((customer) => [customer.id, customer.name]));
-
-  const won = new Map<string, MoneyPair>();
-  for (const bet of winners) {
-    const key = bet.customerId ?? NO_CUSTOMER;
-    won.set(key, addMoney(won.get(key) ?? emptyMoney(), bet.currency, bet.amount));
   }
 
   const money = (value: number, className?: string) => (
@@ -86,27 +55,22 @@ export async function CustomersSection({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {groups.map((group) => {
-            const stake = { lak: Number(group._sum.totalLak ?? 0), thb: Number(group._sum.totalThb ?? 0) };
-            const winning = won.get(group.customerId ?? NO_CUSTOMER) ?? emptyMoney();
-            const name = group.customerId ? nameOf.get(group.customerId) : undefined;
-            return (
-              <TableRow key={group.customerId ?? NO_CUSTOMER}>
-                <TableCell className={name ? "font-medium" : "text-muted-foreground"}>
-                  {name ?? t("reports.noCustomer")}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">{formatNumber(group._count._all, intl)}</TableCell>
-                {money(stake.lak)}
-                {money(stake.thb)}
-                {keys ? (
-                  <>
-                    {money(winning.lak, "font-semibold")}
-                    {money(winning.thb, "font-semibold")}
-                  </>
-                ) : null}
-              </TableRow>
-            );
-          })}
+          {rows.map((row) => (
+            <TableRow key={row.customerId ?? ""}>
+              <TableCell className={row.name ? "font-medium" : "text-muted-foreground"}>
+                {row.name ?? t("reports.noCustomer")}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">{formatNumber(row.tickets, intl)}</TableCell>
+              {money(row.stake.lak)}
+              {money(row.stake.thb)}
+              {keys ? (
+                <>
+                  {money(row.won.lak, "font-semibold")}
+                  {money(row.won.thb, "font-semibold")}
+                </>
+              ) : null}
+            </TableRow>
+          ))}
         </TableBody>
       </Table>
     </div>

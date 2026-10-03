@@ -8,6 +8,7 @@ import {
   ingestImage,
   ingestMessage,
   ingestUndecryptable,
+  reapplyOcr,
   revokeMessage,
 } from "@/lottery/ingest";
 
@@ -25,6 +26,8 @@ const state = {
   auditRows: [] as Row[],
   /** ticketId -> รูปโพย */
   images: new Map<string, Row>(),
+  /** เงื่อนไขอ่านโพยที่ผู้ใช้กำหนดเอง */
+  rules: [] as Array<{ dealerId: string; kind: "SKIP" | "REPLACE" | "PATTERN"; find: string; replace: string }>,
 };
 let nextId = 1;
 
@@ -38,6 +41,14 @@ const withIncludes = (ticket: Row, include?: { draw?: unknown; image?: unknown }
 });
 
 const tx = {
+  // advisory lock ของการออกเลขบิล (src/lottery/bill.ts)
+  $queryRaw: async () => [{ locked: 1 }],
+  readRule: {
+    findMany: async ({ where }: { where: { dealerId: string } }) =>
+      state.rules
+        .filter((rule) => rule.dealerId === where.dealerId)
+        .map(({ kind, find, replace }) => ({ kind, find, replace })),
+  },
   draw: {
     // งวดที่เปิดรับล่าสุดของแม่หวย
     findFirst: async ({ where }: { where: { dealerId: string; status: string } }) =>
@@ -53,6 +64,9 @@ const tx = {
       ) ?? null,
   },
   ticket: {
+    // เลขบิลที่ออกไปแล้วในวินาทีเดียวกัน (src/lottery/bill.ts)
+    findMany: async ({ where }: { where: { billNo: { startsWith: string } } }) =>
+      [...state.tickets.values()].filter((ticket) => String(ticket.billNo).startsWith(where.billNo.startsWith)),
     create: async ({ data }: { data: Row }) => {
       const ticket = { id: `ticket-${nextId++}`, createdAt: new Date(), ...data };
       state.tickets.set(ticket.id, ticket);
@@ -125,10 +139,16 @@ const tx = {
     create: async ({ data }: { data: Row }) => {
       state.auditRows.push(data);
     },
+    // reapplyOcr: มีคนแก้/ยืนยันโพยนี้แล้วหรือยัง (audit ที่มี user)
+    findFirst: async ({ where }: { where: { entityId: string } }) =>
+      state.auditRows.find((row) => row.entityId === where.entityId && row.userId != null) ?? null,
   },
 };
 
-const db = { $transaction: async (fn: (client: typeof tx) => unknown) => fn(tx) } as unknown as PrismaClient;
+const db = {
+  readRule: tx.readRule,
+  $transaction: async (fn: (client: typeof tx) => unknown) => fn(tx),
+} as unknown as PrismaClient;
 
 const message = (id: string, text: string, overrides: Partial<Parameters<typeof ingestMessage>[1]> = {}) => ({
   id,
@@ -155,6 +175,7 @@ beforeEach(() => {
   state.bets = [];
   state.auditRows = [];
   state.images.clear();
+  state.rules = [];
   nextId = 1;
 });
 
@@ -239,6 +260,14 @@ describe("ingestMessage", () => {
     await ingestMessage(db, message("wa-1", "32=300", { sentAt }));
 
     expect(onlyTicket().createdAt).toEqual(sentAt);
+  });
+
+  test("เลขบิล = เวลาที่ส่งในแชต (เวลาลาว) · ข้อความวินาทีเดียวกันจากอีกกลุ่มต่อท้าย -2", async () => {
+    const sentAt = new Date("2026-09-30T08:15:07.000Z"); // 15:15:07 เวลาลาว
+    await ingestMessage(db, message("wa-1", "32=300", { sentAt }));
+    await ingestMessage(db, message("wa-2", "45=100", { sentAt, senderId: "222@lid" }));
+
+    expect([...state.tickets.values()].map((ticket) => ticket.billNo)).toEqual(["260930151507", "260930151507-2"]);
   });
 });
 
@@ -464,7 +493,7 @@ describe("รูปโพย (ingestImage → applyOcr)", () => {
     senderId: "111@lid",
     senderPhone: null,
     senderName: "Noy",
-    image: { data: new Uint8Array([1, 2, 3]), mimeType: "image/jpeg" },
+    image: { path: "tickets/2026-10/wa-img.jpg", mimeType: "image/jpeg" },
     caption: "",
     ...overrides,
   });
@@ -475,7 +504,7 @@ describe("รูปโพย (ingestImage → applyOcr)", () => {
 
     expect(result).toEqual({ action: "image", ticketId: "ticket-1", status: "REVIEW" });
     expect(onlyTicket()).toMatchObject({ source: "WHATSAPP", waMessageId: "wa-img", rawText: "", betCount: 0 });
-    expect(state.images.get("ticket-1")).toMatchObject({ mimeType: "image/jpeg", ocrStatus: "PENDING" });
+    expect(state.images.get("ticket-1")).toMatchObject({ mimeType: "image/jpeg", path: "tickets/2026-10/wa-img.jpg", ocrStatus: "PENDING" });
   });
 
   test("OCR อ่านได้ครบ → นับยอดเลยเหมือนข้อความในแชต", async () => {
@@ -580,5 +609,173 @@ describe("รูปโพย (ingestImage → applyOcr)", () => {
 
     expect(await ingestImage(db, imageMessage("wa-img"))).toEqual({ action: "skipped", reason: "no-open-draw" });
     expect(state.images.size).toBe(0);
+  });
+});
+
+describe("อ่านรูปที่เก็บไว้ใหม่เมื่อกติกาเปลี่ยน (reapplyOcr)", () => {
+  /** กล่อง OCR หนึ่งบรรทัดต่อรายการ เรียงลงมา */
+  const ocrOf = (...texts: string[]) => ({
+    paddle: texts.map((text, i) => ({
+      text,
+      score: 0.99,
+      box: [
+        [0, i * 60],
+        [100, i * 60],
+        [100, i * 60 + 40],
+        [0, i * 60 + 40],
+      ] as Array<[number, number]>,
+    })),
+    tesseract: [],
+  });
+  // ผล OCR นี้ กติกาชุดปัจจุบันอ่านได้ "32=300\n45=100\n77=50" — จำลองว่ากติกาชุดก่อนอ่านได้แค่ 2 บรรทัดแรก
+  const ocr = ocrOf("32.300", "45.100", "77.50");
+  const imageMessage = (caption = "") => ({
+    id: "wa-img",
+    dealerId: "dealer-1",
+    senderId: "111@lid",
+    senderPhone: null,
+    senderName: "Noy",
+    image: { path: "tickets/2026-10/wa-img.jpg", mimeType: "image/jpeg" },
+    caption,
+  });
+
+  test("OCR อ่านเสร็จ → เก็บทั้งขั้นที่ 1 (ทุกอย่างที่อ่านได้) และข้อความที่กรองแล้ว", async () => {
+    await ingestImage(db, imageMessage());
+    await applyOcr(db, "ticket-1", { text: "32=300\n45=100", ocr });
+
+    expect(state.images.get("ticket-1")).toMatchObject({
+      transcript: "32.300\n45.100\n77.50",
+      ocrText: "32=300\n45=100",
+    });
+  });
+
+  test("กติกาใหม่ได้ข้อความต่างจากเดิม → อ่านโพยใหม่ คงคำบรรยายใต้รูปไว้", async () => {
+    await ingestImage(db, imageMessage("ລວມ450"));
+    await applyOcr(db, "ticket-1", { text: "32=300\n45=100", ocr });
+    expect(onlyTicket()).toMatchObject({ status: "REVIEW" }); // ยอดรวมไม่ตรง (400 ≠ 450)
+
+    const result = await reapplyOcr(db, "ticket-1");
+
+    expect(result).toEqual({ action: "ocr", ticketId: "ticket-1", status: "CONFIRMED" });
+    expect(onlyTicket()).toMatchObject({ rawText: "32=300\n45=100\n77=50\n\nລວມ450", totalLak: 450_000 });
+    expect(state.images.get("ticket-1")).toMatchObject({ ocrText: "32=300\n45=100\n77=50" });
+    expect(state.auditRows.at(-1)).toMatchObject({ action: "UPDATE", userId: null });
+  });
+
+  test("ยอดรวมที่ส่งตามมาหลัง OCR อ่าน (ต่อด้วยบรรทัดเดียว) ยังอยู่ท้ายข้อความ", async () => {
+    await ingestImage(db, imageMessage());
+    await applyOcr(db, "ticket-1", { text: "32=300\n45=100", ocr });
+    await ingestMessage(db, message("wa-total", "ລວມ450"));
+
+    await reapplyOcr(db, "ticket-1");
+
+    expect(onlyTicket()).toMatchObject({ rawText: "32=300\n45=100\n77=50\nລວມ450", status: "CONFIRMED" });
+  });
+
+  test("ได้ข้อความเท่าเดิม → ไม่แตะโพย", async () => {
+    await ingestImage(db, imageMessage());
+    await applyOcr(db, "ticket-1", { text: "32=300\n45=100\n77=50", ocr });
+    const audits = state.auditRows.length;
+
+    expect(await reapplyOcr(db, "ticket-1")).toEqual({ action: "skipped", reason: "unchanged" });
+    expect(state.auditRows).toHaveLength(audits);
+  });
+
+  test("คนแก้หรือยืนยันโพยแล้ว (audit มี user) → ไม่ทับ", async () => {
+    await ingestImage(db, imageMessage());
+    await applyOcr(db, "ticket-1", { text: "32=300\n45=100", ocr });
+    state.auditRows.push({ action: "UPDATE", entity: "Ticket", entityId: "ticket-1", userId: "user-1" });
+
+    expect(await reapplyOcr(db, "ticket-1")).toEqual({ action: "skipped", reason: "edited-by-user" });
+    expect(onlyTicket().rawText).toBe("32=300\n45=100");
+  });
+
+  test("ข้อความไม่ได้ขึ้นต้นด้วยข้อความจากรูปแล้ว → ถือว่าคนแก้ ไม่ทับ", async () => {
+    await ingestImage(db, imageMessage());
+    await applyOcr(db, "ticket-1", { text: "32=300\n45=100", ocr });
+    state.tickets.set("ticket-1", { ...onlyTicket(), rawText: "32=500\n45=100" });
+
+    expect(await reapplyOcr(db, "ticket-1")).toEqual({ action: "skipped", reason: "edited-by-user" });
+    expect(onlyTicket().rawText).toBe("32=500\n45=100");
+  });
+
+  test("งวดปิดแล้ว → อัปเดตแค่ขั้นที่ 1 ไม่แตะโพย", async () => {
+    await ingestImage(db, imageMessage());
+    await applyOcr(db, "ticket-1", { text: "32=300\n45=100", ocr });
+    state.images.set("ticket-1", { ...state.images.get("ticket-1")!, transcript: null });
+    state.draws[0]!.status = "CLOSED";
+
+    expect(await reapplyOcr(db, "ticket-1")).toEqual({ action: "skipped", reason: "draw-closed" });
+    expect(onlyTicket().rawText).toBe("32=300\n45=100");
+    expect(state.images.get("ticket-1")).toMatchObject({ transcript: "32.300\n45.100\n77.50" });
+  });
+
+  test("OCR ครั้งแรกไม่ได้อะไรเป็นโพย แต่กติกาใหม่อ่านได้ → เติมข้อความจากรูปหน้าคำบรรยาย", async () => {
+    await ingestImage(db, imageMessage("ລວມ450"));
+    await applyOcr(db, "ticket-1", { text: "", ocr });
+    expect(state.images.get("ticket-1")).toMatchObject({ ocrText: "" });
+
+    await reapplyOcr(db, "ticket-1");
+
+    expect(onlyTicket()).toMatchObject({ rawText: "32=300\n45=100\n77=50\n\nລວມ450", status: "CONFIRMED" });
+  });
+
+  test("โพยที่อ่านก่อนมีคอลัมน์ ocrText → เทียบกับผลของกติกาชุดปัจจุบัน", async () => {
+    await ingestImage(db, imageMessage());
+    await applyOcr(db, "ticket-1", { text: "32=300\n45=100\n77=50", ocr });
+    state.images.set("ticket-1", { ...state.images.get("ticket-1")!, ocrText: null });
+
+    expect(await reapplyOcr(db, "ticket-1")).toEqual({ action: "skipped", reason: "unchanged" });
+    expect(state.images.get("ticket-1")).toMatchObject({ ocrText: "32=300\n45=100\n77=50" });
+  });
+
+  test("รูปที่ยังไม่ได้อ่าน → ข้าม", async () => {
+    await ingestImage(db, imageMessage());
+
+    expect(await reapplyOcr(db, "ticket-1")).toEqual({ action: "skipped", reason: "unknown-message" });
+  });
+});
+
+describe("เงื่อนไขอ่านโพยที่ผู้ใช้กำหนดเอง", () => {
+  test("ข้อความรูปแบบใหม่ → อ่านได้ตามเงื่อนไขของแม่หวยที่กลุ่มผูกไว้ · ข้อความเดิมของโพยไม่ถูกแก้", async () => {
+    state.rules = [{ dealerId: "dealer-1", kind: "PATTERN", find: "ລ {N} x{A}", replace: "{N}={A}ລ່າງ" }];
+
+    const result = await ingestMessage(db, message("wa-1", "ລ 30 70 x100"));
+
+    expect(result).toMatchObject({ action: "created", status: "CONFIRMED" });
+    expect(onlyTicket()).toMatchObject({ rawText: "ລ 30 70 x100", totalLak: 200_000 });
+    expect(briefBets()).toEqual(["30 BOTTOM LAK 100000", "70 BOTTOM LAK 100000"]);
+  });
+
+  test("เงื่อนไขของแม่หวยอื่นไม่มีผล", async () => {
+    state.rules = [{ dealerId: "dealer-2", kind: "PATTERN", find: "ລ {N} x{A}", replace: "{N}={A}ລ່າງ" }];
+
+    await ingestMessage(db, message("wa-1", "ລ 30 70 x100"));
+
+    expect(onlyTicket()).toMatchObject({ status: "REVIEW" });
+  });
+
+  test("ข้ามบรรทัด: ข้อความที่มีแต่บรรทัดที่ข้าม ไม่ใช่โพย", async () => {
+    state.rules = [{ dealerId: "dealer-1", kind: "SKIP", find: "ໂອນແລ້ວ", replace: "" }];
+
+    expect(await ingestMessage(db, message("wa-1", "ໂອນແລ້ວ 500"))).toEqual({ action: "skipped", reason: "not-ticket" });
+    expect(state.tickets.size).toBe(0);
+  });
+
+  test("ข้อความที่อ่านจากรูปก็ใช้เงื่อนไขเดียวกัน", async () => {
+    state.rules = [{ dealerId: "dealer-1", kind: "REPLACE", find: "/", replace: "=" }];
+    await ingestImage(db, {
+      id: "wa-img",
+      dealerId: "dealer-1",
+      senderId: "111@lid",
+      senderPhone: null,
+      senderName: "Noy",
+      image: { path: "tickets/2026-10/wa-img.jpg", mimeType: "image/jpeg" },
+      caption: "",
+    });
+
+    await applyOcr(db, "ticket-1", { text: "32/300\n45/100", ocr: { paddle: [], tesseract: [] } });
+
+    expect(onlyTicket()).toMatchObject({ rawText: "32/300\n45/100", status: "CONFIRMED", totalLak: 400_000 });
   });
 });

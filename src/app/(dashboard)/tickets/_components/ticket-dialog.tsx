@@ -24,7 +24,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -35,8 +34,10 @@ import {
 import { ticketSchema, type TicketInput } from "@/lib/validations/ticket";
 import { useI18n } from "@/i18n/client";
 import { DEFAULT_LAK_MULTIPLIER, parseTicket } from "@/lottery/parser";
+import type { ReadRuleSpec } from "@/lottery/read-rules";
 import { isTicketMessage } from "@/lottery/ticket";
 import { ticketImageUrl, type CustomerOption, type DrawOption, type TicketRow } from "../types";
+import { countFilledLines, NumberedTextarea } from "./numbered-textarea";
 import { TicketPreview } from "./ticket-preview";
 
 /**
@@ -52,6 +53,8 @@ type TicketDialogProps = {
   ticket: TicketRow | null;
   draws: DrawOption[];
   customers: CustomerOption[];
+  /** เงื่อนไขอ่านโพยของแม่หวย — ตัวอย่างสดอ่านเหมือนที่ server บันทึก */
+  rules: ReadRuleSpec[];
   /** งวดที่กำลังกรองอยู่ในตาราง — ใช้เป็นค่าตั้งต้นของโพยใหม่ */
   defaultDrawId: string | null;
   onSubmit: (values: TicketInput) => void;
@@ -60,12 +63,20 @@ type TicketDialogProps = {
 /** Radix Select ไม่รับค่าว่าง จึงใช้ค่านี้แทน "ไม่ระบุลูกค้า" */
 const NONE = "none";
 
+const sameValues = (a: TicketInput, b: TicketInput) =>
+  a.drawId === b.drawId &&
+  a.customerId === b.customerId &&
+  a.text === b.text &&
+  a.note === b.note &&
+  a.force === b.force;
+
 export function TicketDialog({
   open,
   onOpenChange,
   ticket,
   draws,
   customers,
+  rules,
   defaultDrawId,
   onSubmit,
 }: TicketDialogProps) {
@@ -84,33 +95,43 @@ export function TicketDialog({
     defaultValues: { drawId: "", customerId: "", text: "", note: "", force: false },
   });
 
+  // ค่าที่ฟอร์มถูกเติมครั้งล่าสุด — ใช้ดูว่าคนพิมพ์/แก้อะไรไปแล้วหรือยัง
+  const filled = React.useRef<{ key: string; values: TicketInput } | null>(null);
+
   // sync ค่าเมื่อเปิด dialog (เพิ่มใหม่ = ล้างฟอร์ม, แก้ไข = เติมค่าเดิม)
+  // หน้าโพย refresh เองระหว่างรออ่านรูป — โพยเดิมได้ข้อมูลใหม่ (รูปอ่านเสร็จ) ก็เติมใหม่ เว้นแต่คนแก้ฟอร์มไปแล้ว
   React.useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      filled.current = null;
+      return;
+    }
+    const key = ticket?.id ?? "";
+    if (filled.current?.key === key && !sameValues(form.getValues(), filled.current.values)) return;
+
     const openDraws = draws.filter((draw) => draw.status === "OPEN");
-    form.reset(
-      ticket
-        ? {
-            drawId: ticket.drawId,
-            customerId: ticket.customerId ?? "",
-            text: ticket.rawText,
-            note: ticket.note ?? "",
-            force: false,
-          }
-        : {
-            drawId: (openDraws.find((draw) => draw.id === defaultDrawId) ?? openDraws[0])?.id ?? "",
-            customerId: "",
-            text: "",
-            note: "",
-            force: false,
-          },
-    );
+    const values: TicketInput = ticket
+      ? {
+          drawId: ticket.drawId,
+          customerId: ticket.customerId ?? "",
+          text: ticket.rawText,
+          note: ticket.note ?? "",
+          force: false,
+        }
+      : {
+          drawId: (openDraws.find((draw) => draw.id === defaultDrawId) ?? openDraws[0])?.id ?? "",
+          customerId: "",
+          text: "",
+          note: "",
+          force: false,
+        };
+    form.reset(values);
+    filled.current = { key, values };
   }, [open, ticket, draws, defaultDrawId, form]);
 
   const [text, customerId, drawId, force] = form.watch(["text", "customerId", "drawId", "force"]);
   const lakMultiplier =
     customers.find((customer) => customer.id === customerId)?.lakMultiplier ?? DEFAULT_LAK_MULTIPLIER;
-  const parsed = React.useMemo(() => parseTicket(text, { lakMultiplier }), [text, lakMultiplier]);
+  const parsed = React.useMemo(() => parseTicket(text, { lakMultiplier, rules }), [text, lakMultiplier, rules]);
 
   const drawOpen = draws.find((draw) => draw.id === drawId)?.status === "OPEN";
   const hasIssues = parsed.issues.length > 0;
@@ -128,7 +149,14 @@ export function TicketDialog({
         className={`scroll-area max-h-[calc(100dvh-2rem)] overflow-y-auto ${hasImage ? "sm:max-w-5xl" : "sm:max-w-2xl"}`}
       >
         <DialogHeader>
-          <DialogTitle>{isEdit ? t("tickets.editTitle") : t("tickets.addTitle")}</DialogTitle>
+          <DialogTitle className="flex flex-wrap items-baseline gap-x-2">
+            {isEdit ? t("tickets.editTitle") : t("tickets.addTitle")}
+            {ticket?.billNo != null ? (
+              <span className="text-sm font-medium text-muted-foreground tabular-nums">
+                {t("tickets.billNoOf", { no: ticket.billNo, draw: ticket.drawName })}
+              </span>
+            ) : null}
+          </DialogTitle>
           <DialogDescription>{t("tickets.dialogDesc")}</DialogDescription>
         </DialogHeader>
 
@@ -196,18 +224,27 @@ export function TicketDialog({
             </div>
 
             <div className={hasImage ? "grid gap-4 lg:grid-cols-2 lg:items-start" : "contents"}>
-              {ticket?.ocrStatus ? <TicketImage ticketId={ticket.id} status={ticket.ocrStatus} /> : null}
+              {ticket?.ocrStatus ? (
+                <TicketImage ticketId={ticket.id} status={ticket.ocrStatus} transcript={ticket.ocrTranscript} />
+              ) : null}
               <div className="grid gap-4">
                 <FormField
                   control={form.control}
                   name="text"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t("tickets.text")}</FormLabel>
+                      <div className="flex items-baseline justify-between gap-2">
+                        <FormLabel>{t("tickets.text")}</FormLabel>
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {t("tickets.lineCount", { count: countFilledLines(text) })}
+                        </span>
+                      </div>
                       <FormControl>
-                        <Textarea
+                        <NumberedTextarea
                           rows={hasImage ? 14 : 7}
-                          placeholder={t("tickets.textPlaceholder")}
+                          placeholder={t(
+                            ticket?.ocrStatus === "PENDING" ? "tickets.textPlaceholderOcr" : "tickets.textPlaceholder",
+                          )}
                           className="tabular-nums"
                           {...field}
                         />
@@ -278,8 +315,19 @@ export function TicketDialog({
   );
 }
 
-/** รูปโพยที่ลูกค้าส่งมา — กดเปิดขนาดเต็มในแท็บใหม่ */
-function TicketImage({ ticketId, status }: { ticketId: string; status: NonNullable<TicketRow["ocrStatus"]> }) {
+/**
+ * รูปโพยที่ลูกค้าส่งมา — กดเปิดขนาดเต็มในแท็บใหม่
+ * ใต้รูปแสดงทุกอย่างที่ OCR อ่านได้ (ก่อนกรอง) ให้เทียบว่าอะไรถูกกรองทิ้งไป
+ */
+function TicketImage({
+  ticketId,
+  status,
+  transcript,
+}: {
+  ticketId: string;
+  status: NonNullable<TicketRow["ocrStatus"]>;
+  transcript: string | null;
+}) {
   const { t } = useI18n();
   const src = ticketImageUrl(ticketId);
 
@@ -292,6 +340,15 @@ function TicketImage({ ticketId, status }: { ticketId: string; status: NonNullab
       <p className={`text-xs ${status === "FAILED" ? "font-medium text-destructive" : "text-muted-foreground"}`}>
         {t(`tickets.imageHint${status}`)}
       </p>
+      {transcript ? (
+        <div className="grid gap-1">
+          <p className="text-sm font-medium">{t("tickets.transcript")}</p>
+          <pre className="whitespace-pre-wrap break-words rounded-md border bg-muted p-3 font-sans text-sm tabular-nums">
+            {transcript}
+          </pre>
+          <p className="text-xs text-muted-foreground">{t("tickets.transcriptHint")}</p>
+        </div>
+      ) : null}
     </div>
   );
 }

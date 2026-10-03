@@ -12,6 +12,8 @@
  * บรรทัดที่อ่านไม่ออกจะไม่ถูกเดา — คืนเป็น issue ให้คนตรวจ
  */
 
+import { applyReadRules, prepareReadRules, type ReadRuleSpec } from "./read-rules";
+
 export type Currency = "LAK" | "THB";
 export type Position = "TOP" | "BOTTOM";
 
@@ -57,6 +59,8 @@ export type ParsedTicket = {
 export type ParseOptions = {
   /** ลูกค้าพิมพ์ยอดกีบย่อเป็นหลักพัน: 150 = 150,000 กีบ — บาทไม่คูณ */
   lakMultiplier?: number;
+  /** เงื่อนไขอ่านโพยที่ผู้ใช้กำหนดเองของแม่หวย (read-rules.ts) — ใช้กับทีละบรรทัดก่อนอ่านตามรูปแบบมาตรฐาน */
+  rules?: readonly ReadRuleSpec[];
 };
 
 export const DEFAULT_LAK_MULTIPLIER = 1000;
@@ -194,28 +198,39 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
   const notes: string[] = [];
   let declaredTotal: number | null = null;
   let typedTotal = 0;
+  const rules = prepareReadRules(options.rules ?? []);
 
   message.split(/\r?\n/).forEach((raw, index) => {
     const line = index + 1;
-    const text = normalize(raw);
+    const original = normalize(raw);
+    if (!original) return;
+
+    // เงื่อนไขของผู้ใช้: ข้ามบรรทัด = ไม่ใช่รายการแทง · แปลงแล้วอ่านต่อตามรูปแบบมาตรฐาน
+    // (issue ยังแสดงบรรทัดตามที่ลูกค้าพิมพ์ ให้คนหาเจอในแชต)
+    const ruled = applyReadRules(original, rules);
+    if (ruled === null) {
+      notes.push(original);
+      return;
+    }
+    const text = ruled.trim();
     if (!text) return;
 
     if (!/\d/.test(text)) {
-      notes.push(text);
+      notes.push(original);
       return;
     }
 
     const total = text.match(TOTAL_LINE);
     if (total) {
       const value = toAmount(total[1]);
-      if (value === null) issues.push({ code: "UNREADABLE", line, text });
+      if (value === null) issues.push({ code: "UNREADABLE", line, text: original });
       else declaredTotal = (declaredTotal ?? 0) + value;
       return;
     }
 
     const result = parseLine(text);
     if ("issue" in result) {
-      issues.push({ code: result.issue, line, text });
+      issues.push({ code: result.issue, line, text: original });
       return;
     }
     for (const { typed, ...stake } of result.stakes) {

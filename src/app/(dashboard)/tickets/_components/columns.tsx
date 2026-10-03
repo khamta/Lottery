@@ -31,6 +31,18 @@ export function getTicketColumns({ t, intl, onEdit, onDelete }: ColumnOptions): 
 
   return [
     {
+      id: "billNo",
+      accessorKey: "billNo",
+      header: t("tickets.billNo"),
+      enableSorting: true,
+      cell: ({ row }) =>
+        row.original.billNo === null ? (
+          <span className="text-muted-foreground">–</span>
+        ) : (
+          <span className="font-medium whitespace-nowrap tabular-nums">{row.original.billNo}</span>
+        ),
+    },
+    {
       id: "createdAt",
       accessorKey: "createdAt",
       header: t("tickets.createdAt"),

@@ -12,5 +12,6 @@ import { reportsMessages } from "./reports";
 import { dealersMessages } from "./dealers";
 import { whatsappMessages } from "./whatsapp";
 import { membersMessages } from "./members";
+import { readRulesMessages } from "./read-rules";
 
-export const moduleMessages = [productsMessages, lotteryMessages, drawsMessages, customersMessages, ticketsMessages, limitsMessages, reportsMessages, dealersMessages, whatsappMessages, membersMessages] as const;
+export const moduleMessages = [productsMessages, lotteryMessages, drawsMessages, customersMessages, ticketsMessages, limitsMessages, reportsMessages, dealersMessages, whatsappMessages, membersMessages, readRulesMessages] as const;

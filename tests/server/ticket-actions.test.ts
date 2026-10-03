@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, setSystemTime, test } from "bun:test";
 
 /**
  * เทสต์ server action ของ module tickets — mock prisma / auth / next-cache ไว้ก่อน import ตัว action
@@ -26,6 +26,10 @@ const withDraw = (ticket: Row) => ({ ...ticket, draw: db.draws.get(ticket.drawId
 const ofDealer = (ticket: Row, dealerId: string) => db.draws.get(ticket.drawId as string)?.dealerId === dealerId;
 
 const tx = {
+  // advisory lock ของการออกเลขบิล (src/lottery/bill.ts)
+  $queryRaw: async () => [{ locked: 1 }],
+  // เงื่อนไขอ่านโพยของแม่หวย (หน้า /read-rules) — เทสต์นี้ไม่มีเงื่อนไข
+  readRule: { findMany: async () => [] },
   draw: {
     findFirst: async ({ where }: { where: { id: string; dealerId: string } }) => {
       const draw = db.draws.get(where.id);
@@ -66,11 +70,16 @@ const tx = {
       const ticket = db.tickets.get(where.id);
       return ticket && ofDealer(ticket, where.draw.dealerId) ? withDraw(ticket) : null;
     },
-    findMany: async ({ where }: { where: { id: { in: string[] }; draw: { dealerId: string } } }) =>
-      where.id.in.flatMap((id) => {
+    findMany: async ({ where }: { where: { id: { in: string[] }; draw: { dealerId: string } } | { billNo: { startsWith: string } } }) => {
+      // เลขบิลที่ออกไปแล้วในวินาทีเดียวกัน (src/lottery/bill.ts)
+      if ("billNo" in where) {
+        return [...db.tickets.values()].filter((ticket) => String(ticket.billNo).startsWith(where.billNo.startsWith));
+      }
+      return where.id.in.flatMap((id) => {
         const ticket = db.tickets.get(id);
         return ticket && ofDealer(ticket, where.draw.dealerId) ? [withDraw(ticket)] : [];
-      }),
+      });
+    },
   },
   bet: {
     createMany: async ({ data }: { data: Row[] }) => {
@@ -299,6 +308,23 @@ describe("updateTicket", () => {
     expect(db.tickets.get(id)).toMatchObject({ totalLak: 750_000 });
     expect(db.bets).toHaveLength(3);
     expect(db.auditRows).toHaveLength(0);
+  });
+
+  test("เลขบิล = ปีเดือนวันเวลา · สร้างในวินาทีเดียวกันต่อท้าย -2 · แก้ไข/ย้ายงวดเลขเดิม", async () => {
+    db.draws.set("draw-open-2", { dealerId: "dealer-1", status: "OPEN" });
+    setSystemTime(new Date("2026-10-02T07:30:15Z")); // 14:30:15 เวลาลาว
+    try {
+      const first = await createTicket(valid);
+      const second = await createTicket(valid);
+      const secondId = second.ok ? second.data.id : "";
+      expect(db.tickets.get(first.ok ? first.data.id : "")).toMatchObject({ billNo: "261002143015" });
+      expect(db.tickets.get(secondId)).toMatchObject({ billNo: "261002143015-2" });
+
+      await updateTicket({ ...valid, id: secondId, drawId: "draw-open-2", text: "32=100" });
+      expect(db.tickets.get(secondId)).toMatchObject({ drawId: "draw-open-2", billNo: "261002143015-2" });
+    } finally {
+      setSystemTime();
+    }
   });
 
   test("ไม่พบโพย → แจ้งว่าอาจถูกลบไปแล้ว", async () => {

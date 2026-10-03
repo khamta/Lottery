@@ -8,3 +8,13 @@ node_modules
 *.tsbuildinfo
 npm-debug.log*
 coverage
+# รูปโพย — ใน docker ใช้ bind mount ./uploads
+uploads
+# สำรองฐานข้อมูล (มีข้อมูลลูกค้า/โพย) — ห้ามติดไปกับ image
+backups
+# ไฟล์ deploy — ไม่ต้องอยู่ใน image
+.github
+docker-compose*.yml
+.env.production.example
+docker/Caddyfile
+docker/setup-server.sh

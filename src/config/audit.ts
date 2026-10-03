@@ -13,4 +13,5 @@ export const auditEntityKeys: Record<string, string> = {
   Dealer: "auditLogs.entityDealer",
   WhatsappAccount: "auditLogs.entityWhatsappAccount",
   WhatsappGroup: "auditLogs.entityWhatsappGroup",
+  ReadRule: "auditLogs.entityReadRule",
 };

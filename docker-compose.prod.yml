@@ -1,0 +1,156 @@
+# Lottery — production (เซิร์ฟเวอร์ Linux เครื่องเดียวกับ SACDMS) ใช้ image ที่ GitHub Actions build แล้ว push ขึ้น GHCR
+#
+# ต่างจาก docker-compose.yml (เครื่อง dev) ตรงที่:
+#   - app / worker / migrate / studio ดึง image สำเร็จรูป (APP_IMAGE) · ocr ดึง OCR_IMAGE — ไม่ build บนเซิร์ฟเวอร์
+#   - มี Caddy เป็น reverse proxy หน้า app (APP_SITE, พอร์ต 3002) และ Prisma Studio (พอร์ต 5556, basic auth)
+#   - db / app / ocr ไม่เปิดพอร์ตออก host — เข้าได้ผ่าน Caddy เท่านั้น
+#   - รหัสผ่านฐานข้อมูล / AUTH_SECRET อ่านจาก .env ของเซิร์ฟเวอร์ (deploy/setup-server.sh สุ่มให้)
+#
+# อยู่ร่วมเครื่องกับ SACDMS ได้: ชื่อ container / network / volume ขึ้นต้นด้วย lottery- ทั้งหมด
+# และพอร์ตไม่ชนกัน (SACDMS ใช้ 3001, 9980, 5555 · apache2 ใช้ 80)
+#
+# ครั้งแรกบนเซิร์ฟเวอร์: sudo bash setup-server.sh --token <TOKEN>  (สร้าง .env + ติดตั้ง runner) — ดู DEPLOY.md
+# หลังจากนั้น GitHub Actions (.github/workflows/deploy.yml) จะ pull + up ให้ทุกครั้งที่ push ขึ้น main
+
+name: lottery
+
+x-app: &app
+  image: ${APP_IMAGE:-ghcr.io/khamta/lottery:latest}
+  environment: &app-env
+    DATABASE_URL: postgresql://${POSTGRES_USER:-lottery}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-lottery}?schema=public
+    TZ: Asia/Vientiane
+  # รูปโพยเป็นไฟล์ (ฐานข้อมูลเก็บแค่ path) — migrate ย้ายรูปเก่า · app เสิร์ฟ · worker บันทึก
+  # อยู่ที่ <DEPLOY_PATH>/uploads บนเซิร์ฟเวอร์ — สำรองข้อมูลต้องสำรองโฟลเดอร์นี้ด้วย
+  volumes:
+    - ./uploads:/app/uploads
+  networks: [lottery-net]
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: lottery-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lottery}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-lottery}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+      TZ: Asia/Vientiane
+      PGTZ: Asia/Vientiane
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lottery} -d ${POSTGRES_DB:-lottery} -q"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    stop_grace_period: 30s
+    networks: [lottery-net]
+
+  # prisma migrate deploy + สร้างบัญชีแรก (ฐานข้อมูลว่าง) + ย้ายรูปเก่าเป็นไฟล์ แล้วจบ — ดู docker/migrate.ts
+  migrate:
+    <<: *app
+    container_name: lottery-migrate
+    command: ["bun", "docker/migrate.ts"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    <<: *app
+    container_name: lottery-app
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET is required}
+      AUTH_TRUST_HOST: "true"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # บอท WhatsApp — สแกน QR และเลือกกลุ่มที่หน้าเว็บ /whatsapp · session อยู่ใน volume lottery-wa-auth
+  worker:
+    <<: *app
+    container_name: lottery-worker
+    command: ["bun", "worker/whatsapp.ts"]
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      WA_AUTH_DIR: /data/wa-auth
+      OCR_URL: http://ocr:8000
+    volumes:
+      - wa-auth:/data/wa-auth
+      - ./uploads:/app/uploads
+    # ให้บอทมีเวลาปิดการเชื่อมต่อ WhatsApp ก่อนถูกฆ่า
+    stop_grace_period: 20s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # อ่านตัวหนังสือจากรูปโพย (PaddleOCR + Tesseract บน CPU) — บอทเรียกใช้ภายใน network เท่านั้น
+  ocr:
+    image: ${OCR_IMAGE:-ghcr.io/khamta/lottery-ocr:latest}
+    container_name: lottery-ocr
+    restart: unless-stopped
+    networks: [lottery-net]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Prisma Studio (ดู/แก้ข้อมูลใน DB ผ่าน browser) — image เดียวกับแอป (มี prisma CLI อยู่แล้ว)
+  # ไม่มีระบบ login ในตัว จึงไม่เปิดพอร์ตออก host — เข้าผ่าน Caddy ที่พอร์ต 5556 ซึ่งบังคับ basic auth (STUDIO_USER/STUDIO_PASSWORD)
+  # ⚠ แก้/ลบข้อมูลได้ทุกตาราง — อย่า forward พอร์ต 5556 ออกอินเทอร์เน็ต
+  studio:
+    image: ${APP_IMAGE:-ghcr.io/khamta/lottery:latest}
+    container_name: lottery-studio
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lottery}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-lottery}?schema=public
+    command: ["node_modules/.bin/prisma", "studio", "--port", "5555", "--hostname", "0.0.0.0", "--browser", "none"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [lottery-net]
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: lottery-caddy
+    restart: unless-stopped
+    ports:
+      # แอป http://<IP>:3002 (APP_SITE="http://:3002") — SACDMS ใช้ 3001 อยู่แล้ว
+      - "3002:3002"
+      # Prisma Studio (basic auth) — ใช้ในวงแลนเท่านั้น (SACDMS ใช้ 5555 อยู่แล้ว)
+      - "5556:5556"
+    environment:
+      APP_SITE: ${APP_SITE:-http://:3002}
+      # IP ของ reverse proxy หน้าเรา (เซิร์ฟเวอร์ของโดเมน) — ดู docker/Caddyfile
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-private_ranges}
+      STUDIO_USER: ${STUDIO_USER:-admin}
+      # bcrypt hash ของ STUDIO_PASSWORD — deploy สร้างให้อัตโนมัติ (ดู .github/workflows/deploy.yml)
+      STUDIO_PASSWORD_HASH: ${STUDIO_PASSWORD_HASH:?STUDIO_PASSWORD_HASH is required}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+      - studio
+    networks: [lottery-net]
+
+networks:
+  lottery-net:
+    name: lottery-net
+
+volumes:
+  pgdata:
+    name: lottery-pgdata
+  wa-auth:
+    name: lottery-wa-auth
+  caddy_data:
+    name: lottery-caddy-data
+  caddy_config:
+    name: lottery-caddy-config

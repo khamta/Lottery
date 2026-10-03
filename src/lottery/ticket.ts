@@ -1,4 +1,8 @@
 import { parseTicket, type Currency, type ParsedBet, type ParsedTicket, type ParseIssue } from "./parser";
+import type { ReadRuleSpec } from "./read-rules";
+
+/** ตัวคูณกีบของลูกค้า + เงื่อนไขอ่านโพยของแม่หวย (ไม่ระบุ = ไม่มีเงื่อนไขเพิ่ม) */
+export type ReadOptions = { lakMultiplier: number; rules?: readonly ReadRuleSpec[] };
 
 export type TicketStatusValue = "CONFIRMED" | "REVIEW";
 
@@ -43,8 +47,8 @@ export function summarizeTicket(parsed: ParsedTicket, force = false): TicketSumm
  * ข้อความ → ค่าที่จะเขียนลงตาราง tickets / bets — ทางเดียวที่ใช้ทั้งหน้าคีย์โพยและบอท WhatsApp
  * คืน null เมื่อข้อความไม่ใช่โพย
  */
-export function readTicketText(text: string, lakMultiplier: number, force = false) {
-  const parsed = parseTicket(text, { lakMultiplier });
+export function readTicketText(text: string, { lakMultiplier, rules }: ReadOptions, force = false) {
+  const parsed = parseTicket(text, { lakMultiplier, rules });
   if (!isTicketMessage(parsed)) return null;
   const summary = summarizeTicket(parsed, force);
 
@@ -76,8 +80,8 @@ export type TicketRecord = NonNullable<ReturnType<typeof readTicketText>>;
  * รอตรวจและยังไม่นับยอด โดยมี issue FROM_IMAGE บอกว่ายังรอรูปอยู่ — ข้อความ (คำบรรยายรูป) ว่างได้
  * OCR อ่านได้แล้วใช้ readTicketText ตามข้อความปกติ (ดู applyOcr ใน ingest.ts)
  */
-export function readImageTicketText(text: string, lakMultiplier: number): TicketRecord {
-  const parsed = parseTicket(text, { lakMultiplier });
+export function readImageTicketText(text: string, { lakMultiplier, rules }: ReadOptions): TicketRecord {
+  const parsed = parseTicket(text, { lakMultiplier, rules });
   return {
     fields: {
       status: "REVIEW",

@@ -7,6 +7,8 @@ export type OcrStatusValue = "PENDING" | "DONE" | "FAILED";
 
 export type TicketRow = {
   id: string;
+  /** เลขบิล yyMMddHHmmss (src/lottery/bill.ts) · null เฉพาะแถว optimistic ที่ server ยังไม่ออกเลขให้ */
+  billNo: string | null;
   drawId: string;
   drawName: string;
   customerId: string | null;
@@ -21,6 +23,8 @@ export type TicketRow = {
   issueCount: number;
   /** โพยจากรูป: สถานะการอ่านรูปด้วย OCR — null = โพยข้อความ (ไม่มีรูป) */
   ocrStatus: OcrStatusValue | null;
+  /** โพยจากรูป: ทุกอย่างที่ OCR อ่านได้จากรูป ก่อนกรองตามกติกา (null = ยังไม่ได้อ่าน / ไม่มีรูป) */
+  ocrTranscript: string | null;
   betCount: number;
   totalLak: number;
   totalThb: number;
@@ -28,7 +32,7 @@ export type TicketRow = {
 };
 
 /** คอลัมน์ที่ยอมให้เรียงได้ — ชื่อต้องตรงกับ field ใน Prisma */
-export const TICKET_SORTABLE = ["createdAt", "status", "betCount", "totalLak", "totalThb"] as const;
+export const TICKET_SORTABLE = ["billNo", "createdAt", "status", "betCount", "totalLak", "totalThb"] as const;
 
 /** ตัวเลือกในฟอร์ม/ตัวกรอง — server ส่งมาให้ client ไม่ดึงเอง */
 export type DrawOption = { id: string; name: string; status: DrawStatusValue };

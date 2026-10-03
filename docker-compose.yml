@@ -4,8 +4,9 @@
 #   migrate  เตรียมตาราง/ย้ายข้อมูลแล้วจบ (เว็บและบอทรอให้เสร็จก่อน)
 #   app      เว็บ http://localhost:${APP_PORT:-3010}
 #   worker   บอท WhatsApp — สแกน QR และเลือกกลุ่มที่หน้าเว็บ /whatsapp · session อยู่ใน volume wa-auth
+#   uploads  ไฟล์รูปโพยอยู่ในโฟลเดอร์ ./uploads ของโปรเจกต์ (ฐานข้อมูลเก็บแค่ path) — สำรองข้อมูลต้องสำรองโฟลเดอร์นี้ด้วย
 #   ocr      อ่านตัวหนังสือจากรูปโพย (PaddleOCR + Tesseract บน CPU ฟรี ไม่ส่งรูปออกนอกเครื่อง) — บอทเรียกใช้
-#            ไม่เปิดพอร์ตออกนอก network · ล่มชั่วคราวได้ รูปรอคิวในฐานข้อมูลแล้วอ่านต่อเมื่อกลับมา
+#            ไม่เปิดพอร์ตออกนอก network · ล่มชั่วคราวได้ รูปรอคิว (ไฟล์ใน uploads) แล้วอ่านต่อเมื่อกลับมา
 #
 # ในเครือข่ายภายใน ทุก service เรียกฐานข้อมูลด้วยชื่อ "db" · ค่าลับ (AUTH_SECRET) อ่านจาก .env
 # พอร์ต 5434 ของฐานข้อมูลเปิดไว้ให้ bun run dev / prisma studio บนเครื่องนี้ (ผูกกับ 127.0.0.1 เท่านั้น)
@@ -22,6 +23,9 @@ x-app: &app
   environment: &app-env
     DATABASE_URL: postgresql://postgres:postgres@db:5432/lottery_db?schema=public
     TZ: Asia/Vientiane
+  # รูปโพยเป็นไฟล์ในโฟลเดอร์ uploads ของโปรเจกต์ (ฐานข้อมูลเก็บแค่ path) — migrate ย้ายรูปเก่า · app เสิร์ฟ · worker บันทึก
+  volumes:
+    - ./uploads:/app/uploads
   networks: [lottery-net]
 
 services:
@@ -79,6 +83,7 @@ services:
       OCR_URL: http://ocr:8000
     volumes:
       - wa-auth:/data/wa-auth
+      - ./uploads:/app/uploads
     # ให้บอทมีเวลาปิดการเชื่อมต่อ WhatsApp ก่อนถูกฆ่า
     stop_grace_period: 20s
     depends_on:

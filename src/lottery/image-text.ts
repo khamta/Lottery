@@ -1,6 +1,13 @@
 /**
- * ผลอ่านรูปโพยของบริการ OCR (ocr/server.py) → ข้อความโพยรูปแบบเดียวกับที่ลูกค้าพิมพ์ในแชต
- * แล้วส่งต่อให้ตัวแยกข้อความ (parser.ts) อ่านเหมือนข้อความปกติ — ฟังก์ชันล้วน ไม่แตะฐานข้อมูล
+ * ผลอ่านรูปโพยของบริการ OCR (ocr/server.py) → ข้อความโพย มี 2 ขั้น — ฟังก์ชันล้วน ไม่แตะฐานข้อมูล
+ *
+ *   ขั้นที่ 1  transcribeImage    เขียนทุกอย่างที่ OCR อ่านได้ออกมาตามตำแหน่งในรูป ไม่ตัดอะไรทิ้ง
+ *                                (เก็บใน ticket_images.transcript ให้คนเห็นในหน้าตรวจโพยว่ารูปมีอะไรบ้าง)
+ *   ขั้นที่ 2  imageToTicketText  กรองและแปลงเป็นข้อความโพยตามกติกาที่ผู้ใช้บอก (IMAGE_RULES + การแปลงด้านล่าง)
+ *                                แล้วส่งให้ตัวแยกข้อความ (parser.ts) อ่านเหมือนข้อความในแชตทั่วไป
+ *
+ * กติกาใหม่ที่ผู้ใช้บอก → เพิ่มใน IMAGE_RULES (หรือการแปลงด้านล่าง) พร้อมเทสต์
+ * แล้วรัน `bun run ocr:reapply` ให้ใช้กับรูปที่เก็บไว้แล้วด้วย (อ่านจากผล OCR ที่เก็บไว้ ไม่ต้องให้ OCR อ่านรูปซ้ำ)
  *
  *   ลายมือ                 →  ข้อความโพย
  *   516.30 · 516-30 · 47:50 →  516=30 · 47=50       (ตัวคั่นระหว่างเลขกับยอด)
@@ -202,12 +209,112 @@ function declaredTotal(lines: OcrLine[]) {
   return null;
 }
 
-export function imageToTicketText(ocr: OcrResult): string {
+const countOf = (text: string, pattern: RegExp) => text.match(pattern)?.length ?? 0;
+
+type RuleContext = {
+  /** ยอดรวม ລວມ… ที่อ่านได้จาก Tesseract (null = ไม่มี) */
+  total: string | null;
+};
+
+/**
+ * กติกากรองของขั้นที่ 2 — ตัดสิ่งที่ไม่ใช่รายการแทงทิ้ง
+ *   box   = ใช้กับกล่องข้อความแต่ละกล่อง ก่อนจับคู่เลขกับยอดและจัดคอลัมน์
+ *   entry = ใช้กับรายการหลังจับคู่เลขกับยอดแล้ว
+ * skip คืน true = ตัดทิ้ง (ยังเห็นได้ในข้อความขั้นที่ 1)
+ */
+export type ImageRule = {
+  id: string;
+  /** กติกาเป็นคำพูด ตามที่ผู้ใช้บอก */
+  rule: string;
+  stage: "box" | "entry";
+  skip: (text: string, context: RuleContext) => boolean;
+};
+
+export const IMAGE_RULES: ImageRule[] = [
+  {
+    id: "no-digit",
+    rule: "กล่องที่ไม่มีตัวเลข (หัวกระดาษ ชื่อ คำทักทาย) ไม่ใช่รายการแทง",
+    stage: "box",
+    skip: (text) => !/\d/.test(text),
+  },
+  {
+    id: "mostly-letters",
+    rule: "กล่องที่ตัวอักษรมากกว่าตัวเลข ไม่ใช่รายการแทง",
+    stage: "box",
+    skip: (text) => countOf(text, /\p{L}/gu) > countOf(text, /\d/g),
+  },
+  {
+    id: "date",
+    rule: "บรรทัดวันที่ เช่น 30.9.26 — ข้าม",
+    stage: "box",
+    skip: (text) => DATE.test(text),
+  },
+  {
+    id: "total-word",
+    rule: "คำ ລວມ150 ที่ PaddleOCR อ่านเป็นตัวละติน (a5u150) — ได้ยอดรวมจาก Tesseract แล้ว",
+    stage: "box",
+    skip: (text, { total }) => !!total && /\p{L}/u.test(text) && text.endsWith(total.replace(/\D/g, "")),
+  },
+  {
+    id: "single-digit",
+    rule: "ตัวเลขหลักเดียวที่จับคู่กับเลขไม่ได้ ไม่ใช่ทั้งเลขหวยและรายการ — มักเป็นเส้นโยงหรือจุดที่ OCR อ่านเป็น 1",
+    stage: "entry",
+    skip: (text) => countOf(text, /\d/g) <= 1,
+  },
+];
+
+const skipBy = (rules: ImageRule[], stage: ImageRule["stage"], context: RuleContext) => {
+  const active = rules.filter((rule) => rule.stage === stage);
+  return (piece: Piece) => active.some((rule) => rule.skip(piece.text, context));
+};
+
+/** กล่องในบรรทัดเดียวกันที่ห่างกันเกินเท่านี้ (เท่าของความสูงตัวอักษร) = คนละคอลัมน์ — ขั้นที่ 1 คั่นให้กว้างขึ้น */
+const TRANSCRIPT_COLUMN_GAP = 2;
+const COLUMN_SPACE = "      ";
+
+/**
+ * ขั้นที่ 1: ทุกกล่องที่ PaddleOCR อ่านได้ ตามที่อ่าน (ไม่แก้ ไม่ตัด) จัดเป็นบรรทัดตามตำแหน่งในรูป
+ * กล่องในบรรทัดเดียวกันเรียงซ้าย→ขวา · PaddleOCR อ่านไม่ได้เลย → ใช้บรรทัดของ Tesseract แทน
+ */
+export function transcribeImage(ocr: OcrResult): string {
+  const pieces = ocr.paddle
+    .map((box) => ({ ...toPiece(box), text: box.text.normalize("NFC").trim() }))
+    .filter((piece) => piece.text);
+  if (pieces.length === 0) {
+    return ocr.tesseract
+      .map((line) => line.text.normalize("NFC").trim())
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  const gap = TRANSCRIPT_COLUMN_GAP * median(pieces.map(height));
+  const middle = (p: Piece) => (p.top + p.bottom) / 2;
+  const rows: Piece[][] = [];
+  for (const piece of [...pieces].sort((a, b) => middle(a) - middle(b))) {
+    const row = rows.at(-1);
+    // เทียบกับกล่องแรกของบรรทัด — รูปเอียงทำให้เทียบกับกล่องล่าสุดแล้วไหลข้ามบรรทัดได้
+    if (row && sameRow(row[0]!, piece)) row.push(piece);
+    else rows.push([piece]);
+  }
+
+  return rows
+    .map((row) =>
+      row
+        .sort((a, b) => a.left - b.left)
+        .map((piece, i) => (i === 0 ? "" : piece.left - row[i - 1]!.right > gap ? COLUMN_SPACE : " ") + piece.text)
+        .join(""),
+    )
+    .join("\n");
+}
+
+/** ขั้นที่ 2: ผล OCR → ข้อความโพย ตามกติกาใน rules */
+export function imageToTicketText(ocr: OcrResult, rules: ImageRule[] = IMAGE_RULES): string {
   const headers: Header[] = [];
   const pieces: Piece[] = [];
 
   const total = declaredTotal(ocr.tesseract);
-  const count = (text: string, pattern: RegExp) => text.match(pattern)?.length ?? 0;
+  const skipBox = skipBy(rules, "box", { total });
+  const skipEntry = skipBy(rules, "entry", { total });
 
   for (const box of ocr.paddle) {
     const piece = { ...toPiece(box), text: clean(box.text) };
@@ -216,17 +323,12 @@ export function imageToTicketText(ocr: OcrResult): string {
       headers.push({ ...piece, thb: header[1]!.toUpperCase() !== "K" });
       continue;
     }
-    const letters = count(piece.text, /\p{L}/gu);
-    // ตัวอักษรล้วน/เป็นหลัก (หัวกระดาษ ชื่อ คำทักทาย) และวันที่ ไม่ใช่รายการแทง
-    if (!/\d/.test(piece.text) || letters > count(piece.text, /\d/g) || DATE.test(piece.text)) continue;
-    // คำ "ລວມ150" ที่ PaddleOCR อ่านเป็นตัวละติน (a5u150) — ได้ยอดรวมจาก Tesseract แล้ว
-    if (total && letters > 0 && piece.text.endsWith(total.replace(/\D/g, ""))) continue;
+    if (skipBox(piece)) continue;
     pieces.push(...splitVertical(piece).flatMap(splitEntries));
   }
 
   const entries = pairNumbersWithAmounts(pieces)
-    // ตัวเลขหลักเดียวที่จับคู่กับเลขไม่ได้ ไม่ใช่ทั้งเลขหวยและรายการ — มักเป็นเส้นโยงหรือจุดที่ OCR อ่านเป็น 1
-    .filter((piece) => count(piece.text, /\d/g) > 1)
+    .filter((piece) => !skipEntry(piece))
     // เลขที่ไม่มียอด (เช่น เลขในกลุ่มที่โยงเส้นไว้) → เลขเปล่า ให้ parser แจ้งว่าไม่มียอด
     .map((piece) => ({ ...piece, text: piece.text.match(NUMBER_ONLY)?.[1] ?? piece.text }));
 
