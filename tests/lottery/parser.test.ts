@@ -132,13 +132,19 @@ describe("parseTicket — กติกา", () => {
     expect(ticket.issues.map((i) => i.code)).toEqual(["TOTAL_MISMATCH"]);
   });
 
-  test("เลข 3 ตัวลงล่างไม่ได้ → รอตรวจ ไม่สร้างรายการ", () => {
-    for (const text of ["243=100ລ່າງ", "243=100ບລ", "243=100*100"]) {
-      const ticket = parseTicket(text);
-      expect(ticket.bets).toEqual([]);
-      expect(ticket.issues.map((i) => i.code)).toEqual(["THREE_DIGIT_BOTTOM"]);
-    }
+  test("เลข 3 ตัวลงล่างอย่างเดียวไม่ได้ → รอตรวจ ไม่สร้างรายการ", () => {
+    const ticket = parseTicket("243=100ລ່າງ");
+    expect(ticket.bets).toEqual([]);
+    expect(ticket.issues.map((i) => i.code)).toEqual(["THREE_DIGIT_BOTTOM"]);
     expect(parseTicket("26.243=100ລ່າງ").issues.map((i) => i.code)).toEqual(["THREE_DIGIT_BOTTOM"]);
+  });
+
+  test("บนล่าง (ບລ / บน×ล่าง) ใช้ได้เฉพาะเลข 2 ตัว → เลข 3 ตัวลงบนอย่างเดียวด้วยยอดบน", () => {
+    const brief = (text: string) =>
+      parseTicket(text, { lakMultiplier: 1 }).bets.map((b) => `${b.number} ${b.position} ${b.amount}`);
+    expect(brief("243=100ບລ")).toEqual(["243 TOP 100"]);
+    expect(brief("243=100*50")).toEqual(["243 TOP 100"]);
+    expect(parseTicket("243=100ບລ").issues).toEqual([]);
   });
 
   test("ຫລັກ2-9 → เติมหลักร้อยหน้าเลข 2 ตัวทุกตัวด้านบน เป็นเลข 3 ตัวบน", () => {
@@ -217,8 +223,11 @@ describe("parseTicket — กติกา", () => {
     expect(three.issues).toEqual([]);
     expect(three.bets.map((b) => `${b.number} ${b.position}`)).toEqual(["204 TOP", "244 TOP", "822 TOP"]);
 
-    // เลข 3 ตัวล้วนลงล่างไม่ได้
-    expect(parseTicket("04/44\nລັກ2\nໂຕ20 ບລ").issues.map((i) => i.code)).toEqual(["NO_AMOUNT", "NO_AMOUNT", "THREE_DIGIT_BOTTOM"]);
+    // เลข 3 ตัวล้วน + ບລ → ลงบนอย่างเดียว · ລ່າງ ล้วนลงไม่ได้
+    const threeBoth = parseTicket("04/44\nລັກ2\nໂຕ20 ບລ", { lakMultiplier: 1 });
+    expect(threeBoth.issues).toEqual([]);
+    expect(threeBoth.bets.map((b) => `${b.number} ${b.position}`)).toEqual(["204 TOP", "244 TOP"]);
+    expect(parseTicket("04/44\nລັກ2\nໂຕ20 ລ່າງ").issues.map((i) => i.code)).toEqual(["NO_AMOUNT", "NO_AMOUNT", "THREE_DIGIT_BOTTOM"]);
     expect(parseTicket("04/44\nລັກ2").issues.map((i) => i.code)).toEqual(["NO_AMOUNT", "NO_AMOUNT"]);
     expect(parseTicket("ລັກ2\nໂຕ20").issues.map((i) => i.code)).toEqual(["UNREADABLE", "UNREADABLE"]);
     // ເອົາທັງ2-3ໂຕ แยกบรรทัดก่อนยอดก็ได้ และเก็บเป็นหมายเหตุ
@@ -350,6 +359,17 @@ describe("parseTicket — กติกา", () => {
     expect(codes("ລາວ200,000")).toEqual([]);
   });
 
+  test("24;64;28=100*50 — มี = ตัวเดียว ; หน้า = คั่นระหว่างเลข", () => {
+    const ticket = parseTicket("24;64;28;68;25;65;26;66;36;76;34;74=100*50\nລວມ1.800");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets).toHaveLength(24);
+    expect(ticket.bets.slice(0, 2).map((b) => `${b.number} ${b.position} ${b.amount}`)).toEqual(
+      ["24 TOP 100000", "24 BOTTOM 50000"],
+    );
+    expect(ticket.declaredTotal).toBe(1800);
+    expect(ticket.typedTotal).toBe(1800);
+  });
+
   test("06;46;506 hu 20 — hu = ຮູ · ; คั่นระหว่างเลขเมื่อมีคำคั่นยอดแล้ว", () => {
     const ticket = parseTicket("06;46;86;506;546;586 hu 20", { lakMultiplier: 1 });
     expect(ticket.issues).toEqual([]);
@@ -359,6 +379,40 @@ describe("parseTicket — กติกา", () => {
     expect(parseTicket("06;46 HU20").issues).toEqual([]);
     // ไม่มีคำคั่นยอด → ; ยังเป็นตัวคั่นเลขกับยอดเหมือนเดิม
     expect(parseTicket("772;5", { lakMultiplier: 1 }).bets.map((b) => `${b.number} ${b.amount}`)).toEqual(["772 5"]);
+  });
+
+  test("ตัวละ20฿บนล่าง ใต้เลขปน 2/3 ตัว → เลข 3 ตัวบนอย่างเดียว · เลข 2 ตัวบนล่าง", () => {
+    const ticket = parseTicket("952\n208\n876\n76\n02\n67\n\nตัวละ20฿บนล่าง");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.map((b) => `${b.number} ${b.position} ${b.currency} ${b.amount}`)).toEqual([
+      "952 TOP THB 20", "208 TOP THB 20", "876 TOP THB 20",
+      "76 TOP THB 20", "76 BOTTOM THB 20", "02 TOP THB 20", "02 BOTTOM THB 20", "67 TOP THB 20", "67 BOTTOM THB 20",
+    ]);
+    expect(parseTicket("952\n76\n\nໂຕລະ20฿ບົນລ່າງ").issues).toEqual([]);
+    // เลข 3 ตัวล้วน + บนล่าง → ลงบน 20 ตามปกติ
+    const three = parseTicket("952\n208\nตัวละ20บนล่าง", { lakMultiplier: 1 });
+    expect(three.issues).toEqual([]);
+    expect(three.bets.map((b) => `${b.number} ${b.position} ${b.amount}`)).toEqual(["952 TOP 20", "208 TOP 20"]);
+  });
+
+  test("255=ໂຕ5ພັນ — ໂຕ หลัง = · เลขด้านบนที่ไม่มียอดได้ยอดของบรรทัดล่าง แยกเป็นชุด ๆ", () => {
+    const ticket = parseTicket("237\n247\n257\n255=ໂຕ5ພັນ\n115\n155\n195\n124\n164\n15\n55\n95\n24\n64=ໂຕ2ພັນ");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.map((b) => `${b.number} ${b.amount}`)).toEqual([
+      "237 5000", "247 5000", "257 5000", "255 5000",
+      "115 2000", "155 2000", "195 2000", "124 2000", "164 2000", "15 2000", "55 2000", "95 2000", "24 2000", "64 2000",
+    ]);
+    expect(ticket.typedTotal).toBe(4 * 5 + 10 * 2);
+    expect(parseTicket("33=ຮູລະ10ບລ").bets).toHaveLength(2);
+  });
+
+  test("ລວມ80฿ และไม่มีคำบอกกีบในโพย → รายการที่ไม่ได้ระบุสกุลเงินเป็นบาท", () => {
+    const ticket = parseTicket("760=10\n60=20*10\n06=20*10\nລວມ70฿");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.every((b) => b.currency === "THB")).toBe(true);
+    expect(ticket.bets.map((b) => b.amount)).toEqual([10, 20, 10, 20, 10]);
+    // มีคำบอกกีบในโพย → ไม่เปลี่ยน
+    expect(parseTicket("760=10₭\nລວມ10฿").bets[0].currency).toBe("LAK");
   });
 
   test("ລວມ:1ລ້ານ / ລວມ5ແສນ = ยอดรวมเต็มจำนวน · บรรทัดอีโมจิ/ชื่อเป็นหมายเหตุ", () => {
@@ -499,6 +553,37 @@ describe("parseTicket — กติกา", () => {
     expect(codes("32=100=200")).toEqual(["UNREADABLE"]);
     expect(codes("32=0")).toEqual(["UNREADABLE"]);
     expect(codes("35 5")).toEqual(["UNREADABLE"]);
+  });
+
+  test("ธง / อีโมจิ (🇱🇦 💰 ✅ ❤️) ในบรรทัดรายการถูกตัดทิ้ง · บรรทัดที่มีแต่อีโมจิเป็นหมายเหตุ", () => {
+    const brief = (text: string) => parseTicket(text).bets.map((b) => `${b.number} ${b.position}`);
+    expect(brief("32=10🇱🇦")).toEqual(["32 TOP"]);
+    expect(brief("🇱🇦32=10")).toEqual(["32 TOP"]);
+    expect(brief("🇱🇦 32 72=10ບລ 🇹🇭")).toEqual(["32 TOP", "32 BOTTOM", "72 TOP", "72 BOTTOM"]);
+    expect(brief("32=10💰✅")).toEqual(["32 TOP"]);
+    expect(brief("32=10❤️")).toEqual(["32 TOP"]);
+    const flag = parseTicket("🇱🇦\n32=10\nລວມ10🇱🇦");
+    expect(flag.issues).toEqual([]);
+    expect(flag.notes).toEqual(["🇱🇦"]);
+    expect(flag.declaredTotal).toBe(10);
+  });
+
+  test("บรรทัดวันที่ / ชื่อ + เบอร์โทร เก็บเป็นหมายเหตุ ไม่นับเป็นปัญหา", () => {
+    const ticket = parseTicket("03/10/2026🇱🇦\n05 45 85=50฿\n02 42 82=50฿\n20 00 60=50฿\nລວມ450฿");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.notes).toEqual(["03/10/2026🇱🇦"]);
+    expect(ticket.bets).toHaveLength(9);
+    expect(ticket.declaredTotal).toBe(450);
+    expect(ticket.typedTotal).toBe(450);
+
+    for (const line of ["3/10/26", "03-10-2026 ນາງ ແອ໋ມ", "2026-10-03", "3.10.2026", "ແມ່ຕ້ອຍ 02055551234", "020 555 1234"]) {
+      const parsed = parseTicket(`${line}\n32=10`);
+      expect(parsed.issues).toEqual([]);
+      expect(parsed.notes).toEqual([line]);
+    }
+    // อาจเป็นเลขแทง → ไม่ถือเป็นวันที่
+    expect(parseTicket("30.10.26").issues.map((i) => i.code)).toEqual(["NO_AMOUNT"]);
+    expect(parseTicket("30/10/26=10").bets).toHaveLength(3);
   });
 
   test("บรรทัดที่ไม่มีตัวเลขเก็บเป็นหมายเหตุ ไม่นับเป็นปัญหา", () => {
