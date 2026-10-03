@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 
+import { BILL_PREFIX } from "@/lottery/bill";
 import type { SearchParamsInput } from "@/types";
 import { isTicketStatus, type DrawOption, type TicketFilterValues } from "./types";
 
@@ -11,16 +12,16 @@ function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-/** ตัวเลข 6 หลักขึ้นไป (+ "-2" ท้ายได้) = ค้นเลขบิลด้วย — สั้นกว่านี้ไม่ใช่เลขบิล (กันไปเจอทุกบิลของปี/เดือน) */
-const BILL_QUERY = /^\d{6,12}(-\d{1,4})?$/;
+/** ตัวเลข 6–12 หลัก (มี BNO นำหน้าหรือไม่ก็ได้) = ค้นเลขบิลด้วย — สั้นกว่านี้ไม่ใช่เลขบิล (กันไปเจอทุกบิลของปี/เดือน) */
+const BILL_QUERY = /^(?:BNO)?(\d{6,12})$/i;
 
 /**
- * คำค้นที่เป็นเลขบิล → ค้นแบบขึ้นต้นด้วย: "261002" = ทุกบิลของวันที่ 2 ต.ค. 26 · "261002143015" = บิลนั้น
+ * คำค้นที่เป็นเลขบิล → ค้นแบบขึ้นต้นด้วย: "261002" / "BNO261002" = ทุกบิลของวันที่ 2 ต.ค. 26 · "BNO261002143015" = บิลนั้น
  * อย่างอื่น = null (ยังค้นในข้อความโพยต่อเสมอ เพราะยอดเงินก็เป็นตัวเลขยาวได้)
  */
 export function billQueryPrefix(q: string): string | null {
-  const value = q.trim();
-  return BILL_QUERY.test(value) ? value : null;
+  const match = BILL_QUERY.exec(q.trim());
+  return match ? BILL_PREFIX + match[1] : null;
 }
 
 /** อ่าน ?draw=<id>|all&status= จาก URL — ไม่ระบุงวด = งวดที่เปิดรับล่าสุด (draws เรียงใหม่ → เก่า) */

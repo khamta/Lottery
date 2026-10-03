@@ -112,12 +112,15 @@ function makeLogger(label: string) {
 
 // ------------------------------------------------------------------ สถานะในหน่วยความจำ
 
+/** กลุ่มที่อ่าน: แม่หวยที่ผูกไว้ + id ของกลุ่ม (โพยจำว่ามาจากกลุ่มไหน) */
+type GroupTarget = { dealerId: string; groupId: string };
+
 type Session = {
   id: string;
   label: string;
   sock: WASocket;
-  /** jid ของกลุ่ม -> แม่หวยที่ผูกไว้ (เฉพาะกลุ่มที่อ่าน) — อ่านจากฐานข้อมูลทุก POLL_MS */
-  groups: Map<string, string>;
+  /** jid ของกลุ่ม -> กลุ่ม + แม่หวยที่ผูกไว้ (เฉพาะกลุ่มที่อ่าน) — อ่านจากฐานข้อมูลทุก POLL_MS */
+  groups: Map<string, GroupTarget>;
   connected: boolean;
   /** ตั้งเมื่อบอทปิดเองตั้งใจ (ลบบัญชี / ปิด / logout) — event close จะไม่ต่อใหม่ */
   stopping: boolean;
@@ -133,7 +136,7 @@ const starting = new Set<string>();
 /** ข้อความที่ถอดรหัสไม่ได้และกำลังรอส่งใหม่ — จำคนส่งไว้ เพราะข้อความที่ได้คืนจากโทรศัพท์อาจไม่มีข้อมูลคนส่ง */
 type Waiting = {
   label: string;
-  dealerId: string;
+  target: GroupTarget;
   sender: MessageSender;
   sentAt?: Date;
   offline: boolean;
@@ -215,7 +218,7 @@ async function giveUp(id: string) {
   try {
     const result = await ingestUndecryptable(prisma, {
       id,
-      dealerId: entry.dealerId,
+      ...entry.target,
       ...entry.sender,
       sentAt: entry.sentAt,
       offline: entry.offline,
@@ -229,7 +232,7 @@ async function giveUp(id: string) {
   }
 }
 
-async function handle(session: Session, dealerId: string, message: WAMessage, offline: boolean) {
+async function handle(session: Session, target: GroupTarget, message: WAMessage, offline: boolean) {
   const { sock, label } = session;
   const id = message.key.id;
   if (!id) return;
@@ -239,7 +242,7 @@ async function handle(session: Session, dealerId: string, message: WAMessage, of
     if (waiting.has(id)) return;
     waiting.set(id, {
       label,
-      dealerId,
+      target,
       sender: await senderOf(sock, message),
       sentAt: sentAtOf(message),
       offline,
@@ -272,19 +275,19 @@ async function handle(session: Session, dealerId: string, message: WAMessage, of
   }
 
   const image = imageOf(message.message);
-  if (image) return handleImage(session, dealerId, message, image, recovered?.sender, offline);
+  if (image) return handleImage(session, target, message, image, recovered?.sender, offline);
 
   const text = textOf(message.message);
   if (!text) return;
 
   const sender = recovered?.sender ?? (await senderOf(sock, message));
-  reportIngest(label, sender, await ingestMessage(prisma, { id, dealerId, text, ...sender, sentAt: sentAtOf(message), offline }));
+  reportIngest(label, sender, await ingestMessage(prisma, { id, ...target, text, ...sender, sentAt: sentAtOf(message), offline }));
 }
 
 /** รูปโพย → เก็บรูปเข้าระบบก่อน (โพยรอตรวจ) แล้วส่งเข้าคิว OCR */
 async function handleImage(
   session: Session,
-  dealerId: string,
+  target: GroupTarget,
   message: WAMessage,
   image: NonNullable<ReturnType<typeof imageOf>>,
   knownSender: MessageSender | undefined,
@@ -310,7 +313,7 @@ async function handleImage(
   try {
     const result = await ingestImage(prisma, {
       id: message.key.id!,
-      dealerId,
+      ...target,
       ...sender,
       sentAt: sentAtOf(message),
       offline,
@@ -347,16 +350,16 @@ async function upsertGroup(accountId: string, group: Pick<GroupMetadata, "id" | 
   });
 }
 
-/** บัญชี -> (jid ของกลุ่ม -> แม่หวย) เฉพาะกลุ่มที่เลือกแม่หวยไว้ */
+/** บัญชี -> (jid ของกลุ่ม -> กลุ่ม + แม่หวย) เฉพาะกลุ่มที่เลือกแม่หวยไว้ */
 async function loadGroupMap(accountIds: string[]) {
   const rows = await prisma.whatsappGroup.findMany({
     where: { accountId: { in: accountIds }, dealerId: { not: null } },
-    select: { accountId: true, jid: true, dealerId: true },
+    select: { id: true, accountId: true, jid: true, dealerId: true },
   });
-  const map = new Map<string, Map<string, string>>();
+  const map = new Map<string, Map<string, GroupTarget>>();
   for (const row of rows) {
     if (!map.has(row.accountId)) map.set(row.accountId, new Map());
-    map.get(row.accountId)!.set(row.jid, row.dealerId!);
+    map.get(row.accountId)!.set(row.jid, { dealerId: row.dealerId!, groupId: row.id });
   }
   return map;
 }
@@ -507,10 +510,10 @@ async function start(account: { id: string; name: string; pairingPhone: string |
       // "notify" = ข้อความสด · "append" = ข้อความที่ส่งมาระหว่างบอทออฟไลน์ (WhatsApp ส่งตามมาตอนต่อใหม่)
       // ประวัติแชตเก่าไม่ได้มาทางนี้ (syncFullHistory: false) — ข้อความค้างส่งที่เก่ากว่างวดปัจจุบันถูกกันที่ ingest
       for (const message of messages) {
-        const dealerId = message.key.remoteJid ? session.groups.get(message.key.remoteJid) : undefined;
-        if (!dealerId) continue; // กลุ่มที่ไม่ได้เลือกแม่หวย = ไม่อ่าน
+        const target = message.key.remoteJid ? session.groups.get(message.key.remoteJid) : undefined;
+        if (!target) continue; // กลุ่มที่ไม่ได้เลือกแม่หวย = ไม่อ่าน
         try {
-          await handle(session, dealerId, message, type !== "notify");
+          await handle(session, target, message, type !== "notify");
         } catch (error) {
           // ข้อความเดียวพังต้องไม่ทำให้บอทหยุดอ่านข้อความถัดไป
           console.error(`[${label}] นำเข้าข้อความ ${message.key.id} ไม่สำเร็จ`, error);

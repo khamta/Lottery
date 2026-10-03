@@ -64,9 +64,6 @@ const tx = {
       ) ?? null,
   },
   ticket: {
-    // เลขบิลที่ออกไปแล้วในวินาทีเดียวกัน (src/lottery/bill.ts)
-    findMany: async ({ where }: { where: { billNo: { startsWith: string } } }) =>
-      [...state.tickets.values()].filter((ticket) => String(ticket.billNo).startsWith(where.billNo.startsWith)),
     create: async ({ data }: { data: Row }) => {
       const ticket = { id: `ticket-${nextId++}`, createdAt: new Date(), ...data };
       state.tickets.set(ticket.id, ticket);
@@ -98,9 +95,16 @@ const tx = {
       where,
       include,
     }: {
-      where: { senderId: string; createdAt: { gte: Date }; draw: { dealerId: string; status: string } };
+      where:
+        | { senderId: string; createdAt: { gte: Date }; draw: { dealerId: string; status: string } }
+        | { billNo: { startsWith: string } };
       include?: { image?: unknown };
     }) => {
+      // เลขบิลล่าสุดของวันเดียวกัน (src/lottery/bill.ts)
+      if ("billNo" in where) {
+        const bills = [...state.tickets.values()].map((ticket) => String(ticket.billNo)).filter((no) => no.startsWith(where.billNo.startsWith));
+        return bills.length ? { billNo: bills.sort().at(-1)! } : null;
+      }
       const found =
         [...state.tickets.values()]
           .filter(
@@ -262,12 +266,15 @@ describe("ingestMessage", () => {
     expect(onlyTicket().createdAt).toEqual(sentAt);
   });
 
-  test("เลขบิล = เวลาที่ส่งในแชต (เวลาลาว) · ข้อความวินาทีเดียวกันจากอีกกลุ่มต่อท้าย -2", async () => {
+  test("เลขบิล = BNO + เวลาที่ส่งในแชต (เวลาลาว) · ข้อความวินาทีเดียวกันจากอีกกลุ่มได้เลขถัดไป · จำกลุ่มที่ส่งมา", async () => {
     const sentAt = new Date("2026-09-30T08:15:07.000Z"); // 15:15:07 เวลาลาว
-    await ingestMessage(db, message("wa-1", "32=300", { sentAt }));
-    await ingestMessage(db, message("wa-2", "45=100", { sentAt, senderId: "222@lid" }));
+    await ingestMessage(db, message("wa-1", "32=300", { sentAt, groupId: "group-1" }));
+    await ingestMessage(db, message("wa-2", "45=100", { sentAt, senderId: "222@lid", groupId: "group-2" }));
 
-    expect([...state.tickets.values()].map((ticket) => ticket.billNo)).toEqual(["260930151507", "260930151507-2"]);
+    expect([...state.tickets.values()].map((ticket) => [ticket.billNo, ticket.groupId])).toEqual([
+      ["BNO260930151507", "group-1"],
+      ["BNO260930151508", "group-2"],
+    ]);
   });
 });
 

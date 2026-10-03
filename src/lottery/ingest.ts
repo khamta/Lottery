@@ -43,6 +43,8 @@ type MessageMeta = MessageSender & {
   id: string;
   /** แม่หวยที่กลุ่มของข้อความนี้ผูกไว้ */
   dealerId: string;
+  /** กลุ่ม WhatsApp (whatsapp_groups.id) ที่ข้อความนี้มา — รายงานตามบิลจัดกลุ่มตามนี้ */
+  groupId?: string | null;
   /** เวลาที่ส่งในแชต — ไม่ระบุ = ตอนนี้ */
   sentAt?: Date;
   /** ข้อความที่ส่งมาระหว่างบอทไม่ได้ออนไลน์ (WhatsApp ส่งตามมาตอนต่อใหม่) */
@@ -190,6 +192,7 @@ async function createTicket(tx: Tx, message: MessageMeta, drawId: string, custom
       waMessageId: message.id,
       senderId: message.senderId,
       senderName: message.senderName ?? message.senderPhone,
+      groupId: message.groupId ?? null,
       // เวลาของโพย = เวลาที่ส่งในแชต (ข้อความค้างส่งจะไม่ถูกลงเวลาเป็นตอนที่บอทกลับมาออนไลน์)
       ...(message.sentAt ? { createdAt: message.sentAt } : {}),
     },

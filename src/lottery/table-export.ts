@@ -341,3 +341,197 @@ export async function tableToPdf(table: ExportTable, options: ExportOptions): Pr
   doc.end();
   return done;
 }
+
+// ──────────────────────────── ใบสรุปส่งแม่หวย ────────────────────────────
+
+/**
+ * รูปแบบ "ใบสรุป" (เหมือนใบที่เขียนใน Excel เอง): กล่องสรุปยอด กีบ/บาท ด้านบน
+ * + ตารางเลข 3 คอลัมน์ (ลำดับ · กีบ · บาท) ด้านล่าง — ข้อความแปลแล้วทั้งหมด ไฟล์นี้แค่จัดวาง
+ */
+export type SheetSummaryRow = {
+  label: string;
+  lak: ExportValue;
+  thb: ExportValue;
+  /** total = แถวรวม (พื้นสี) · result = ยอดถูก/ส่งแม่ (ตัวแดง) · final = ยอดส่งแม่ (ตัวแดงหนา พื้นสี) */
+  style?: "total" | "result" | "final";
+};
+
+export type SheetExport = {
+  title: string;
+  meta: string[];
+  /** หัวคอลัมน์ของกล่องสรุป: [ว่าง, กีบ, บาท] */
+  summaryHeader: [string, string, string];
+  summary: SheetSummaryRow[];
+  /** หัวคอลัมน์ของตารางล่าง: [ลำดับ, กีบ, บาท] */
+  tableHeader: [string, string, string];
+  /** แถวรวมเหนือรายการ (เหมือนในใบ) */
+  tableTotal: [string, number, number];
+  rows: [string, number, number][];
+};
+
+const SHEET_FILL = "FFE2EFDA";
+const SHEET_RED = "FFDC2626";
+
+export async function sheetToXlsx(sheet: SheetExport, options: ExportOptions): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.created = options.exportedAt;
+  const ws = workbook.addWorksheet(options.sheetName.replace(/[:\/?*[\]]/g, " ").slice(0, 31), {
+    pageSetup: { fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 },
+  });
+  ws.columns = [{ width: 16 }, { width: 18 }, { width: 18 }];
+
+  ws.getCell(1, 1).value = sheet.title;
+  ws.getCell(1, 1).font = { bold: true, size: 14 };
+  sheet.meta.forEach((line, index) => {
+    ws.getCell(index + 2, 1).value = line;
+    ws.getCell(index + 2, 1).font = { color: { argb: ARGB.muted } };
+  });
+
+  const border = { style: "thin" as const, color: { argb: "FF9CA3AF" } };
+  const box = { top: border, bottom: border, left: border, right: border };
+  const fill = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: SHEET_FILL } };
+
+  const put = (values: ExportValue[], style: { fill?: boolean; bold?: boolean; red?: boolean; underline?: boolean } = {}) => {
+    const row = ws.addRow(values.map((value) => (value === 0 ? null : value)));
+    for (let column = 1; column <= 3; column++) {
+      const cell = row.getCell(column);
+      const value = values[column - 1];
+      if (typeof value === "number") cell.numFmt = numberFormat(value);
+      cell.border = box;
+      cell.alignment = { horizontal: column === 1 ? "center" : "right" };
+      cell.font = {
+        bold: style.bold,
+        underline: style.underline && column > 1 ? "double" : undefined,
+        ...(style.red ? { color: { argb: SHEET_RED } } : {}),
+      };
+      if (style.fill) cell.fill = fill;
+    }
+    return row;
+  };
+
+  ws.addRow([]);
+  put(sheet.summaryHeader, { fill: true, bold: true });
+  for (const row of sheet.summary) {
+    put([row.label, row.lak, row.thb], {
+      fill: row.style === "total" || row.style === "final",
+      bold: row.style !== undefined,
+      red: row.style === "result" || row.style === "final",
+      underline: row.style === "final",
+    });
+  }
+
+  ws.addRow([]);
+  const headerRow = put(sheet.tableHeader, { fill: true, bold: true }).number;
+  put(sheet.tableTotal, { fill: true, bold: true, underline: true });
+  for (const row of sheet.rows) put(row);
+  ws.views = [{ state: "frozen", ySplit: headerRow + 1 }];
+
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
+export async function sheetToPdf(sheet: SheetExport, options: ExportOptions): Promise<Buffer> {
+  const { intl } = options;
+  const doc = new PDFDocument({
+    size: "A4",
+    margin: PAGE.margin,
+    bufferPages: true,
+    font: FONTS.base,
+    info: { Title: sheet.title, CreationDate: options.exportedAt },
+  });
+  for (const [name, path] of Object.entries(FONTS)) doc.registerFont(name, path);
+
+  const chunks: Buffer[] = [];
+  doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+  const done = new Promise<Buffer>((resolveDone, reject) => {
+    doc.on("end", () => resolveDone(Buffer.concat(chunks)));
+    doc.on("error", reject);
+  });
+
+  const left = PAGE.margin;
+  const pageWidth = doc.page.width - PAGE.margin * 2;
+  const widths = [110, 120, 120];
+  const boxWidth = widths.reduce((sum, width) => sum + width, 0);
+  const rowHeight = 17;
+  const pad = 6;
+  const RED = TONE.danger;
+  const FILL = "#e2efda";
+  const bottom = () => doc.page.height - PAGE.margin - PAGE.lineHeight;
+  let y = PAGE.margin;
+
+  doc.fontSize(15);
+  drawLine(doc, { text: sheet.title, bold: true }, left, y, pageWidth, "left");
+  y += 24;
+  doc.fontSize(PAGE.fontSize);
+  for (const meta of sheet.meta) {
+    for (const line of wrap(doc, { text: meta, tone: "muted" }, pageWidth, 3)) {
+      drawLine(doc, line, left, y, pageWidth, "left");
+      y += PAGE.lineHeight;
+    }
+  }
+  y += 8;
+
+  function drawRow(values: ExportValue[], style: { fill?: boolean; bold?: boolean; red?: boolean; underline?: boolean } = {}) {
+    if (style.fill) doc.rect(left, y, boxWidth, rowHeight).fill(FILL);
+    let x = left;
+    values.forEach((value, index) => {
+      const width = widths[index]!;
+      const text = value === 0 ? "-" : display(value, intl);
+      const align = index === 0 ? "left" : "right";
+      const [line] = wrap(doc, { text, bold: style.bold, tone: style.red ? "danger" : undefined }, width - pad * 2, 1);
+      if (line) {
+        // คอลัมน์แรก (ป้าย/ลำดับ) จัดกลาง · ตัวเลขชิดขวา
+        const textX = index === 0 ? x + Math.max(pad, (width - widthOf(doc, line.text, style.bold)) / 2) : x + pad;
+        drawLine(doc, line, textX, y + 0.5, width - pad * 2, align);
+        if (style.underline && index > 0 && value !== null && value !== 0) {
+          const lineWidth = widthOf(doc, line.text, style.bold);
+          const underY = y + rowHeight - 2;
+          doc.lineWidth(0.6).strokeColor(style.red ? RED : COLOR.text);
+          doc.moveTo(x + width - pad - lineWidth, underY).lineTo(x + width - pad, underY).stroke();
+        }
+      }
+      doc.rect(x, y, width, rowHeight).lineWidth(0.5).strokeColor("#9ca3af").stroke();
+      x += width;
+    });
+    y += rowHeight;
+  }
+
+  drawRow(sheet.summaryHeader, { fill: true, bold: true });
+  for (const row of sheet.summary) {
+    drawRow([row.label, row.lak, row.thb], {
+      fill: row.style === "total" || row.style === "final",
+      bold: row.style !== undefined,
+      red: row.style === "result" || row.style === "final",
+      underline: row.style === "final",
+    });
+  }
+
+  y += 16;
+  const tableHead = () => drawRow(sheet.tableHeader, { fill: true, bold: true });
+  tableHead();
+  drawRow(sheet.tableTotal, { fill: true, bold: true, underline: true });
+  for (const row of sheet.rows) {
+    if (y + rowHeight > bottom()) {
+      doc.addPage();
+      y = PAGE.margin;
+      tableHead();
+    }
+    drawRow(row);
+  }
+
+  const range = doc.bufferedPageRange();
+  for (let index = 0; index < range.count; index++) {
+    doc.switchToPage(range.start + index);
+    doc.page.margins.bottom = 0;
+    drawLine(
+      doc,
+      { text: options.pageLabel(index + 1, range.count), tone: "muted" },
+      left,
+      doc.page.height - PAGE.margin,
+      pageWidth,
+      "right",
+    );
+  }
+
+  doc.end();
+  return done;
+}

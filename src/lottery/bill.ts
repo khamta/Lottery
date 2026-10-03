@@ -3,10 +3,12 @@ import type { Prisma } from "@prisma/client";
 import { siteConfig } from "@/config/site";
 
 /**
- * เลขบิล = ปีเดือนวันเวลาของโพย yyMMddHHmmss ตามเวลาของระบบ (siteConfig.timeZone) เช่น 261002143015
- * ไม่ซ้ำทั้งระบบ — โพยที่เข้ามาในวินาทีเดียวกัน (หลายกลุ่ม WhatsApp / หลายคนคีย์พร้อมกัน) ต่อท้าย -2, -3 …
- * เรียงเลขบิลแบบข้อความ = เรียงตามเวลา ("-" มาก่อนตัวเลข: 261002143015 < 261002143015-2 < 261002143016)
+ * เลขบิล = "BNO" + ปีเดือนวันเวลาของโพย yyMMddHHmmss ตามเวลาของระบบ (siteConfig.timeZone) เช่น BNO261002143015
+ * ไม่ซ้ำทั้งระบบ — เลขที่ถูกใช้ไปแล้ว (หลายกลุ่ม WhatsApp / หลายคนคีย์ในวินาทีเดียวกัน) ได้เลขถัดไป BNO261002143016 …
+ * ไม่มี "-" · เรียงเลขบิลแบบข้อความ = เรียงตามลำดับที่เข้ามา
  */
+export const BILL_PREFIX = "BNO";
+
 const stampFormat = new Intl.DateTimeFormat("en-GB", {
   timeZone: siteConfig.timeZone,
   year: "2-digit",
@@ -18,18 +20,23 @@ const stampFormat = new Intl.DateTimeFormat("en-GB", {
   hourCycle: "h23",
 });
 
-/** ส่วนเวลาของเลขบิล (12 หลัก) */
+/** ส่วนเวลาของเลขบิล (12 หลัก ไม่รวม BNO) */
 export function billStamp(at: Date): string {
   const part = Object.fromEntries(stampFormat.formatToParts(at).map(({ type, value }) => [type, value]));
   return `${part.year}${part.month}${part.day}${part.hour}${part.minute}${part.second}`;
 }
 
-/** เลขบิลถัดไปเมื่อ taken = เลขบิลที่ขึ้นต้นด้วย stamp นี้ซึ่งออกไปแล้ว */
-export function nextFreeBillNo(stamp: string, taken: string[]): string {
-  if (taken.length === 0) return stamp;
-  const last = Math.max(1, ...taken.map((billNo) => Number(billNo.slice(stamp.length + 1)) || 1));
-  return `${stamp}-${last + 1}`;
+/**
+ * เลขบิลของ stamp นี้ เมื่อ latest = เลขบิลล่าสุดของวันเดียวกัน (null = ยังไม่มี)
+ * เลขยังว่าง = ใช้ stamp ตรง ๆ · ถูกใช้ไปแล้ว (หรือเลขล่าสุดเลยไปแล้ว) = เลขล่าสุด + 1
+ */
+export function nextFreeBillNo(stamp: string, latest: string | null): string {
+  const own = Number(stamp);
+  const last = latest ? Number(latest.slice(BILL_PREFIX.length)) : Number.NaN;
+  const next = Number.isFinite(last) && last >= own ? last + 1 : own;
+  return BILL_PREFIX + String(next).padStart(stamp.length, "0");
 }
+
 
 /**
  * เลขบิลของโพยที่สร้างเวลา at — ต้องเรียกใน transaction เดียวกับที่สร้างโพย
@@ -40,9 +47,11 @@ export async function nextBillNo(tx: Prisma.TransactionClient, at: Date = new Da
   // 7240311 = กุญแจล็อกของการออกเลขบิล (ค่าคงที่ ใช้ที่นี่ที่เดียว)
   await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(7240311)`;
   const stamp = billStamp(at);
-  const taken = await tx.ticket.findMany({ where: { billNo: { startsWith: stamp } }, select: { billNo: true } });
-  return nextFreeBillNo(
-    stamp,
-    taken.map((ticket) => ticket.billNo),
-  );
+  // เลขล่าสุดของวันเดียวกัน — เลขบิลยาวเท่ากันทุกใบ เรียงแบบข้อความจึงเท่ากับเรียงตามตัวเลข
+  const latest = await tx.ticket.findFirst({
+    where: { billNo: { startsWith: BILL_PREFIX + stamp.slice(0, 6) } },
+    orderBy: { billNo: "desc" },
+    select: { billNo: true },
+  });
+  return nextFreeBillNo(stamp, latest?.billNo ?? null);
 }

@@ -3,29 +3,32 @@ import { describe, expect, test } from "bun:test";
 import { billQueryPrefix, ticketWhere } from "@/app/(dashboard)/tickets/filters";
 import { billStamp, nextFreeBillNo } from "@/lottery/bill";
 
-/** เลขบิลแบบ ปีเดือนวันเวลา (src/lottery/bill.ts) + การค้นหาด้วยเลขบิลในหน้าโพย */
+/** เลขบิลแบบ BNO + ปีเดือนวันเวลา (src/lottery/bill.ts) + การค้นหาด้วยเลขบิลในหน้าโพย */
 describe("เลขบิล", () => {
   test("ปีเดือนวันเวลา yyMMddHHmmss ตามเวลาลาว (UTC+7) — ข้ามวันตามเวลาลาว ไม่ใช่ UTC", () => {
     expect(billStamp(new Date("2026-10-02T07:30:15Z"))).toBe("261002143015");
     expect(billStamp(new Date("2026-10-02T17:05:09Z"))).toBe("261003000509");
   });
 
-  test("ไม่ชน = เวลาล้วน · ชน = ต่อท้าย -2, -3 … ต่อจากเลขสูงสุด (แม้ใบกลางถูกลบไป)", () => {
-    expect(nextFreeBillNo("261002143015", [])).toBe("261002143015");
-    expect(nextFreeBillNo("261002143015", ["261002143015"])).toBe("261002143015-2");
-    expect(nextFreeBillNo("261002143015", ["261002143015", "261002143015-3"])).toBe("261002143015-4");
+  test("BNO + เวลา ไม่มี - · เลขถูกใช้แล้ว = เลขถัดไปต่อจากเลขล่าสุดของวัน", () => {
+    expect(nextFreeBillNo("261002143015", null)).toBe("BNO261002143015");
+    expect(nextFreeBillNo("261002143015", "BNO261002120000")).toBe("BNO261002143015");
+    expect(nextFreeBillNo("261002143015", "BNO261002143015")).toBe("BNO261002143016");
+    // หลายใบในวินาทีเดียวกันดันเลขไปข้างหน้าแล้ว — ใบถัดมาต่อจากเลขล่าสุด ไม่ย้อนกลับไปชน
+    expect(nextFreeBillNo("261002143016", "BNO261002143017")).toBe("BNO261002143018");
   });
 
-  test("เรียงแบบข้อความ = เรียงตามเวลา", () => {
-    const bills = ["261002143016", "261002143015-2", "261002143015", "261002143015-3"];
-    expect(bills.sort()).toEqual(["261002143015", "261002143015-2", "261002143015-3", "261002143016"]);
+  test("เรียงแบบข้อความ = เรียงตามลำดับที่เข้ามา", () => {
+    const bills = ["BNO261002143017", "BNO261002143015", "BNO261002143016"];
+    expect(bills.sort()).toEqual(["BNO261002143015", "BNO261002143016", "BNO261002143017"]);
   });
 });
 
 describe("ค้นหาด้วยเลขบิล (tickets/filters.ts)", () => {
-  test("ตัวเลข 6 หลักขึ้นไป (+ -2 ท้ายได้) = เลขบิล · สั้นกว่านั้นหรือมีตัวอื่นปน = ไม่ใช่", () => {
-    expect(billQueryPrefix("261002")).toBe("261002");
-    expect(billQueryPrefix(" 261002143015-2 ")).toBe("261002143015-2");
+  test("ตัวเลข 6–12 หลัก มี BNO หรือไม่ก็ได้ = เลขบิล · สั้นกว่านั้นหรือมีตัวอื่นปน = ไม่ใช่", () => {
+    expect(billQueryPrefix("261002")).toBe("BNO261002");
+    expect(billQueryPrefix(" bno261002143015 ")).toBe("BNO261002143015");
+    expect(billQueryPrefix("BNO261002143015")).toBe("BNO261002143015");
     expect(billQueryPrefix("2610")).toBeNull();
     expect(billQueryPrefix("#261002")).toBeNull();
     expect(billQueryPrefix("32.72=300")).toBeNull();
@@ -34,7 +37,7 @@ describe("ค้นหาด้วยเลขบิล (tickets/filters.ts)", (
   test("เลขบิล → ค้นแบบขึ้นต้นด้วย (261002 = ทุกบิลของวันนั้น) และยังค้นในข้อความโพยด้วย", () => {
     const where = ticketWhere("dealer-1", { drawId: null, status: null }, "261002");
     const or = (where.AND as { OR?: unknown[] }[])[1]!.OR!;
-    expect(or[0]).toEqual({ billNo: { startsWith: "261002" } });
+    expect(or[0]).toEqual({ billNo: { startsWith: "BNO261002" } });
     expect(or[1]).toEqual({ rawText: { contains: "261002", mode: "insensitive" } });
   });
 

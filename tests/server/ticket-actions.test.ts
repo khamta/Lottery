@@ -66,15 +66,16 @@ const tx = {
       return { count: where.id.in.length };
     },
     // โพยเป็นของแม่หวยผ่านงวด: where.draw.dealerId
-    findFirst: async ({ where }: { where: { id: string; draw: { dealerId: string } } }) => {
+    findFirst: async ({ where }: { where: { id: string; draw: { dealerId: string } } | { billNo: { startsWith: string } } }) => {
+      // เลขบิลล่าสุดของวันเดียวกัน (src/lottery/bill.ts)
+      if ("billNo" in where) {
+        const bills = [...db.tickets.values()].map((ticket) => String(ticket.billNo)).filter((no) => no.startsWith(where.billNo.startsWith));
+        return bills.length ? { billNo: bills.sort().at(-1)! } : null;
+      }
       const ticket = db.tickets.get(where.id);
       return ticket && ofDealer(ticket, where.draw.dealerId) ? withDraw(ticket) : null;
     },
-    findMany: async ({ where }: { where: { id: { in: string[] }; draw: { dealerId: string } } | { billNo: { startsWith: string } } }) => {
-      // เลขบิลที่ออกไปแล้วในวินาทีเดียวกัน (src/lottery/bill.ts)
-      if ("billNo" in where) {
-        return [...db.tickets.values()].filter((ticket) => String(ticket.billNo).startsWith(where.billNo.startsWith));
-      }
+    findMany: async ({ where }: { where: { id: { in: string[] }; draw: { dealerId: string } } }) => {
       return where.id.in.flatMap((id) => {
         const ticket = db.tickets.get(id);
         return ticket && ofDealer(ticket, where.draw.dealerId) ? [withDraw(ticket)] : [];
@@ -310,18 +311,18 @@ describe("updateTicket", () => {
     expect(db.auditRows).toHaveLength(0);
   });
 
-  test("เลขบิล = ปีเดือนวันเวลา · สร้างในวินาทีเดียวกันต่อท้าย -2 · แก้ไข/ย้ายงวดเลขเดิม", async () => {
+  test("เลขบิล = BNO + ปีเดือนวันเวลา · สร้างในวินาทีเดียวกันได้เลขถัดไป · แก้ไข/ย้ายงวดเลขเดิม", async () => {
     db.draws.set("draw-open-2", { dealerId: "dealer-1", status: "OPEN" });
     setSystemTime(new Date("2026-10-02T07:30:15Z")); // 14:30:15 เวลาลาว
     try {
       const first = await createTicket(valid);
       const second = await createTicket(valid);
       const secondId = second.ok ? second.data.id : "";
-      expect(db.tickets.get(first.ok ? first.data.id : "")).toMatchObject({ billNo: "261002143015" });
-      expect(db.tickets.get(secondId)).toMatchObject({ billNo: "261002143015-2" });
+      expect(db.tickets.get(first.ok ? first.data.id : "")).toMatchObject({ billNo: "BNO261002143015" });
+      expect(db.tickets.get(secondId)).toMatchObject({ billNo: "BNO261002143016" });
 
       await updateTicket({ ...valid, id: secondId, drawId: "draw-open-2", text: "32=100" });
-      expect(db.tickets.get(secondId)).toMatchObject({ drawId: "draw-open-2", billNo: "261002143015-2" });
+      expect(db.tickets.get(secondId)).toMatchObject({ drawId: "draw-open-2", billNo: "BNO261002143016" });
     } finally {
       setSystemTime();
     }

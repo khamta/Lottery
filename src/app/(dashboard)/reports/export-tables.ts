@@ -1,21 +1,31 @@
 import type { DrawStatusValue } from "@/lib/validations/draw";
 import { formatDate } from "@/lib/utils";
+import { formatNumber } from "@/lottery/format";
 import { currencyKey, digitsKey, positionKey } from "@/lottery/labels";
 import type { Currency, Position } from "@/lottery/parser";
-import { CUSTOMER_SUMMARY_MAX, WINNING_BETS_MAX, type CustomerSummary, type WinningBet } from "@/lottery/queries";
 import {
+  CUSTOMER_SUMMARY_MAX,
+  DRAW_BILLS_MAX,
+  WINNING_BETS_MAX,
+  type BillGroup,
+  type CustomerSummary,
+  type WinningBet,
+} from "@/lottery/queries";
+import {
+  buildSettlement,
   findOverLimits,
   pivotThreeDigit,
   pivotTwoDigit,
   resolveLimit,
   sumTwoDigit,
   type LimitRule,
+  type PayoutRates,
   type StakeGroup,
   type WinningKey,
 } from "@/lottery/report";
-import type { ExportCell, ExportColumn, ExportTable } from "@/lottery/table-export";
+import type { ExportCell, ExportColumn, ExportTable, SheetExport } from "@/lottery/table-export";
 import { statusKey } from "../draws/types";
-import { viewKey, type ReportView, type TopOption } from "./types";
+import { billGroupName, viewKey, type ReportView, type TopOption } from "./types";
 
 /**
  * ตารางของแต่ละมุมมองรายงาน → ExportTable (src/lottery/table-export.ts) สำหรับไฟล์ Excel / PDF
@@ -37,6 +47,8 @@ export type ReportExportInput = {
   customers: CustomerSummary[];
   /** ใช้กับมุมมอง winners */
   winners: WinningBet[];
+  /** ใช้กับมุมมอง bills */
+  bills: BillGroup[];
 };
 
 const money = (header: string): ExportColumn => ({ header, weight: 14, align: "right", dimZero: true });
@@ -161,6 +173,56 @@ export function buildReportTable(input: ReportExportInput): ExportTable {
       };
     }
 
+    case "bills": {
+      // หนึ่งแถวหัวกลุ่ม (ชื่อกลุ่ม + ยอดรวมของกลุ่ม) แล้วตามด้วยบิลของกลุ่มเรียงตามเวลา
+      const count = input.bills.reduce((sum, group) => sum + group.bills.length, 0);
+      return {
+        ...base,
+        columns: [
+          { header: t("tickets.billNo"), weight: 16 },
+          { header: t("tickets.createdAt"), weight: 18 },
+          { header: t("reports.customer"), weight: 22 },
+          { header: t("tickets.betCount"), weight: 8, align: "right" },
+          money(t("tickets.totalLak")),
+          money(t("tickets.totalThb")),
+          { header: t("tickets.status"), weight: 11 },
+        ],
+        rows: input.bills.flatMap((group) => [
+          [
+            { value: `${billGroupName(group, t)} · ${t("reports.billCount", { count: group.bills.length })}`, bold: true },
+            null,
+            null,
+            null,
+            { value: group.total.lak, bold: true },
+            { value: group.total.thb, bold: true },
+            null,
+          ],
+          ...group.bills.map((bill): ExportCell[] => [
+            bill.billNo,
+            formatDate(bill.createdAt, intl),
+            bill.name ?? { value: t("reports.noCustomer"), tone: "muted" },
+            bill.betCount,
+            bill.lak,
+            bill.thb,
+            bill.status === "CONFIRMED" ? t("tickets.statusCONFIRMED") : { value: t("tickets.statusREVIEW"), tone: "danger" },
+          ]),
+        ]),
+        totals: count
+          ? [
+              t("reports.exportTotal"),
+              null,
+              t("reports.billCount", { count }),
+              input.bills.reduce((sum, group) => sum + group.bills.reduce((s, bill) => s + bill.betCount, 0), 0),
+              input.bills.reduce((sum, group) => sum + group.total.lak, 0),
+              input.bills.reduce((sum, group) => sum + group.total.thb, 0),
+              null,
+            ]
+          : undefined,
+        empty: t("reports.emptyBets"),
+        footnote: count === DRAW_BILLS_MAX ? t("reports.billsMax", { count: DRAW_BILLS_MAX }) : undefined,
+      };
+    }
+
     case "limits":
       return {
         ...base,
@@ -204,4 +266,46 @@ export function buildReportTable(input: ReportExportInput): ExportTable {
         footnote: input.winners.length === WINNING_BETS_MAX ? t("reports.truncated", { count: WINNING_BETS_MAX }) : undefined,
       };
   }
+}
+
+export type SettlementExportInput = {
+  t: ReportExportInput["t"];
+  intl: string;
+  draw: { name: string; status: DrawStatusValue };
+  keys: WinningKey[] | null;
+  exportedAt: Date;
+  stakes: StakeGroup[];
+  rates: PayoutRates;
+  /** เปอร์เซ็นต์ที่หักจากยอดรวม (ผู้ใช้ตั้งเองตอนส่งออก) */
+  percent: number;
+};
+
+/** ใบสรุปส่งแม่หวย: รวม → เปอร์เซ็นต์ → เหลือ → ถูก 2 ตัว / 3 ตัว → ส่งแม่ + ตารางเลข 00–99 (ลำดับ · กีบ · บาท) */
+export function buildSettlementSheet(input: SettlementExportInput): SheetExport {
+  const { t, intl, draw, keys } = input;
+  const s = buildSettlement(input.stakes, keys, input.rates, input.percent);
+  const result = keys
+    ? t("reports.result", { top: keys[0]!.number, top2: keys[1]!.number, bottom: keys[2]!.number })
+    : t("reports.noResultYet");
+  const percent = `${formatNumber(s.percent, intl)}%`;
+
+  return {
+    title: `${t("reports.sheetTitle")} — ${draw.name}`,
+    meta: [
+      `${t(statusKey[draw.status])} · ${result}`,
+      `${t("reports.exportedAt")}: ${formatDate(input.exportedAt, intl)}`,
+    ],
+    summaryHeader: ["", t("lottery.currencyLAK"), t("lottery.currencyTHB")],
+    summary: [
+      { label: t("reports.sheetTotal"), lak: s.total.lak, thb: s.total.thb, style: "total" },
+      { label: t("reports.sheetPercent"), lak: percent, thb: percent },
+      { label: t("reports.sheetNet"), lak: s.net.lak, thb: s.net.thb, style: "total" },
+      { label: t("reports.sheetWin2"), lak: s.win2.lak, thb: s.win2.thb, style: "result" },
+      { label: t("reports.sheetWin3"), lak: s.win3.lak, thb: s.win3.thb, style: "result" },
+      { label: t("reports.sheetSend"), lak: s.send.lak, thb: s.send.thb, style: "final" },
+    ],
+    tableHeader: [t("reports.sheetSeq"), t("lottery.currencyLAK"), t("lottery.currencyTHB")],
+    tableTotal: [t("reports.sheetTotal"), s.rowsTotal.lak, s.rowsTotal.thb],
+    rows: s.rows.map((row) => [row.number, row.lak, row.thb]),
+  };
 }

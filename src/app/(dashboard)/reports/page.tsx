@@ -27,6 +27,7 @@ import {
 import type { PageProps } from "@/types";
 import { formatNumber } from "@/lottery/format";
 import { statusKey } from "../draws/types";
+import { BillsSection } from "./_components/bills-section";
 import { CustomersSection } from "./_components/customers-section";
 import { LimitsSection } from "./_components/limits-section";
 import { ReportExport } from "./_components/report-export";
@@ -198,6 +199,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
         />
       ) : null}
       {view === "customers" ? <CustomersSection drawId={draw.id} keys={keys} /> : null}
+      {view === "bills" ? <BillsSection drawId={draw.id} /> : null}
       {view === "limits" ? <LimitsSection rows={overLimits} /> : null}
       {view === "winners" ? <WinnersSection drawId={draw.id} keys={keys} /> : null}
     </>

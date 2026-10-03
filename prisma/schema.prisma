@@ -284,8 +284,8 @@ model Ticket {
   customer   Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
   source     TicketSource @default(MANUAL)
   status     TicketStatus
-  /// เลขบิล = ปีเดือนวันเวลาของโพย yyMMddHHmmss (เวลาลาว) เช่น 261002143015 · ไม่ซ้ำทั้งระบบ
-  /// โพยที่เข้ามาในวินาทีเดียวกัน (จากหลายกลุ่ม/หลายเครื่อง) ต่อท้าย -2, -3 … (ดู src/lottery/bill.ts)
+  /// เลขบิล = "BNO" + ปีเดือนวันเวลาของโพย yyMMddHHmmss (เวลาลาว) เช่น BNO261002143015 · ไม่ซ้ำทั้งระบบ
+  /// เลขที่ถูกใช้ไปแล้ว (หลายโพยในวินาทีเดียวกัน) ได้เลขถัดไป เช่น BNO261002143016 (ดู src/lottery/bill.ts)
   billNo     String       @unique
 
   rawText       String  @db.Text
@@ -305,6 +305,9 @@ model Ticket {
   senderId    String?
   /// ชื่อ/เบอร์คนส่งในกลุ่ม กรณีจับคู่กับลูกค้าไม่ได้
   senderName  String?
+  /// กลุ่ม WhatsApp ที่ส่งโพยนี้มา (null = คีย์เอง หรือโพยก่อนเริ่มเก็บกลุ่ม) — รายงานตามบิลจัดกลุ่มตามนี้
+  groupId     String?
+  group       WhatsappGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
 
   createdById String?
   bets        Bet[]
@@ -318,6 +321,7 @@ model Ticket {
   @@index([customerId])
   @@index([createdAt])
   @@index([senderId, createdAt])
+  @@index([drawId, groupId, createdAt])
   @@map("tickets")
 }
 
@@ -448,6 +452,8 @@ model WhatsappGroup {
 
   dealerId String?
   dealer   Dealer? @relation(fields: [dealerId], references: [id], onDelete: SetNull)
+
+  tickets Ticket[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

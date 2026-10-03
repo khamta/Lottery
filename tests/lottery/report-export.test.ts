@@ -1,11 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import ExcelJS from "exceljs";
 
-import { buildReportTable, type ReportExportInput } from "@/app/(dashboard)/reports/export-tables";
+import { buildReportTable, buildSettlementSheet, type ReportExportInput } from "@/app/(dashboard)/reports/export-tables";
+import { toPercent } from "@/app/(dashboard)/reports/types";
 import { dictionaries } from "@/i18n/dictionaries";
 import { translateWith } from "@/i18n/translate";
 import type { StakeGroup } from "@/lottery/report";
-import { exportFileName, splitRuns, tableToPdf, tableToXlsx, type ExportTable } from "@/lottery/table-export";
+import {
+  exportFileName,
+  sheetToPdf,
+  sheetToXlsx,
+  splitRuns,
+  tableToPdf,
+  tableToXlsx,
+  type ExportTable,
+} from "@/lottery/table-export";
 
 /**
  * ส่งออกรายงาน — ตารางของแต่ละมุมมอง (reports/export-tables.ts) + ไฟล์ Excel / PDF (lottery/table-export.ts)
@@ -37,6 +46,7 @@ const input = (overrides: Partial<ReportExportInput> = {}): ReportExportInput =>
   limits: [],
   customers: [],
   winners: [],
+  bills: [],
   ...overrides,
 });
 
@@ -163,4 +173,111 @@ test("ชื่อไฟล์: ตัดอักขระที่ใช้ใ
   expect(exportFileName(["report", "งวด 01/10", "2-digit"], new Date("2026-10-02T05:00:00Z"), "xlsx")).toBe(
     "report-งวด-01-10-2-digit-2026-10-02.xlsx",
   );
+});
+
+describe("ใบสรุปส่งแม่ (layout=sheet)", () => {
+  const keys = [
+    { digits: 3, position: "TOP" as const, number: "243" },
+    { digits: 2, position: "TOP" as const, number: "43" },
+    { digits: 2, position: "BOTTOM" as const, number: "32" },
+  ];
+  const sheetInput = (percent: number, rates = { rate2Top: 0, rate2Bottom: 0, rate3Top: 0 }) => {
+    const base = input();
+    return { t: base.t, intl: base.intl, draw: base.draw, keys, exportedAt: base.exportedAt, stakes: base.stakes, rates, percent };
+  };
+  const sheetOptions = { ...optionsFor({ title: "sheet" } as ExportTable) };
+
+  test("รวม → หักเปอร์เซ็นต์ที่ตั้งได้ → เหลือ → หักยอดถูก × อัตราจ่าย → ส่งแม่ · ตารางล่าง 00–99 มี 3 คอลัมน์", () => {
+    const sheet = buildSettlementSheet(sheetInput(30, { rate2Top: 0, rate2Bottom: 2, rate3Top: 0 }));
+    const row = (label: string) => sheet.summary.find((item) => item.label === label)!;
+
+    expect(row("รวม")).toMatchObject({ lak: 1_050_000, thb: 200 });
+    expect(row("เปอร์เซ็นต์")).toMatchObject({ lak: "30%", thb: "30%" });
+    expect(row("เหลือ")).toMatchObject({ lak: 735_000, thb: 140 });
+    // 2 ตัวล่าง "32" แทง 100,000 × อัตรา 2 · 3 ตัว "243" ไม่ตั้งอัตรา = ยอดแทงจริง
+    expect(row("ถูก 2 ตัว")).toMatchObject({ lak: 200_000, thb: 0 });
+    expect(row("ถูก 3 ตัว")).toMatchObject({ lak: 150_000, thb: 0 });
+    expect(row("ส่งแม่")).toMatchObject({ lak: 385_000, thb: 140, style: "final" });
+
+    expect(sheet.tableHeader).toEqual(["ลำดับ", "กีบ", "บาท"]);
+    expect(sheet.rows).toHaveLength(100);
+    expect(sheet.rows[32]).toEqual(["32", 400_000, 0]);
+    expect(sheet.rows[72]).toEqual(["72", 500_000, 200]);
+    expect(sheet.tableTotal).toEqual(["รวม", 900_000, 200]);
+
+    expect(buildSettlementSheet(sheetInput(15)).summary[2]).toMatchObject({ lak: 892_500, thb: 170 });
+  });
+
+  test("เปอร์เซ็นต์จาก URL: ค่าเริ่มต้น 30 · ตัดให้อยู่ใน 0–100", () => {
+    expect(toPercent(null)).toBe(30);
+    expect(toPercent("abc")).toBe(30);
+    expect(toPercent("25")).toBe(25);
+    expect(toPercent("12.5")).toBe(12.5);
+    expect(toPercent("150")).toBe(100);
+    expect(toPercent("-5")).toBe(0);
+  });
+
+  test("Excel: กล่องสรุป + ตาราง 3 คอลัมน์ ค่าเป็นตัวเลขจริง", async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load((await sheetToXlsx(buildSettlementSheet(sheetInput(30)), sheetOptions)) as unknown as ArrayBuffer);
+    const ws = workbook.worksheets[0]!;
+    const values = (r: number) => [1, 2, 3].map((c) => ws.getCell(r, c).value);
+    const find = (label: string) => {
+      for (let r = 1; r <= ws.rowCount; r++) if (ws.getCell(r, 1).value === label) return r;
+      throw new Error(label);
+    };
+
+    expect(values(find("รวม"))).toEqual(["รวม", 1_050_000, 200]);
+    expect(values(find("ส่งแม่"))).toEqual(["ส่งแม่", 735_000 - 100_000 - 150_000, 140]);
+    expect(values(find("ลำดับ"))).toEqual(["ลำดับ", "กีบ", "บาท"]);
+    expect(values(find("72"))).toEqual(["72", 500_000, 200]);
+    expect(values(find("00"))).toEqual(["00", null, null]);
+    expect(ws.columnCount).toBe(3);
+  });
+
+  test("PDF: สร้างได้พร้อมฟอนต์ลาว", async () => {
+    const base = sheetInput(30);
+    const file = await sheetToPdf(
+      buildSettlementSheet({ ...base, t: (key, params) => translateWith(dictionaries.lo, key, params) }),
+      sheetOptions,
+    );
+    const text = file.toString("latin1");
+    expect(text.startsWith("%PDF-")).toBe(true);
+    expect(text).toContain("NotoSansLao");
+  });
+});
+
+describe("รายงานตามบิล (view=bills)", () => {
+  test("หัวกลุ่ม (ชื่อกลุ่ม + ยอดกลุ่ม) ตามด้วยบิลเรียงตามเวลา · ไม่รู้กลุ่ม/คีย์เอง ใช้ข้อความแปล", () => {
+    const bill = (billNo: string, lak: number, status: "CONFIRMED" | "REVIEW" = "CONFIRMED") => ({
+      id: billNo,
+      billNo,
+      createdAt: new Date("2026-10-03T07:30:15Z"),
+      status,
+      name: "ສົມ",
+      betCount: 2,
+      lak,
+      thb: 0,
+    });
+    const table = buildReportTable(
+      input({
+        view: "bills",
+        bills: [
+          { key: "g1", kind: "group", name: "ກຸ່ມ A", bills: [bill("BNO261003143015", 300), bill("BNO261003143016", 0, "REVIEW")], total: { lak: 300, thb: 0 } },
+          { key: "manual", kind: "manual", name: null, bills: [bill("BNO261003150000", 100)], total: { lak: 100, thb: 0 } },
+        ],
+      }),
+    );
+
+    expect(table.rows.map((row) => (row[0] as { value: string }).value ?? row[0])).toEqual([
+      "ກຸ່ມ A · 2 บิล",
+      "BNO261003143015",
+      "BNO261003143016",
+      "คีย์เอง · 1 บิล",
+      "BNO261003150000",
+    ]);
+    expect(table.rows[0]![4]).toEqual({ value: 300, bold: true });
+    expect(table.rows[2]![6]).toEqual({ value: "รอตรวจ", tone: "danger" });
+    expect(table.totals).toEqual(["รวม", null, "3 บิล", 6, 400, 0, null]);
+  });
 });

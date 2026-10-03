@@ -147,3 +147,69 @@ export function totalWinningStake(groups: StakeGroup[], keys: WinningKey[]): Mon
     .filter((group) => isWinning(keys, group))
     .reduce((sum, group) => addMoney(sum, group.currency, group.amount), emptyMoney());
 }
+
+/** อัตราจ่ายต่อ 1 หน่วยของงวด — 0 = ยังไม่ตั้ง (คิดตามยอดแทงจริงของเลขที่ถูก) */
+export type PayoutRates = { rate2Top: number; rate2Bottom: number; rate3Top: number };
+
+export type SettlementRow = { number: string; lak: number; thb: number };
+
+/** สรุปแบบใบส่งแม่หวย: ยอดรวม → หักเปอร์เซ็นต์ → เหลือ → หักยอดถูก 2 ตัว / 3 ตัว → ส่งแม่ */
+export type Settlement = {
+  percent: number;
+  total: MoneyPair;
+  commission: MoneyPair;
+  net: MoneyPair;
+  win2: MoneyPair;
+  win3: MoneyPair;
+  send: MoneyPair;
+  /** เลข 00–99 เรียงตามเลข: ยอดบน+ล่าง แยกกีบ/บาท (เลขที่ไม่มียอดเป็น 0) */
+  rows: SettlementRow[];
+  /** ผลรวมของ rows (เฉพาะเลข 2 ตัว) */
+  rowsTotal: MoneyPair;
+};
+
+/** ปัดเป็นจำนวนเต็ม — เงินกีบ/บาทในใบสรุปไม่มีเศษ */
+const roundMoney = (pair: MoneyPair): MoneyPair => ({ lak: Math.round(pair.lak), thb: Math.round(pair.thb) });
+const minus = (a: MoneyPair, b: MoneyPair): MoneyPair => ({ lak: a.lak - b.lak, thb: a.thb - b.thb });
+
+export function buildSettlement(
+  groups: StakeGroup[],
+  keys: WinningKey[] | null,
+  rates: PayoutRates,
+  percent: number,
+): Settlement {
+  const total = totalStake(groups);
+  const commission = roundMoney({ lak: (total.lak * percent) / 100, thb: (total.thb * percent) / 100 });
+  const net = minus(total, commission);
+
+  const win2 = emptyMoney();
+  const win3 = emptyMoney();
+  for (const group of keys ? groups.filter((g) => isWinning(keys, g)) : []) {
+    const rate = group.digits === 3 ? rates.rate3Top : group.position === "TOP" ? rates.rate2Top : rates.rate2Bottom;
+    addMoney(group.digits === 3 ? win3 : win2, group.currency, group.amount * (rate > 0 ? rate : 1));
+  }
+
+  const byNumber = new Map<string, SettlementRow>();
+  for (let n = 0; n < 100; n++) {
+    const number = String(n).padStart(2, "0");
+    byNumber.set(number, { number, lak: 0, thb: 0 });
+  }
+  for (const group of groups) {
+    const row = group.digits === 2 ? byNumber.get(group.number) : undefined;
+    if (row) row[group.currency === "LAK" ? "lak" : "thb"] += group.amount;
+  }
+  const rows = [...byNumber.values()];
+
+  const wins = roundMoney({ lak: win2.lak + win3.lak, thb: win2.thb + win3.thb });
+  return {
+    percent,
+    total,
+    commission,
+    net,
+    win2: roundMoney(win2),
+    win3: roundMoney(win3),
+    send: minus(net, wins),
+    rows,
+    rowsTotal: rows.reduce((sum, row) => ({ lak: sum.lak + row.lak, thb: sum.thb + row.thb }), emptyMoney()),
+  };
+}

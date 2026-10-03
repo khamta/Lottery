@@ -120,3 +120,76 @@ export async function getCustomerSummary(drawId: string, keys: WinningKey[] | nu
     won: won.get(group.customerId) ?? emptyMoney(),
   }));
 }
+
+/** จำนวนบิลสูงสุดในรายงานตามบิล (ต่องวด) — เกินนี้แสดงเฉพาะบิลแรก ๆ ตามเวลา */
+export const DRAW_BILLS_MAX = 2000;
+
+export type BillRow = {
+  id: string;
+  billNo: string;
+  createdAt: Date;
+  status: "CONFIRMED" | "REVIEW";
+  /** ลูกค้าที่จับคู่ได้ ไม่มีก็ชื่อ/เบอร์คนส่งในกลุ่ม */
+  name: string | null;
+  betCount: number;
+  lak: number;
+  thb: number;
+};
+
+/** กลุ่มของบิล: กลุ่ม WhatsApp จริง · "whatsapp" = มาจาก WhatsApp แต่ไม่รู้กลุ่ม (โพยก่อนเริ่มเก็บกลุ่ม) · "manual" = คีย์เอง */
+export type BillGroup = {
+  key: string;
+  kind: "group" | "whatsapp" | "manual";
+  name: string | null;
+  bills: BillRow[];
+  total: MoneyPair;
+};
+
+/**
+ * บิลของงวดจัดกลุ่มตามกลุ่ม WhatsApp ที่ส่งมา — ในกลุ่มเรียงตามวันเวลาของบิล
+ * กลุ่มจริงเรียงตามชื่อ ตามด้วย WhatsApp ที่ไม่รู้กลุ่ม แล้วคีย์เอง · หน้ารายงานและไฟล์ส่งออกใช้ชุดเดียวกัน
+ */
+export async function getDrawBills(drawId: string): Promise<BillGroup[]> {
+  const tickets = await prisma.ticket.findMany({
+    where: { drawId },
+    orderBy: [{ createdAt: "asc" }, { billNo: "asc" }],
+    take: DRAW_BILLS_MAX,
+    select: {
+      id: true,
+      billNo: true,
+      createdAt: true,
+      status: true,
+      source: true,
+      senderName: true,
+      betCount: true,
+      totalLak: true,
+      totalThb: true,
+      customer: { select: { name: true } },
+      group: { select: { id: true, name: true } },
+    },
+  });
+
+  const groups = new Map<string, BillGroup>();
+  for (const ticket of tickets) {
+    const kind = ticket.group ? "group" : ticket.source === "WHATSAPP" ? "whatsapp" : "manual";
+    const key = ticket.group?.id ?? kind;
+    const group = groups.get(key) ?? { key, kind, name: ticket.group?.name ?? null, bills: [], total: emptyMoney() };
+    const bill: BillRow = {
+      id: ticket.id,
+      billNo: ticket.billNo,
+      createdAt: ticket.createdAt,
+      status: ticket.status,
+      name: ticket.customer?.name ?? ticket.senderName,
+      betCount: ticket.betCount,
+      lak: Number(ticket.totalLak),
+      thb: Number(ticket.totalThb),
+    };
+    group.bills.push(bill);
+    group.total.lak += bill.lak;
+    group.total.thb += bill.thb;
+    groups.set(key, group);
+  }
+
+  const rank = { group: 0, whatsapp: 1, manual: 2 } as const;
+  return [...groups.values()].sort((a, b) => rank[a.kind] - rank[b.kind] || (a.name ?? "").localeCompare(b.name ?? ""));
+}
