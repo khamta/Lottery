@@ -1,7 +1,7 @@
 import type { DrawStatusValue } from "@/lib/validations/draw";
 import { formatDate } from "@/lib/utils";
 import { isoToDate } from "@/lottery/date";
-import { formatNumber } from "@/lottery/format";
+import { formatDateTimeSeconds, formatNumber } from "@/lottery/format";
 import { currencyKey, digitsKey, positionKey } from "@/lottery/labels";
 import type { Currency, Position } from "@/lottery/parser";
 import {
@@ -202,7 +202,7 @@ export function buildReportTable(input: ReportExportInput): ExportTable {
           ],
           ...group.bills.map((bill): ExportCell[] => [
             bill.billNo,
-            formatDate(bill.createdAt, intl),
+            formatDateTimeSeconds(bill.createdAt, intl),
             bill.name ?? { value: t("reports.noCustomer"), tone: "muted" },
             bill.betCount,
             bill.lak,

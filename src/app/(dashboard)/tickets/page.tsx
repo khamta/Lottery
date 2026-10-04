@@ -97,7 +97,12 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       lakMultiplier: number;
       note: string | null;
       issues: unknown;
-      image: { ocrStatus: TicketRow["ocrStatus"]; transcript: string | null; editedAt: Date | null } | null;
+      image: {
+        ocrStatus: TicketRow["ocrStatus"];
+        ocrReader: string | null;
+        transcript: string | null;
+        editedAt: Date | null;
+      } | null;
       betCount: number;
       totalLak: unknown;
       totalThb: unknown;
@@ -106,7 +111,11 @@ export default async function TicketsPage({ searchParams }: PageProps) {
   >(prisma.ticket, {
     params,
     where,
-    orderBy: buildOrderBy(params) ?? { createdAt: "desc" },
+    // เรียงตามเวลา: โพยที่เวลาตรงกันถึงวินาทีเรียงต่อด้วยเลขบิล (ลำดับที่เข้ามา) — ลำดับจึงตรงกับแชท WhatsApp
+    orderBy:
+      params.sort === "createdAt"
+        ? [{ createdAt: params.order }, { billNo: params.order }]
+        : (buildOrderBy(params) ?? [{ createdAt: "desc" }, { billNo: "desc" }]),
     select: {
       id: true,
       billNo: true,
@@ -122,7 +131,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       note: true,
       issues: true,
       // สถานะ + ข้อความทุกอย่างที่อ่านได้จากรูป (ขั้นที่ 1) — ตัวรูปดึงแยกทีละรูปตอนเปิดดู
-      image: { select: { ocrStatus: true, transcript: true, editedAt: true } },
+      image: { select: { ocrStatus: true, ocrReader: true, transcript: true, editedAt: true } },
       betCount: true,
       totalLak: true,
       totalThb: true,
@@ -134,6 +143,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       customerName: customer?.name ?? null,
       issueCount: Array.isArray(issues) ? issues.length : 0,
       ocrStatus: image?.ocrStatus ?? null,
+      ocrReader: image?.ocrReader ?? null,
       ocrTranscript: image?.transcript ?? null,
       imageEditedAt: image?.editedAt?.toISOString() ?? null,
       totalLak: Number(row.totalLak),

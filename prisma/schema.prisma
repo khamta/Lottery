@@ -380,6 +380,9 @@ model TicketImage {
   ocrAt      DateTime?
   /// ตัวอ่านที่คนสั่งให้อ่านรอบถัดไป (อ่านใหม่จากหน้าโพย) — บอทล้างเป็น null เมื่ออ่านเสร็จ · null = เลือกเอง
   ocrEngine  OcrEngine?
+  /// ตัวอ่านที่กำลังอ่าน (PENDING) / อ่านครั้งล่าสุด (DONE) — ชื่อรุ่น Claude เช่น claude-sonnet-5-5 หรือ "ocr" = บริการ OCR
+  /// null = ยังรอคิว · บอทตั้งตอนเริ่มอ่านแต่ละรุ่น (รุ่นถูกอ่านไม่ผ่าน → เปลี่ยนเป็นรุ่นแม่น) แสดงในหน้าโพย
+  ocrReader  String?
 
   createdAt DateTime @default(now())
 

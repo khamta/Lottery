@@ -14,13 +14,32 @@
  *
  * ตัวอ่านไม่เดา: ตัวไหนไม่แน่ใจเขียน ? แทน — โพยที่อ่านครบและยอดรวมตรงจึงนับยอดได้เลย นอกนั้นรอตรวจตามเดิม
  * กติกาใหม่ที่ผู้ใช้บอก → เพิ่มใน SLIP_PROMPT (ไม่ต้องเขียนตัวแปลงเพิ่ม)
+ *
+ * สองรุ่นเพื่อประหยัด: รุ่นถูก (AI_MODEL) อ่านทุกรูปก่อน → ผลอ่านไม่ผ่าน (escalationReason) จึงให้รุ่นแม่น (AI_STRONG_MODEL) อ่านซ้ำ
+ *   ไม่ผ่าน = มีบรรทัดที่ parser อ่านไม่ออก (? / ไม่มียอด) · ยอดรวมไม่ตรง · ไม่เจอโพย · โพยยาวที่ไม่มียอดรวมให้เทียบ
+ *   คนสั่งอ่านใหม่ด้วย AI จากหน้าโพย → ใช้รุ่นแม่นเลย (strong)
  */
 import Anthropic from "@anthropic-ai/sdk";
 
-/** ผลอ่านรูปของ Claude — เก็บใน ticket_images.ocr แทนผลดิบของบริการ OCR */
-export type AiRead = { engine: "claude"; model: string; text: string };
+import { parseTicket } from "./parser";
 
-export const AI_MODEL = process.env.CLAUDE_OCR_MODEL || "claude-opus-5-5";
+/**
+ * ผลอ่านรูปของ Claude — เก็บใน ticket_images.ocr แทนผลดิบของบริการ OCR
+ * escalated = รุ่นแรกอ่านไม่ผ่านจึงให้รุ่นแม่นอ่านซ้ำ (เก็บผลของรุ่นแรกไว้เทียบว่ารุ่นถูกพอไหม)
+ */
+export type AiRead = {
+  engine: "claude";
+  model: string;
+  text: string;
+  escalated?: { model: string; reason: string; text: string };
+};
+
+/** รุ่นที่อ่านทุกรูปก่อน */
+export const AI_MODEL = process.env.CLAUDE_OCR_MODEL || "claude-sonnet-5-5";
+/** รุ่นที่อ่านซ้ำเมื่อรุ่นแรกอ่านไม่ผ่าน — ตั้งเป็นค่าว่าง (หรือรุ่นเดียวกับ AI_MODEL) = ไม่อ่านซ้ำ */
+export const AI_STRONG_MODEL = process.env.CLAUDE_OCR_STRONG_MODEL ?? "claude-opus-5-5";
+/** โพยที่ยาวเท่านี้ขึ้นไปและไม่มียอดรวมให้เทียบ → ให้รุ่นแม่นอ่านซ้ำ (ผิดตัวเดียวก็ไม่มีอะไรจับได้) */
+const LONG_SLIP_LINES = 30;
 /** ใบใหญ่หลายคอลัมน์มีเกือบร้อยบรรทัด + เวลาคิดของโมเดล — เผื่อไว้ */
 const MAX_TOKENS = 32_000;
 /** ชนิดรูปที่ API รับ */
@@ -115,15 +134,64 @@ export function slipTextOf(raw: string): string {
   return lines.join("\n");
 }
 
+/** ผลอ่านของรุ่นแรกต้องให้รุ่นแม่นอ่านซ้ำเพราะอะไร — null = ใช้ได้เลย */
+export function escalationReason(text: string): string | null {
+  if (!text) return "no slip found";
+  const parsed = parseTicket(text);
+  if (parsed.issues.length > 0) return [...new Set(parsed.issues.map((issue) => issue.code))].join(",");
+  if (parsed.declaredTotal === null && text.split("\n").length >= LONG_SLIP_LINES) return "long slip without total";
+  return null;
+}
+
 function mediaTypeOf(mimeType: string): MediaType {
   const type = mimeType.toLowerCase().split(";")[0]!.trim();
   if ((MEDIA_TYPES as readonly string[]).includes(type)) return type as MediaType;
   throw new AiImageError(`unsupported image type: ${mimeType}`);
 }
 
-export async function readSlipImage(client: Anthropic, data: Uint8Array, mimeType: string): Promise<AiRead> {
+/**
+ * อ่านรูปโพย — รุ่นถูกก่อน ไม่ผ่านจึงให้รุ่นแม่นอ่านซ้ำ · strong = ใช้รุ่นแม่นเลย
+ * onModel = เรียกก่อนเริ่มอ่านด้วยแต่ละรุ่น (บอทบันทึกไว้ให้หน้าโพยขึ้นว่ากำลังอ่านด้วยรุ่นไหน)
+ * รุ่นแม่นติดต่อไม่ได้ชั่วคราว → ใช้ผลของรุ่นแรก (โพยรอคนตรวจตามเดิม) ดีกว่าทิ้งไปอ่านด้วยบริการ OCR
+ */
+export async function readSlipImage(
+  client: Anthropic,
+  data: Uint8Array,
+  mimeType: string,
+  { strong = false, onModel }: { strong?: boolean; onModel?: (model: string) => unknown } = {},
+): Promise<AiRead> {
+  const image = { mediaType: mediaTypeOf(mimeType), data: Buffer.from(data).toString("base64") };
+  const read = async (model: string) => {
+    await onModel?.(model);
+    return readWith(client, model, image);
+  };
+  const strongModel = AI_STRONG_MODEL && AI_STRONG_MODEL !== AI_MODEL ? AI_STRONG_MODEL : null;
+  if (!strongModel) return read(AI_MODEL);
+  if (strong) return read(strongModel);
+
+  let first: AiRead;
+  try {
+    first = await read(AI_MODEL);
+  } catch (error) {
+    // ปฏิเสธ / ข้อความยาวเกิน → รุ่นแม่นลองอีกที
+    if (!(error instanceof AiImageError)) throw error;
+    return { ...(await read(strongModel)), escalated: { model: AI_MODEL, reason: error.message, text: "" } };
+  }
+
+  const reason = escalationReason(first.text);
+  if (!reason) return first;
+  try {
+    const second = await read(strongModel);
+    return { ...second, escalated: { model: first.model, reason, text: first.text } };
+  } catch (error) {
+    if (claudeFailure(error) === "account") throw error;
+    return first;
+  }
+}
+
+async function readWith(client: Anthropic, model: string, image: { mediaType: MediaType; data: string }): Promise<AiRead> {
   const stream = client.beta.messages.stream({
-    model: AI_MODEL,
+    model,
     max_tokens: MAX_TOKENS,
     // อ่านตัวเลขให้แม่นสำคัญกว่าความเร็ว
     output_config: { effort: "high" },
@@ -138,7 +206,7 @@ export async function readSlipImage(client: Anthropic, data: Uint8Array, mimeTyp
         content: [
           {
             type: "image",
-            source: { type: "base64", media_type: mediaTypeOf(mimeType), data: Buffer.from(data).toString("base64") },
+            source: { type: "base64", media_type: image.mediaType, data: image.data },
           },
           { type: "text", text: "Transcribe this slip." },
         ],

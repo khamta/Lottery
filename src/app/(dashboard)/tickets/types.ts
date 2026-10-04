@@ -1,5 +1,6 @@
 import type { DrawStatusValue } from "@/lib/validations/draw";
 import type { TicketSourceValue, TicketStatusValue } from "@/lib/validations/ticket";
+import { OCR_SERVICE_READER } from "@/lottery/image-text";
 import type { ParseIssueCode } from "@/lottery/parser";
 
 /** รูปแบบข้อมูลที่ส่งจาก server ไป client (Decimal -> number, Date -> string) */
@@ -23,6 +24,8 @@ export type TicketRow = {
   issueCount: number;
   /** โพยจากรูป: สถานะการอ่านรูปด้วย OCR — null = โพยข้อความ (ไม่มีรูป) */
   ocrStatus: OcrStatusValue | null;
+  /** โพยจากรูป: ตัวอ่านที่กำลังอ่าน (PENDING) / อ่านล่าสุด — ชื่อรุ่น Claude หรือ "ocr" · null = ยังรอคิว */
+  ocrReader: string | null;
   /** โพยจากรูป: ทุกอย่างที่ OCR อ่านได้จากรูป ก่อนกรองตามกติกา (null = ยังไม่ได้อ่าน / ไม่มีรูป) */
   ocrTranscript: string | null;
   /** โพยจากรูป: เวลาที่คนแก้รูป (ครอป/ลบ/หมุน) ล่าสุด — null = ยังไม่เคยแก้ (รูปตามที่ลูกค้าส่งมา) */
@@ -85,6 +88,23 @@ export const ocrStatusKey: Record<OcrStatusValue, string> = {
   DONE: "tickets.ocrDONE",
   FAILED: "tickets.ocrFAILED",
 };
+
+/** ตัวอ่านรูป (ocrReader) → ชื่อที่แสดง: claude-sonnet-5-5 → Sonnet 5.5 · "ocr" → OCR */
+export function readerName(reader: string) {
+  if (reader === OCR_SERVICE_READER) return "OCR";
+  const [family, ...version] = reader.replace(/^claude-/, "").split("-");
+  if (!family || version.length === 0) return reader;
+  return `${family[0]!.toUpperCase()}${family.slice(1)} ${version.join(".")}`;
+}
+
+/** สถานะการอ่านรูป + ตัวอ่าน: รอคิว · กำลังอ่านด้วย Sonnet 5.5 · อ่านแล้ว (Opus 5.5) · อ่านไม่ได้ */
+export function ocrStatusText(
+  { ocrStatus, ocrReader }: { ocrStatus: OcrStatusValue; ocrReader: string | null },
+  t: (key: string, vars?: Record<string, string | number>) => string,
+) {
+  if (!ocrReader || ocrStatus === "FAILED") return t(ocrStatusKey[ocrStatus]);
+  return t(ocrStatus === "PENDING" ? "tickets.ocrReadingBy" : "tickets.ocrDoneBy", { reader: readerName(ocrReader) });
+}
 
 /** ปัญหาที่ตัวแยกข้อความพบ -> คีย์ i18n */
 export const issueKey: Record<ParseIssueCode, string> = {

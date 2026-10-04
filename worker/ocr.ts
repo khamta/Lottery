@@ -6,6 +6,7 @@
  *   กติกาเปลี่ยน → bun run ocr:reapply อ่านรูปเก่าใหม่จากผล OCR ที่เก็บไว้ (worker/ocr-reapply.ts)
  *
  * ตั้ง ANTHROPIC_API_KEY ไว้ → อ่านด้วย Claude ก่อน (src/lottery/image-ai.ts): ได้ข้อความโพยตรง ๆ แล้ว applyOcr เหมือนเดิม
+ *   รุ่นถูก (CLAUDE_OCR_MODEL) อ่านก่อน อ่านไม่ผ่านจึงให้รุ่นแม่น (CLAUDE_OCR_STRONG_MODEL) อ่านซ้ำ
  *   อ่านพร้อมกันได้หลายรูป (OCR_CONCURRENCY ค่าเริ่มต้น 4) เพราะรอเครือข่าย ไม่ได้ใช้ CPU เครื่องนี้
  *   Claude อ่านรูปไหนไม่ได้ → รูปนั้นอ่านด้วยบริการ OCR แทนทันที
  *   Claude ใช้ไม่ได้ทั้งระบบ (เครดิตหมด / key ผิด / ล่ม / rate limit) → พัก Claude ไว้ (ดู PAUSE_MS) ระหว่างนั้นทุกรูปใช้บริการ OCR
@@ -16,23 +17,25 @@
  * บอทรีสตาร์ต → รูปที่ยังไม่ได้อ่าน (ocrStatus = PENDING) กลับเข้าคิวเอง (resumeOcr)
  *
  * อ่านโพยรอตรวจใหม่จากหน้าโพย (requestImageReread) → รูปกลับเป็น PENDING พร้อมตัวอ่านที่คนเลือก (ocrEngine)
- *   บอทดึงคำสั่งเข้าคิวทุก REQUEST_POLL_MS · AI = Claude เท่านั้น (ไม่ใช้บริการ OCR แทน) · OCR = บริการ OCR เท่านั้น
+ *   บอทดึงคำสั่งเข้าคิวทุก REQUEST_POLL_MS · AI = Claude รุ่นแม่นเท่านั้น (ไม่ใช้บริการ OCR แทน) · OCR = บริการ OCR เท่านั้น
  */
 import Anthropic from "@anthropic-ai/sdk";
 
 import { prisma } from "@/lib/prisma";
-import { AI_MODEL, claudeFailure, readSlipImage, type ClaudeFailure } from "@/lottery/image-ai";
+import { AI_MODEL, AI_STRONG_MODEL, claudeFailure, readSlipImage, type AiRead, type ClaudeFailure } from "@/lottery/image-ai";
 import { readTicketImage } from "@/lottery/image-store";
-import { imageToTicketText, type OcrResult } from "@/lottery/image-text";
+import { imageToTicketText, OCR_SERVICE_READER, type OcrResult } from "@/lottery/image-text";
 import { applyOcr, type ImageEngine, type OcrOutcome } from "@/lottery/ingest";
 
 /** ผลอ่านรูปที่อ่านได้ (ไม่ใช่ error) */
 type OcrRead = Exclude<OcrOutcome, { error: string }>;
+/** เรียกก่อนเริ่มอ่านด้วยแต่ละตัว — ชื่อรุ่น Claude หรือ OCR_SERVICE_READER */
+type OnReader = (reader: string) => Promise<void>;
 
 const claude = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 /** จำนวนรูปที่อ่านพร้อมกัน — ไม่มี Claude อ่านทีละรูป (บริการ OCR อ่านทีละรูปอยู่แล้ว) */
 const CONCURRENCY = claude ? Math.max(1, Number(process.env.OCR_CONCURRENCY) || 4) : 1;
-const CLAUDE = `Claude (${AI_MODEL})`;
+const CLAUDE = `Claude (${AI_STRONG_MODEL && AI_STRONG_MODEL !== AI_MODEL ? `${AI_MODEL} → ${AI_STRONG_MODEL}` : AI_MODEL})`;
 const OCR_SERVICE = "บริการ OCR";
 /** Claude ใช้ไม่ได้ทั้งระบบ → พักไว้เท่านี้ก่อนลองใหม่ (เครดิตหมด/key ผิดต้องรอคนแก้ จึงพักนานกว่า) */
 const PAUSE_MS: Record<Exclude<ClaudeFailure, "image">, number> = { account: 30 * 60 * 1000, outage: 2 * 60 * 1000 };
@@ -65,6 +68,12 @@ let log: Log = console.log;
 class BadImageError extends Error {}
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** ชื่อตัวอ่านใน log — รุ่นที่อ่านจริง และรุ่นแรกที่อ่านไม่ผ่าน (ถ้ามี) */
+const claudeOf = (read: AiRead) =>
+  read.escalated
+    ? `Claude (${read.escalated.model} อ่านไม่ผ่าน: ${read.escalated.reason} → ${read.model})`
+    : `Claude (${read.model})`;
 
 async function readImage(data: Uint8Array, mimeType: string): Promise<OcrResult> {
   const response = await fetch(`${OCR_URL}/ocr`, {
@@ -100,14 +109,13 @@ function pauseClaude(failure: Exclude<ClaudeFailure, "image">, message: string) 
 }
 
 /**
- * คนสั่งอ่านใหม่ด้วย Claude (หน้าโพย) — ไม่ใช้บริการ OCR แทน เพราะคนเลือก AI เอง (ยอมจ่ายแล้ว)
+ * คนสั่งอ่านใหม่ด้วย Claude (หน้าโพย) — ใช้รุ่นแม่นเลย ไม่ใช้บริการ OCR แทน เพราะคนเลือก AI เอง (ยอมจ่ายแล้ว)
  * ลองแม้ Claude พักอยู่ · รูปนี้อ่านไม่ได้ / เครดิตหมด / ไม่ได้ตั้ง key = อ่านไม่ได้ (คนสั่งอ่านใหม่ด้วยตัวอ่านปกติได้) · ล่มชั่วคราว = ลองใหม่ตามคิว
  */
-async function readWithClaudeOnly(data: Uint8Array, mimeType: string): Promise<OcrRead> {
+async function readWithClaudeOnly(data: Uint8Array, mimeType: string, onReader: OnReader): Promise<AiRead> {
   if (!claude) throw new BadImageError("AI requested but ANTHROPIC_API_KEY is not set");
   try {
-    const read = await readSlipImage(claude, data, mimeType);
-    return { text: read.text, ocr: read };
+    return await readSlipImage(claude, data, mimeType, { strong: true, onModel: onReader });
   } catch (error) {
     const failure = claudeFailure(error);
     if (failure === "outage") throw error;
@@ -118,24 +126,39 @@ async function readWithClaudeOnly(data: Uint8Array, mimeType: string): Promise<O
 
 /**
  * ตัวอ่านตามที่คนสั่ง (ocrEngine) — ไม่ระบุ = อ่านด้วย Claude ก่อน (ถ้าตั้งไว้และไม่ได้พักอยู่) ไม่ได้ก็อ่านด้วยบริการ OCR
+ * onReader = เรียกก่อนเริ่มอ่านด้วยแต่ละตัว (ชื่อรุ่น Claude / OCR_SERVICE_READER)
  */
 async function readTicketImageText(
   data: Uint8Array,
   mimeType: string,
   requested: ImageEngine | null,
+  onReader: OnReader,
 ): Promise<{ outcome: OcrRead; engine: string }> {
-  if (requested === "AI") return { outcome: await readWithClaudeOnly(data, mimeType), engine: CLAUDE };
+  if (requested === "AI") {
+    const read = await readWithClaudeOnly(data, mimeType, onReader);
+    return { outcome: { text: read.text, ocr: read }, engine: claudeOf(read) };
+  }
   if (requested !== "OCR" && claude && Date.now() >= claudePausedUntil) {
     try {
-      const read = await readSlipImage(claude, data, mimeType);
-      return { outcome: { text: read.text, ocr: read }, engine: CLAUDE };
+      const read = await readSlipImage(claude, data, mimeType, { onModel: onReader });
+      return { outcome: { text: read.text, ocr: read }, engine: claudeOf(read) };
     } catch (error) {
       const failure = claudeFailure(error);
       if (failure === "image") log(`[OCR] ${CLAUDE} อ่านรูปนี้ไม่ได้ (${messageOf(error)}) — ลองด้วย${OCR_SERVICE}`);
       else pauseClaude(failure, messageOf(error));
     }
   }
+  await onReader(OCR_SERVICE_READER);
   return { outcome: await readWithOcrService(data, mimeType), engine: OCR_SERVICE };
+}
+
+/** หน้าโพยขึ้นว่ากำลังอ่านด้วยตัวไหน (ticket_images.ocrReader) — บันทึกไม่ได้ก็อ่านต่อ */
+async function markReader(ticketId: string, reader: string) {
+  try {
+    await prisma.ticketImage.updateMany({ where: { ticketId, ocrStatus: "PENDING" }, data: { ocrReader: reader } });
+  } catch (error) {
+    console.error(`[OCR] บันทึกตัวอ่านของโพย ${ticketId} ไม่สำเร็จ`, error);
+  }
 }
 
 async function ocrTicketImage(ticketId: string) {
@@ -149,7 +172,7 @@ async function ocrTicketImage(ticketId: string) {
     const started = Date.now();
     const data = image.path ? await readTicketImage(image.path) : null;
     if (!data) throw new BadImageError(`image file missing: ${image.path ?? "(no path)"}`);
-    const { outcome, engine } = await readTicketImageText(data, image.mimeType, image.ocrEngine);
+    const { outcome, engine } = await readTicketImageText(data, image.mimeType, image.ocrEngine, (reader) => markReader(ticketId, reader));
     const result = await applyOcr(prisma, ticketId, outcome);
     attempts.delete(ticketId);
     const lines = outcome.text ? outcome.text.split("\n").filter(Boolean).length : 0;

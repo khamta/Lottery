@@ -36,7 +36,14 @@ import { useI18n } from "@/i18n/client";
 import { DEFAULT_LAK_MULTIPLIER, parseTicket } from "@/lottery/parser";
 import type { ReadRuleSpec } from "@/lottery/read-rules";
 import { isTicketMessage } from "@/lottery/ticket";
-import { canRereadImage, ticketImageUrl, type CustomerOption, type DrawOption, type TicketRow } from "../types";
+import {
+  canRereadImage,
+  ocrStatusText,
+  ticketImageUrl,
+  type CustomerOption,
+  type DrawOption,
+  type TicketRow,
+} from "../types";
 import { countFilledLines, NumberedTextarea } from "./numbered-textarea";
 import { TicketPreview } from "./ticket-preview";
 
@@ -348,6 +355,9 @@ function TicketImage({
       </a>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <p className={`text-xs ${status === "FAILED" ? "font-medium text-destructive" : "text-muted-foreground"}`}>
+          {status !== "FAILED" && ticket.ocrReader ? (
+            <span className="block font-medium">{ocrStatusText({ ocrStatus: status, ocrReader: ticket.ocrReader }, t)}</span>
+          ) : null}
           {t(`tickets.imageHint${status}`)}
           {ticket.imageEditedAt ? ` · ${t("tickets.imageEdited")}` : ""}
         </p>

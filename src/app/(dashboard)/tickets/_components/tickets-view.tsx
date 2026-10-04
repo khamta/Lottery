@@ -141,7 +141,7 @@ export function TicketsView({
   function runReread(target: RereadTarget, engine: ImageEngineValue) {
     if (target.kind === "ticket") {
       mutate({
-        patch: { type: "update", item: { ...target.row, ocrStatus: "PENDING" } },
+        patch: { type: "update", item: { ...target.row, ocrStatus: "PENDING", ocrReader: null } },
         action: () => rereadTicketImage({ id: target.row.id, engine }),
       });
       return;
@@ -149,7 +149,7 @@ export function TicketsView({
     if (target.kind === "edited") {
       const { row, image } = target;
       mutate({
-        patch: { type: "update", item: { ...row, ocrStatus: "PENDING" } },
+        patch: { type: "update", item: { ...row, ocrStatus: "PENDING", ocrReader: null } },
         action: () => editTicketImage({ id: row.id, engine, ...image }),
       });
       return;
@@ -157,7 +157,7 @@ export function TicketsView({
     // ทั้งงวด: แถวที่เห็นอยู่ขึ้น "รอคิวอ่าน" ได้ทีละแถว (patch เดียว) — แถวแรกที่จะถูกอ่าน · ไม่มีในหน้านี้ = ไม่ต้องเปลี่ยนอะไรบนจอ
     const first = rows.find(canRereadImage);
     mutate({
-      patch: first ? { type: "update", item: { ...first, ocrStatus: "PENDING" } } : { type: "delete-many", ids: [] },
+      patch: first ? { type: "update", item: { ...first, ocrStatus: "PENDING", ocrReader: null } } : { type: "delete-many", ids: [] },
       action: () => rereadDrawImages({ drawId: target.draw.drawId, engine }),
     });
   }
@@ -201,6 +201,7 @@ export function TicketsView({
             source: "MANUAL",
             senderName: null,
             ocrStatus: null,
+            ocrReader: null,
             ocrTranscript: null,
             imageEditedAt: null,
             createdAt: new Date().toISOString(),

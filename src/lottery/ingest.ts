@@ -5,7 +5,7 @@ import { nextBillNo } from "./bill";
 import { acceptsTickets } from "./draw-status";
 import type { LotteryTypeValue } from "./labels";
 import { isAiRead, type AiRead } from "./image-ai";
-import { imageToTicketText, transcribeImage, type OcrResult } from "./image-text";
+import { imageToTicketText, OCR_SERVICE_READER, transcribeImage, type OcrResult } from "./image-text";
 import { DEFAULT_LAK_MULTIPLIER, parseTicket } from "./parser";
 import { READ_RULES_MAX, type ReadRuleSpec } from "./read-rules";
 import {
@@ -385,6 +385,7 @@ export async function applyOcr(db: PrismaClient, ticketId: string, outcome: OcrO
       ocrError: null,
       ocrAt,
       ocrEngine: null,
+      ocrReader: isAiRead(outcome.ocr) ? outcome.ocr.model : OCR_SERVICE_READER,
     };
     // คนบันทึกผ่านหน้าโพยแล้ว = อ่านด้วยกติกาข้อความปกติ issue FROM_IMAGE จึงหายไป
     const untouched = image.ocrStatus === "PENDING" && hasIssue(before.issues, "FROM_IMAGE") && draw.status === "OPEN";
@@ -558,6 +559,7 @@ async function queueImageReread(
     data: {
       ocrStatus: "PENDING",
       ocrEngine: engine,
+      ocrReader: null,
       ocrError: null,
       ocrText: null,
       ...(edited

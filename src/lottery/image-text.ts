@@ -28,6 +28,9 @@ export type OcrBox = { box: Array<[number, number]>; text: string; score: number
 export type OcrLine = { text: string; conf: number };
 export type OcrResult = { paddle: OcrBox[]; tesseract: OcrLine[]; errors?: string[] };
 
+/** ticket_images.ocrReader ของรูปที่อ่านด้วยบริการ OCR (อ่านด้วย Claude = ชื่อรุ่น) */
+export const OCR_SERVICE_READER = "ocr";
+
 type Piece = { text: string; left: number; right: number; top: number; bottom: number };
 type Header = Piece & { thb: boolean };
 

@@ -127,7 +127,7 @@ runner (service) ──ออก──► github.com
 ข้อควรรู้:
 - **service `ocr` ต้องเปิดไว้เสมอ** — เป็นตัวสำรองของ Claude
 - รูปโพยถูกส่งออกนอกเครื่องไปที่ Anthropic (ocr อ่านในเครื่องล้วน) — ปิดได้ทุกเมื่อด้วยการลบ `ANTHROPIC_API_KEY` แล้ว `up -d worker`
-- เปลี่ยนรุ่น/จำนวนที่อ่านพร้อมกัน: `CLAUDE_OCR_MODEL`, `OCR_CONCURRENCY` ใน `.env` (ดู `.env.production.example`)
+- เปลี่ยนรุ่น/จำนวนที่อ่านพร้อมกัน: `CLAUDE_OCR_MODEL` (รุ่นถูกที่อ่านก่อน), `CLAUDE_OCR_STRONG_MODEL` (อ่านซ้ำเมื่ออ่านไม่ผ่าน), `OCR_CONCURRENCY` ใน `.env` (ดู `.env.production.example`)
 - `ocr-reapply` ข้ามรูปที่ Claude อ่าน (ไม่มีผล ocr ให้กรองใหม่)
 
 ## เข้าผ่านโดเมน (HTTPS)

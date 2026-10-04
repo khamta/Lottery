@@ -12,10 +12,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { buildQueryString, toRoute } from "@/lib/query";
-import { cn, formatDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { getTranslations } from "@/i18n/server";
 import { DRAW_BILLS_MAX, getDrawBills } from "@/lottery/queries";
-import { formatNumber } from "@/lottery/format";
+import { formatDateTimeSeconds, formatNumber } from "@/lottery/format";
 import { billGroupName } from "../types";
 
 /**
@@ -76,7 +76,7 @@ export async function BillsSection({ drawId }: { drawId: string }) {
                       {bill.billNo}
                     </Link>
                   </TableCell>
-                  <TableCell className="whitespace-nowrap tabular-nums">{formatDate(bill.createdAt, intl)}</TableCell>
+                  <TableCell className="whitespace-nowrap tabular-nums">{formatDateTimeSeconds(bill.createdAt, intl)}</TableCell>
                   <TableCell className={bill.name ? undefined : "text-muted-foreground"}>
                     {bill.name ?? t("reports.noCustomer")}
                   </TableCell>

@@ -13,9 +13,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { formatDate } from "@/lib/utils";
-import { formatNumber } from "@/lottery/format";
-import { canRereadImage, ocrStatusKey, sourceKey, statusKey, type TicketRow } from "../types";
+import { formatDateTimeSeconds, formatNumber } from "@/lottery/format";
+import { canRereadImage, ocrStatusText, sourceKey, statusKey, type TicketRow } from "../types";
 
 type ColumnOptions = {
   /** ตัวแปลจาก useI18n() — คอลัมน์ไม่เรียก hook เอง เพราะถูกสร้างนอก render tree */
@@ -57,7 +56,7 @@ export function getTicketColumns({ t, intl, onEdit, onReread, onEditImage, onDel
       enableSorting: true,
       cell: ({ row }) => (
         <div className="whitespace-nowrap">
-          <p className="text-sm">{formatDate(row.original.createdAt, intl)}</p>
+          <p className="text-sm">{formatDateTimeSeconds(row.original.createdAt, intl)}</p>
           <p className="text-xs text-muted-foreground">
             {row.original.drawName} · {t(sourceKey[row.original.source])}
           </p>
@@ -87,15 +86,15 @@ export function getTicketColumns({ t, intl, onEdit, onReread, onEditImage, onDel
       enableSorting: false,
       header: t("tickets.text"),
       cell: ({ row }) => {
-        const { rawText, ocrStatus } = row.original;
+        const { rawText, ocrStatus, ocrReader } = row.original;
         return (
           <div className="max-w-64 min-w-40">
             {ocrStatus ? (
-              // โพยจากรูป — สถานะการอ่านรูปด้วย OCR
+              // โพยจากรูป — สถานะการอ่านรูป + ตัวอ่าน (กำลังอ่านด้วย Sonnet 5.5 / อ่านแล้ว (Opus 5.5))
               <p
                 className={`mb-1 flex items-center gap-1 text-xs font-medium ${ocrStatus === "FAILED" ? "text-destructive" : "text-muted-foreground"}`}
               >
-                <ImageIcon className="size-3.5" /> {t(ocrStatusKey[ocrStatus])}
+                <ImageIcon className="size-3.5" /> {ocrStatusText({ ocrStatus, ocrReader }, t)}
               </p>
             ) : null}
             {rawText ? (
