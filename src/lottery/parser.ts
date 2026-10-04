@@ -25,6 +25,7 @@
  *   ລາວ ບົນ-ລ່າງ ຮູ10 / 08,80,02 / 95,59 → หัวยอดก่อนเลข = ยอดของบรรทัดเลขที่ไม่มียอดด้านล่าง (บนล่าง เลขละ 10)
  *   22_10 / 62_10 / ລ່າງ   → เลขเดียว + ขีดล่างตัวเดียว = ยอด · บรรทัด ລ່າງ / ບົນ / ບລ เปล่า ๆ = ฝั่งของบรรทัดด้านบนที่ไม่ได้ระบุฝั่ง
  *   173 / 73 / 33 / ໂຕ10   → บรรทัด ໂຕ10 / =10 / =ໂຕ5฿ / ໂຕ=10 ที่ไม่มีเลข ใช้แบบเดียวกับ ປ່ອງ (173 73 33 บน เลขละ 10)
+ *   00=20=400=ໂຕ10ພ.ບ.ລ   → = คั่นระหว่างเลขได้ (= ตัวสุดท้ายคั่นยอด) · 00 20 บนล่าง 400 บน เลขละ 10
  *
  *   11 5? 91=10            → ? ที่ทำให้เลขนามสัตว์ครบชุด เติมให้เลย (11 51 91 · ดู animal.ts)
  *
@@ -178,6 +179,22 @@ const CURRENCY_BEFORE_TIMES = /(\d)\s*(฿|ບາດ|บาท|baht|b|₭|ກີ
 const AMOUNT_EACH_PREFIX = /^(?:ໂຕ|ຕົວ|ตัว|โต|ປ່ອງ|ປອງ|ป่อง|ຮູ|รู|hu)\s*(?:ລະ|ละ)?\s*(?=\d)/iu;
 const THB_WORD =/฿|บาท|ບາດ|thb|baht/i;
 const LAK_WORD = /₭|ກີບ|กีบ|\bkip\b|\blak\b/i;
+/** บรรทัดที่มีแต่คำบอกบาท: B / b / ฿ / บาท / ບາດ (วงเล็บ จุด ขีด เว้นวรรค ไม่มีผล) */
+const THB_ONLY_LINE = /^(?:b|฿|บาท|ບາດ|baht|thb)$/i;
+
+/**
+ * มีบรรทัด B (หรือ ฿ / บาท / ບາດ) เดี่ยว ๆ อยู่ด้านบนก่อนบรรทัดตัวเลขแรก หรือด้านล่างหลังบรรทัดตัวเลขสุดท้าย = ทั้งโพยเป็นเงินบาท
+ * บรรทัด B ที่อยู่ระหว่างรายการไม่นับ (ไม่รู้ว่าหมายถึงส่วนไหน)
+ */
+function hasThbMarkLine(lines: readonly string[]) {
+  const withDigits = lines.flatMap((text, index) => (/\d/.test(text) ? [index] : []));
+  if (withDigits.length === 0) return false;
+  const first = withDigits[0]!;
+  const last = withDigits.at(-1)!;
+  return lines.some(
+    (text, index) => (index < first || index > last) && THB_ONLY_LINE.test(text.replace(/[\s.:+\-()[\]（）]/g, "")),
+  );
+}
 const AMOUNT_PART = new RegExp(String.raw`^(${AMOUNT})(?:\s*[*x×]\s*(${AMOUNT}))?(.*)$`, "i");
 /** ขีดคั่นเลข 3 ตัวขึ้นไป (มียอดหลัง = ได้): 605-645-685 · 406-446-486=1 */
 const DASH_NUMBERS_LINE = /^\d{2,3}(?:\s*-\s*\d{2,3}){2,}\s*(?:[=;:].*)?$/;
@@ -384,7 +401,17 @@ const withHundreds = (hundreds: readonly string[], bases: readonly string[]) =>
   hundreds.flatMap((digit) => bases.map((base) => `${digit}${base}`));
 
 /** dashNumbers = โพยนี้ใช้ขีดคั่นเลข (มีบรรทัด "605-645-685") → "724-764" เป็นเลข 2 ตัว ไม่ใช่เลข 724 ยอด 764 */
-function parseLine(line: string, fallback: Currency = "LAK", dashNumbers = false): LineResult {
+function parseLine(raw: string, fallback: Currency = "LAK", dashNumbers = false): LineResult {
+  // = คั่นระหว่างเลขด้วย — = ตัวสุดท้ายคั่นยอด: "00=20=400=ໂຕ10ພ.ບ.ລ" = "00,20,400=ໂຕ10ພ.ບ.ລ"
+  // ต้องมี ໂຕ / ຮູ / ປ່ອງ หน้ายอด หรือเลข 3 ตัวขึ้นไป — "32=100=200" ยังกำกวม (100 อาจเป็นยอด)
+  const equalsParts = raw.split("=");
+  const equalsNumbers = equalsParts.slice(0, -1);
+  const line =
+    equalsNumbers.length >= 2 &&
+    equalsNumbers.every((part) => /^\s*\d{2,3}\s*$/.test(part)) &&
+    (equalsNumbers.length >= 3 || AMOUNT_EACH_PREFIX.test(equalsParts.at(-1)!.trim()))
+      ? `${equalsParts.slice(0, -1).join(",")}=${equalsParts.at(-1)}`
+      : raw;
   // มี ໂຕ / ຮູ / hu คั่นยอดแล้ว (ไม่มี =) → ; : ที่เหลือคั่นระหว่างเลข: "06;46;506 hu 20" = "06,46,506=20"
   const each = !line.includes("=") && EACH_WORD.test(line);
   // เลขเดียว + ขีดล่างตัวเดียว + ยอด: "22_10" = "22=10" (หลายขีด "04_44_84_=20" ยังเป็นตัวคั่นเลข)
@@ -435,11 +462,11 @@ function parseLine(line: string, fallback: Currency = "LAK", dashNumbers = false
 }
 
 /** ຫລັກ2-9=5 = เติมหลักร้อย 2 และ 9 หน้าเลข 2 ตัวทุกตัวในบรรทัดด้านบน เป็นเลข 3 ตัวบน เลขละ 5 */
-const HUNDREDS_LINE = /^(?:(?:ໃສ່|ຕື່ມ|ເອົາ|ใส่|เติม|เอา)\s*)?(?:ຫລັກ|ຫຼັກ|ລັກ|หลัก)\s*(.*)$/iu;
+const HUNDREDS_LINE = /^(?:(?:ໃສ່|ຕື່ມ|ເອົາ|ใส่|เติม|เอา)\s*)?(?:ຫລັກ|ຫຼັກ|ລັກ|หลัก|ลัก)\s*(.*)$/iu;
 /** จุดแยกชุด: หลัง "=ยอด" ตามด้วยช่องว่าง แล้วเป็นเลขชุดใหม่ที่มี = ของตัวเอง ("…=3 510.550=1") */
 const MULTI_GROUP_BREAK = /(?<=[=:]\s*\d[^\s=:]*)\s+(?=\d{2,3}(?:\s*[.,\-/_]\s*\d{2,3})*\s*[=:])/u;
 /** รายการ + ຫລັກ ในบรรทัดเดียว: "16.56.96=10₭ ຫລັກ 8=2₭" → [รายการ, ຫລັກ…] */
-const INLINE_HUNDREDS = /^(.*\d\D*?)\s*((?:(?:ໃສ່|ຕື່ມ|ເອົາ|ใส่|เติม|เอา)\s*)?(?:ຫລັກ|ຫຼັກ|ລັກ|หลัก)\s*\d.*)$/u;
+const INLINE_HUNDREDS = /^(.*\d\D*?)\s*((?:(?:ໃສ່|ຕື່ມ|ເອົາ|ใส่|เติม|เอา)\s*)?(?:ຫລັກ|ຫຼັກ|ລັກ|หลัก|ลัก)\s*\d.*)$/u;
 
 /**
  * บรรทัด ຫລັກ… → รายการ · null = ไม่ใช่บรรทัดหลัก — bases = เลข 2 ตัวในบรรทัดด้านบน (ไม่ซ้ำ ตามลำดับ)
@@ -482,10 +509,13 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
   let declaredTotal: number | null = null;
   let typedTotal = 0;
   const rules = prepareReadRules(options.rules ?? []);
-  // ລວມ80฿ และทั้งข้อความไม่มีคำบอกกีบเลย = โพยบาท → รายการที่ไม่ได้ระบุสกุลเงินเป็นบาท
+  // โพยบาท → รายการที่ไม่ได้ระบุสกุลเงินเป็นบาท (รายการที่ระบุ ກີບ / ₭ เองยังเป็นกีบ):
+  // · มีบรรทัด B / ฿ เดี่ยว ๆ ด้านบนหรือด้านล่างของโพย
+  // · ລວມ80฿ และทั้งข้อความไม่มีคำบอกกีบเลย
   const normalized = message.split(/\r?\n/).map(normalize);
   const fallback: Currency =
-    normalized.some((text) => totalOf(text) !== null && THB_WORD.test(text)) && !normalized.some((text) => LAK_WORD.test(text))
+    hasThbMarkLine(normalized) ||
+    (normalized.some((text) => totalOf(text) !== null && THB_WORD.test(text)) && !normalized.some((text) => LAK_WORD.test(text)))
       ? "THB"
       : "LAK";
   // มีบรรทัดที่ขีดคั่นเลข 3 ตัวขึ้นไป (605-645-685 / 406-446-486=1) → ขีดในโพยนี้คั่นเลข ไม่ใช่คั่นยอด

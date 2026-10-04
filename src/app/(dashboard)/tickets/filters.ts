@@ -24,13 +24,32 @@ export function billQueryPrefix(q: string): string | null {
   return match ? BILL_PREFIX + match[1] : null;
 }
 
-/** อ่าน ?draw=<id>|all&status=&odd=1 จาก URL — ไม่ระบุงวด = งวดที่เปิดรับล่าสุด (draws เรียงใหม่ → เก่า) */
+/** ยอดต่อตัวที่ค้นได้สูงสุด — ไม่เกิน Decimal(14, 2) ของ bets.amount */
+const AMOUNT_MAX = 999_999_999_999;
+
+/**
+ * ยอดต่อตัวที่พิมพ์มา → ตัวเลข: "5000" / "5,000" / "5 000" = 5000 · ทศนิยมได้ 2 ตำแหน่ง
+ * ว่าง / ไม่ใช่ตัวเลข / ≤ 0 / เกินเพดาน = null (ไม่กรอง)
+ */
+export function parseAmountQuery(value: string | undefined): number | null {
+  const text = (value ?? "").slice(0, 30).replace(/[,\s]/g, "");
+  if (!/^\d+(?:\.\d{1,2})?$/.test(text)) return null;
+  const amount = Number(text);
+  return amount > 0 && amount <= AMOUNT_MAX ? amount : null;
+}
+
+/** อ่าน ?draw=<id>|all&status=&odd=1&amount= จาก URL — ไม่ระบุงวด = งวดที่เปิดรับล่าสุด (draws เรียงใหม่ → เก่า) */
 export function readTicketFilters(raw: SearchParamsInput, draws: Pick<DrawOption, "id" | "status">[]): TicketFilterValues {
   const drawParam = (first(raw.draw) ?? "").slice(0, 50);
   const drawId =
     drawParam === "all" ? null : drawParam || (draws.find((draw) => draw.status === "OPEN")?.id ?? null);
   const statusParam = first(raw.status);
-  return { drawId, status: isTicketStatus(statusParam) ? statusParam : null, oddLak: first(raw.odd) === "1" };
+  return {
+    drawId,
+    status: isTicketStatus(statusParam) ? statusParam : null,
+    oddLak: first(raw.odd) === "1",
+    amount: parseAmountQuery(first(raw.amount)),
+  };
 }
 
 /** อ่านรูปใหม่ทั้งงวดได้ครั้งละไม่เกินเท่านี้ใบ — กันคำสั่งเดียวใช้เวลา/ค่า AI มากเกินไป (กดซ้ำเพื่ออ่านส่วนที่เหลือ) */
@@ -49,6 +68,7 @@ export function rereadableWhere(dealerId: string, drawId: string): Prisma.Ticket
 /**
  * เงื่อนไข where ของโพย — เป็นของแม่หวยผ่านงวด ?draw= ของแม่หวยอื่นจึงไม่เจออะไร
  * oddLakIds = โพยที่มียอดกีบแปลก (oddLakTicketIds) — ใช้เมื่อเปิดตัวกรอง ?odd=1 · ไม่ส่งมา = ไม่เจออะไร
+ * ?amount= = มีรายการแทงยอดต่อตัวเท่านี้อย่างน้อย 1 รายการ — ดูจากตาราง bets จึงเจอเฉพาะโพยที่นับยอดแล้ว
  */
 export function ticketWhere(
   dealerId: string,
@@ -60,6 +80,7 @@ export function ticketWhere(
   if (filters.drawId) conditions.push({ drawId: filters.drawId });
   if (filters.status) conditions.push({ status: filters.status });
   if (filters.oddLak) conditions.push({ id: { in: oddLakIds } });
+  if (filters.amount) conditions.push({ bets: { some: { amount: filters.amount } } });
   if (q) {
     const bill = billQueryPrefix(q);
     conditions.push({

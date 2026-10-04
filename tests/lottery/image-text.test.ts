@@ -190,3 +190,27 @@ describe("IMAGE_RULES — ขั้นที่ 2 กรองตามกติ
     expect(imageToTicketText(ocr, [...IMAGE_RULES, skip47])).toBe("");
   });
 });
+
+describe("B ใต้คอลัมน์ / ท้ายโพย = บาท", () => {
+  const ocrOf = (paddle: OcrBox[]): OcrResult => ({ paddle, tesseract: [] });
+
+  test("โพยคอลัมน์เดียว: B ด้านล่าง (ไม่ต้องตรงแนว) → ทุกรายการต่อท้าย ฿", () => {
+    const text = imageToTicketText(
+      ocrOf([box("12-10", 0, 0, 100, 40), box("34-30", 0, 50, 100, 90), box("B", 300, 120, 330, 150)]),
+    );
+    expect(lines(text)).toEqual(["12=10฿", "34=30฿"]);
+  });
+
+  test("หลายคอลัมน์: B ใต้คอลัมน์ไหน เฉพาะคอลัมน์นั้นเป็นบาท", () => {
+    const text = imageToTicketText(
+      ocrOf([
+        box("12-10", 0, 0, 100, 40),
+        box("34-30", 0, 50, 100, 90),
+        box("45-20", 200, 0, 300, 40),
+        box("56-40", 200, 50, 300, 90),
+        box("B", 230, 110, 260, 140),
+      ]),
+    );
+    expect(lines(text)).toEqual(["12=10", "34=30", "45=20฿", "56=40฿"]);
+  });
+});

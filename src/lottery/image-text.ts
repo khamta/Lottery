@@ -13,7 +13,7 @@
  *   516.30 · 516-30 · 47:50 →  516=30 · 47=50       (ตัวคั่นระหว่างเลขกับยอด)
  *   526  (ช่องว่าง)  5       →  526=5                 (เลขกับยอดเป็นคนละกล่อง แต่อยู่แถวเดียวกัน)
  *   32: 50∝50 · 50x50       →  32=50*50              (บน × ล่าง)
- *   คอลัมน์หัว B             →  ทุกรายการในคอลัมน์ต่อท้าย ฿ (หัว K หรือไม่มีหัว = กีบ)
+ *   คอลัมน์หัว B / B ใต้คอลัมน์ →  ทุกรายการในคอลัมน์ต่อท้าย ฿ (หัว K หรือไม่มี B = กีบ)
  *   30.9.26 (วันที่)          →  ข้าม
  *   ລວມ150 (รูปแคปแชต)      →  ລວມ150                (Tesseract อ่านตัวลาว/ไทยได้ PaddleOCR อ่านไม่ได้)
  *
@@ -188,15 +188,19 @@ function toColumns(pieces: Piece[]): Piece[][] {
   return columns.sort((a, b) => leftOf(a) - leftOf(b));
 }
 
-/** หัวคอลัมน์ B (บาท) / K (กีบ) ที่อยู่เหนือคอลัมน์นี้ */
-function columnIsThb(column: Piece[], headers: Header[]) {
+/**
+ * B (บาท) / K (กีบ) ของคอลัมน์นี้ — หัวคอลัมน์ด้านบนก่อน ไม่มีหัว = ใต้คอลัมน์ (เขียน B ไว้ท้ายโพย)
+ * โพยคอลัมน์เดียว: B ด้านบน/ล่างตรงไหนก็ได้ ไม่ต้องตรงแนวคอลัมน์ (มักเขียนไว้กลางหรือมุมกระดาษ)
+ */
+function columnIsThb(column: Piece[], headers: Header[], single: boolean) {
   const left = Math.min(...column.map((p) => p.left));
   const right = Math.max(...column.map((p) => p.right));
   const top = column[0]!.top;
-  const header = headers
-    .filter((h) => h.top <= top && overlap(h.left, h.right, left, right) > 0)
-    .sort((a, b) => b.top - a.top)[0];
-  return header?.thb ?? false;
+  const bottom = Math.max(...column.map((p) => p.bottom));
+  const inLine = (h: Header) => single || overlap(h.left, h.right, left, right) > 0;
+  const header = headers.filter((h) => h.top <= top && inLine(h)).sort((a, b) => b.top - a.top)[0];
+  const footer = headers.filter((h) => h.top >= bottom && inLine(h)).sort((a, b) => a.top - b.top)[0];
+  return (header ?? footer)?.thb ?? false;
 }
 
 /** ยอดรวมที่ลูกค้าเขียน/พิมพ์ (ລວມ150) — อ่านจาก Tesseract เพราะ PaddleOCR อ่านตัวลาว/ไทยไม่ได้ */
@@ -333,8 +337,9 @@ export function imageToTicketText(ocr: OcrResult, rules: ImageRule[] = IMAGE_RUL
     // เลขที่ไม่มียอด (เช่น เลขในกลุ่มที่โยงเส้นไว้) → เลขเปล่า ให้ parser แจ้งว่าไม่มียอด
     .map((piece) => ({ ...piece, text: piece.text.match(NUMBER_ONLY)?.[1] ?? piece.text }));
 
-  const blocks = toColumns(entries).map((column) => {
-    const thb = columnIsThb(column, headers);
+  const columns = toColumns(entries);
+  const blocks = columns.map((column) => {
+    const thb = columnIsThb(column, headers, columns.length === 1);
     return column
       .map((piece) => (thb && /^\d{2,3}=[\d*]+$/.test(piece.text) ? `${piece.text}฿` : piece.text))
       .join("\n");

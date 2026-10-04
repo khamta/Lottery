@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CircleAlert } from "lucide-react";
+import { CircleAlert, Coins } from "lucide-react";
 
 import {
   Select,
@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { startRouteProgress } from "@/components/shared/route-progress";
 import { useI18n } from "@/i18n/client";
 import { buildQueryString, toRoute } from "@/lib/query";
@@ -21,7 +22,8 @@ import { TICKET_STATUSES, statusKey, type DrawOption, type TicketFilterValues } 
 const ALL = "all";
 
 /**
- * ตัวกรองงวด / สถานะ / ยอดกีบแปลก — เขียนค่าลง URL (?draw=&status=&odd=1) ให้ server กรองที่ฐานข้อมูล
+ * ตัวกรองงวด / สถานะ / ยอดต่อตัว / ยอดกีบแปลก — เขียนค่าลง URL (?draw=&status=&amount=&odd=1) ให้ server กรองที่ฐานข้อมูล
+ * ยอดต่อตัว = มีรายการแทงยอดเท่านี้พอดี (กด Enter หรือออกจากช่องเพื่อค้น · ล้างช่อง = ไม่กรอง)
  * ยอดกีบแปลก = มีรายการกีบไม่ลงท้าย 000 (เช่น 12,112) มักเป็นอ่านรูป/พิมพ์ผิด — ปุ่มบอกจำนวนให้รู้ว่ามีต้องตรวจไหม
  */
 export function TicketFilters({
@@ -45,6 +47,16 @@ export function TicketFilters({
     const qs = buildQueryString(searchParams, { ...patch, page: 1 });
     startRouteProgress();
     startTransition(() => router.replace(toRoute(`${pathname}?${qs}`), { scroll: false }));
+  }
+
+  // ช่องยอดต่อตัว: พิมพ์ได้อิสระ ค้นเมื่อกด Enter / ออกจากช่อง — URL เปลี่ยน (เช่นกดย้อนกลับ) ก็ตามค่าใหม่
+  const urlAmount = filters.amount ? String(filters.amount) : "";
+  const [amount, setAmount] = React.useState(urlAmount);
+  React.useEffect(() => setAmount(urlAmount), [urlAmount]);
+
+  function applyAmount() {
+    const value = amount.replace(/[,\s]/g, "");
+    if (value !== urlAmount) apply({ amount: value || null });
   }
 
   return (
@@ -85,6 +97,24 @@ export function TicketFilters({
           ))}
         </SelectContent>
       </Select>
+
+      <div className="relative min-w-0 flex-1 sm:w-36 sm:flex-none">
+        <Coins className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          inputMode="decimal"
+          value={amount}
+          onChange={(event) => setAmount(event.target.value)}
+          onBlur={applyAmount}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") applyAmount();
+          }}
+          placeholder={t("tickets.filterAmount")}
+          aria-label={t("tickets.filterAmount")}
+          title={t("tickets.filterAmountHint")}
+          disabled={disabled || isPending}
+          className="pl-8"
+        />
+      </div>
 
       <Button
         type="button"

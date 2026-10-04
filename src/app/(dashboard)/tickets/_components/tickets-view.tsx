@@ -232,7 +232,7 @@ export function TicketsView({
     setBulkDeleting(null);
   }
 
-  const filtered = !!filters.status || filters.oddLak;
+  const filtered = !!filters.status || filters.oddLak || !!filters.amount;
 
   return (
     <>
