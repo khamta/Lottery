@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CircleAlert, Coins } from "lucide-react";
+import { CircleAlert, Coins, ImageIcon } from "lucide-react";
 
 import {
   Select,
@@ -24,17 +24,20 @@ const ALL = "all";
 /**
  * ตัวกรองงวด / สถานะ / ยอดต่อตัว / ยอดกีบแปลก — เขียนค่าลง URL (?draw=&status=&amount=&odd=1) ให้ server กรองที่ฐานข้อมูล
  * ยอดต่อตัว = มีรายการแทงยอดเท่านี้พอดี (กด Enter หรือออกจากช่องเพื่อค้น · ล้างช่อง = ไม่กรอง)
+ * มีรูป = เฉพาะโพยที่มีรูป (?image=1) — ปุ่มบอกจำนวนโพยที่มีรูปของงวดที่กรองอยู่
  * ยอดกีบแปลก = มีรายการกีบไม่ลงท้าย 000 (เช่น 12,112) มักเป็นอ่านรูป/พิมพ์ผิด — ปุ่มบอกจำนวนให้รู้ว่ามีต้องตรวจไหม
  */
 export function TicketFilters({
   draws,
   filters,
   oddLakCount,
+  imageCount,
   disabled,
 }: {
   draws: DrawOption[];
   filters: TicketFilterValues;
   oddLakCount: number;
+  imageCount: number;
   disabled?: boolean;
 }) {
   const { t } = useI18n();
@@ -115,6 +118,19 @@ export function TicketFilters({
           className="pl-8"
         />
       </div>
+
+      <Button
+        type="button"
+        variant={filters.image ? "default" : "outline"}
+        aria-pressed={!!filters.image}
+        className="w-full sm:w-auto"
+        disabled={disabled || isPending || (!filters.image && imageCount === 0)}
+        title={t("tickets.filterImageHint")}
+        onClick={() => apply({ image: filters.image ? null : "1" })}
+      >
+        <ImageIcon />
+        {t("tickets.filterImage", { count: imageCount })}
+      </Button>
 
       <Button
         type="button"

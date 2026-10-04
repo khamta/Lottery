@@ -38,7 +38,7 @@ export function parseAmountQuery(value: string | undefined): number | null {
   return amount > 0 && amount <= AMOUNT_MAX ? amount : null;
 }
 
-/** อ่าน ?draw=<id>|all&status=&odd=1&amount= จาก URL — ไม่ระบุงวด = งวดที่เปิดรับล่าสุด (draws เรียงใหม่ → เก่า) */
+/** อ่าน ?draw=<id>|all&status=&odd=1&amount=&image=1 จาก URL — ไม่ระบุงวด = งวดที่เปิดรับล่าสุด (draws เรียงใหม่ → เก่า) */
 export function readTicketFilters(raw: SearchParamsInput, draws: Pick<DrawOption, "id" | "status">[]): TicketFilterValues {
   const drawParam = (first(raw.draw) ?? "").slice(0, 50);
   const drawId =
@@ -49,8 +49,12 @@ export function readTicketFilters(raw: SearchParamsInput, draws: Pick<DrawOption
     status: isTicketStatus(statusParam) ? statusParam : null,
     oddLak: first(raw.odd) === "1",
     amount: parseAmountQuery(first(raw.amount)),
+    image: first(raw.image) === "1",
   };
 }
+
+/** โพยที่มีรูป — ใช้ทั้งตัวกรอง ?image=1 และนับจำนวนบนปุ่มกรอง */
+export const withImageWhere: Prisma.TicketWhereInput = { image: { isNot: null } };
 
 /** อ่านรูปใหม่ทั้งงวดได้ครั้งละไม่เกินเท่านี้ใบ — กันคำสั่งเดียวใช้เวลา/ค่า AI มากเกินไป (กดซ้ำเพื่ออ่านส่วนที่เหลือ) */
 export const REREAD_DRAW_MAX = 300;
@@ -69,6 +73,7 @@ export function rereadableWhere(dealerId: string, drawId: string): Prisma.Ticket
  * เงื่อนไข where ของโพย — เป็นของแม่หวยผ่านงวด ?draw= ของแม่หวยอื่นจึงไม่เจออะไร
  * oddLakIds = โพยที่มียอดกีบแปลก (oddLakTicketIds) — ใช้เมื่อเปิดตัวกรอง ?odd=1 · ไม่ส่งมา = ไม่เจออะไร
  * ?amount= = มีรายการแทงยอดต่อตัวเท่านี้อย่างน้อย 1 รายการ — ดูจากตาราง bets จึงเจอเฉพาะโพยที่นับยอดแล้ว
+ * ?image=1 = เฉพาะโพยที่มีรูป (withImageWhere)
  */
 export function ticketWhere(
   dealerId: string,
@@ -81,6 +86,7 @@ export function ticketWhere(
   if (filters.status) conditions.push({ status: filters.status });
   if (filters.oddLak) conditions.push({ id: { in: oddLakIds } });
   if (filters.amount) conditions.push({ bets: { some: { amount: filters.amount } } });
+  if (filters.image) conditions.push(withImageWhere);
   if (q) {
     const bill = billQueryPrefix(q);
     conditions.push({

@@ -13,7 +13,7 @@ import { DealerSwitcher } from "@/lottery/components/dealer-switcher";
 import { NoDealer } from "@/lottery/components/no-dealer";
 import type { PageProps } from "@/types";
 import { TicketsView } from "./_components/tickets-view";
-import { readTicketFilters, REREAD_DRAW_MAX, rereadableWhere, ticketWhere } from "./filters";
+import { readTicketFilters, REREAD_DRAW_MAX, rereadableWhere, ticketWhere, withImageWhere } from "./filters";
 import { TICKET_SORTABLE, type TicketRow } from "./types";
 
 export const metadata: Metadata = { title: "Tickets" };
@@ -58,7 +58,15 @@ export default async function TicketsPage({ searchParams }: PageProps) {
   // ตัวกรองจาก URL (?draw=<id>|all&status=REVIEW) — ไม่ระบุงวด = งวดที่เปิดรับล่าสุด · ไฟล์ส่งออกใช้ชุดเดียวกัน
   const filters = readTicketFilters(raw, draws);
   // โพยที่มียอดกีบไม่ลงท้าย 000 ของงวดที่กรองอยู่ — ปุ่มกรองแสดงจำนวนเสมอ ให้รู้ว่ามีต้องตรวจไหม
-  const oddLakIds = await oddLakTicketIds(prisma, current.id, filters.drawId);
+  // + จำนวนโพยที่มีรูปของงวดที่กรองอยู่ — แสดงบนปุ่มกรอง "มีรูป"
+  const [oddLakIds, imageCount] = await Promise.all([
+    oddLakTicketIds(prisma, current.id, filters.drawId),
+    prisma.ticket.count({
+      where: {
+        AND: [{ draw: { dealerId: current.id } }, ...(filters.drawId ? [{ drawId: filters.drawId }] : []), withImageWhere],
+      },
+    }),
+  ]);
   const where = ticketWhere(current.id, filters, params.q, oddLakIds);
 
   // ผู้ดูแลระบบ: ปุ่มอ่านรูปโพยรอตรวจทั้งงวดใหม่ — เฉพาะเมื่อกรองงวดเดียวที่ยังเปิดรับ (null = ไม่แสดงปุ่ม)
@@ -149,6 +157,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
         rules={rules}
         filters={filters}
         oddLakCount={oddLakIds.length}
+        imageTicketCount={imageCount}
         rereadDraw={rereadDraw}
       />
     </>

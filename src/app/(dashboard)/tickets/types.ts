@@ -57,14 +57,16 @@ export const canRereadImage = (row: Pick<TicketRow, "status" | "ocrStatus">) =>
   row.status === "REVIEW" && !!row.ocrStatus && row.ocrStatus !== "PENDING";
 
 /**
- * ค่าตัวกรองใน URL (?draw=&status=&odd=1&amount=) — draw: "all" = ทุกงวด · oddLak = เฉพาะโพยที่มียอดกีบไม่ลงท้าย 000
+ * ค่าตัวกรองใน URL (?draw=&status=&odd=1&amount=&image=1) — draw: "all" = ทุกงวด · oddLak = เฉพาะโพยที่มียอดกีบไม่ลงท้าย 000
  * amount = เฉพาะโพยที่มีรายการแทงยอดต่อตัวเท่านี้พอดี (กีบหรือบาท) · null/ไม่มี = ไม่กรอง
+ * image = เฉพาะโพยที่มีรูป (?image=1)
  */
 export type TicketFilterValues = {
   drawId: string | null;
   status: TicketStatusValue | null;
   oddLak: boolean;
   amount?: number | null;
+  image?: boolean;
 };
 
 /** สถานะ -> คีย์ i18n (ห้ามเก็บข้อความตรง ๆ เพราะระบบรองรับ 4 ภาษา) */

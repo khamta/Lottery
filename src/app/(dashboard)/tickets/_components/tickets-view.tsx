@@ -52,6 +52,7 @@ export function TicketsView({
   rules,
   filters,
   oddLakCount,
+  imageTicketCount,
   rereadDraw,
 }: {
   page: Paginated<TicketRow>;
@@ -62,6 +63,7 @@ export function TicketsView({
   filters: TicketFilterValues;
   /** จำนวนโพยที่มียอดกีบแปลก (ไม่ลงท้าย 000) ในงวดที่กรองอยู่ */
   oddLakCount: number;
+  imageTicketCount: number;
   /** ผู้ดูแลระบบ + กรองงวดที่เปิดรับอยู่ = ปุ่มอ่านรูปโพยรอตรวจทั้งงวดใหม่ (null = ไม่แสดงปุ่ม) */
   rereadDraw: RereadDrawTarget | null;
 }) {
@@ -232,7 +234,7 @@ export function TicketsView({
     setBulkDeleting(null);
   }
 
-  const filtered = !!filters.status || filters.oddLak || !!filters.amount;
+  const filtered = !!filters.status || filters.oddLak || !!filters.amount || !!filters.image;
 
   return (
     <>
@@ -253,7 +255,7 @@ export function TicketsView({
           )}
           toolbar={
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <TicketFilters draws={draws} filters={filters} oddLakCount={oddLakCount} disabled={isPending} />
+              <TicketFilters draws={draws} filters={filters} oddLakCount={oddLakCount} imageCount={imageTicketCount} disabled={isPending} />
               {rereadDraw ? (
                 <Button
                   variant="outline"
