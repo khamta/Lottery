@@ -26,6 +26,20 @@ export const deleteTicketsSchema = z.object({
     .max(100, "validation.required"),
 });
 
+/** ตัวอ่านรูปตอนสั่งอ่านโพยรอตรวจใหม่ — AI = Claude (มีค่าใช้จ่าย) · OCR = ตัวอ่านปกติในเครื่อง */
+export const imageEngineEnum = z.enum(["AI", "OCR"]);
+/** อ่านรูปของโพยรอตรวจใบเดียวใหม่ — ผู้ใช้ทุกคน */
+export const rereadTicketImageSchema = z.object({
+  id: z.string().min(1, "validation.required"),
+  engine: imageEngineEnum,
+});
+/** อ่านรูปของโพยรอตรวจทั้งงวดใหม่ — ผู้ดูแลระบบเท่านั้น */
+export const rereadDrawImagesSchema = z.object({
+  drawId: z.string().min(1, "tickets.validation.drawRequired"),
+  engine: imageEngineEnum,
+});
+
 export type TicketInput = z.infer<typeof ticketSchema>;
+export type ImageEngineValue = z.infer<typeof imageEngineEnum>;
 export type TicketStatusValue = z.infer<typeof ticketStatusEnum>;
 export type TicketSourceValue = z.infer<typeof ticketSourceEnum>;

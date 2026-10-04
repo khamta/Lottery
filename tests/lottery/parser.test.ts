@@ -486,6 +486,23 @@ describe("parseTicket — กติกา", () => {
     expect(parseTicket("760=10₭\nລວມ10฿").bets[0].currency).toBe("LAK");
   });
 
+  test("ยอดรวมที่บอกฝั่ง (30.000 ເລກລ່າງ) = รายการด้านบนที่ไม่ได้ระบุฝั่งลงฝั่งนั้น", () => {
+    const ticket = parseTicket("84=20\n44=5\n04=5\n__\n30.000 ເລກລ່າງ");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.map((b) => `${b.number} ${b.position} ${b.amount}`)).toEqual(
+      ["84 BOTTOM 20000", "44 BOTTOM 5000", "04 BOTTOM 5000"],
+    );
+    expect(ticket.declaredTotal).toBe(30);
+    expect(ticket.typedTotal).toBe(30);
+
+    const sides = (text: string) => parseTicket(text).bets.map((b) => `${b.number} ${b.position}`);
+    expect(sides("84=20\n44=5\nລວມ25 ເລກລ່າງ")).toEqual(["84 BOTTOM", "44 BOTTOM"]);
+    expect(sides("84=20\n44=5\nรวม 25 เลขล่าง")).toEqual(["84 BOTTOM", "44 BOTTOM"]);
+    // ไม่บอกฝั่ง → บนตามเดิม · เลข 3 ตัวลงล่างไม่ได้ → รอตรวจ
+    expect(sides("84=20\n44=5\n25.000")).toEqual(["84 TOP", "44 TOP"]);
+    expect(parseTicket("84=20\n144=5\n25.000 ເລກລ່າງ").issues.map((i) => i.code)).toEqual(["THREE_DIGIT_BOTTOM"]);
+  });
+
   test("14.000ບົນ / ລ 14.000ບົນ / ລວມ 14.000ບົນ / 14.000 = ยอดรวม (ลาว + ไทย)", () => {
     const body = "2/10/26🇱🇦\n28=5\n68=5\n028=2\n068=2\n";
     for (const tail of ["14.000ບົນ", "ລວມ 14.000ບົນ", "ລ 14.000ບົນ", "14.000", "14,000", "รวม 14.000บน", "ล 14.000บน", "ล14"]) {
@@ -644,6 +661,23 @@ describe("parseTicket — กติกา", () => {
     expect(parseTicket(text(288), { lakMultiplier: 1 }).issues.map((i) => i.code)).toEqual(["TOTAL_MISMATCH"]);
   });
 
+  test("สกุลเงินต่อท้ายทั้งยอดบนและล่าง (20ບາດ×20ບາດ)", () => {
+    const brief = (text: string) => parseTicket(text).bets.map((b) => `${b.number} ${b.position} ${b.currency} ${b.amount}`);
+    expect(brief("11.77.99=20ບາດ×20ບາດ")).toEqual([
+      "11 TOP THB 20", "11 BOTTOM THB 20", "77 TOP THB 20", "77 BOTTOM THB 20", "99 TOP THB 20", "99 BOTTOM THB 20",
+    ]);
+    expect(brief("32=20ບາດ×10")).toEqual(["32 TOP THB 20", "32 BOTTOM THB 10"]);
+    expect(brief("32=20ພັນ*10ພັນ")).toEqual(["32 TOP LAK 20000", "32 BOTTOM LAK 10000"]);
+    expect(parseTicket("11.77.99=20ບາດ×20ບາດ").issues).toEqual([]);
+  });
+
+  test("วงเล็บคั่นระหว่างเลข (826)866=10)", () => {
+    const brief = (text: string) => parseTicket(text, { lakMultiplier: 1 }).bets.map((b) => `${b.number} ${b.amount}`);
+    expect(brief("826)866=10")).toEqual(["826 10", "866 10"]);
+    expect(brief("(826)(866)=10")).toEqual(["826 10", "866 10"]);
+    expect(parseTicket("826)866=10").issues).toEqual([]);
+  });
+
   test("(ບລ) ในวงเล็บ = บนล่าง", () => {
     const brief = (text: string) =>
       parseTicket(text, { lakMultiplier: 1 }).bets.map((b) => `${b.number} ${b.position}`);
@@ -654,6 +688,24 @@ describe("parseTicket — กติกา", () => {
     expect(brief("(ບລ) ຮູ10\n32 72")).toEqual(both);
     expect(brief("32=10[ລ່າງ]")).toEqual(["32 BOTTOM"]);
     expect(parseTicket("32=10(ບລ)").issues).toEqual([]);
+  });
+
+  test("b = บาท (01=200*100b) — ไม่ต้องมีเงื่อนไขอ่านโพย", () => {
+    const text = "01=200*100b\n41=200*100b\n81=200*100b\n101=100b\n141=100b\n181=100b";
+    const expected = [
+      "01 TOP THB 200", "01 BOTTOM THB 100", "41 TOP THB 200", "41 BOTTOM THB 100",
+      "81 TOP THB 200", "81 BOTTOM THB 100", "101 TOP THB 100", "141 TOP THB 100", "181 TOP THB 100",
+    ];
+    const brief = (ticket: ReturnType<typeof parseTicket>) =>
+      ticket.bets.map((b) => `${b.number} ${b.position} ${b.currency} ${b.amount}`);
+    // ไม่มีเงื่อนไข / มีเงื่อนไข {N}={A}b ของแม่หวย (ใช้ไม่ได้กับ บน*ล่าง) → ผลเหมือนกัน
+    for (const rules of [[], [{ kind: "PATTERN" as const, find: "{N}={A}b", replace: "{N}={A}บาท" }]]) {
+      const ticket = parseTicket(text, { rules });
+      expect(ticket.issues).toEqual([]);
+      expect(brief(ticket)).toEqual(expected);
+    }
+    expect(brief(parseTicket("32=100baht"))).toEqual(["32 TOP THB 100"]);
+    expect(brief(parseTicket("32 72 5b"))).toEqual(["32 TOP THB 5", "72 TOP THB 5"]);
   });
 
   test("k = พัน (ໂຕ5kບລ = บนล่าง เลขละ 5,000)", () => {
@@ -848,19 +900,26 @@ describe("parseTicket — กติกา", () => {
     const ticket = parseTicket("570 57 70 50 22 62 02 42 82-30,000");
     expect(ticket.bets).toHaveLength(9);
     expect(ticket.bets[0]).toMatchObject({ number: "570", digits: 3, position: "TOP" });
-    // หลังขีดเป็นเลข 2-3 หลักเปล่า ๆ → ไม่เดา (อาจเป็นเลขทั้งหมด)
-    expect(parseTicket("38.78-33").issues.map((i) => i.code)).toEqual(["NO_AMOUNT"]);
   });
 
-  test("โพยที่ใช้ขีดคั่นยอด (11.51.91-5) → \"22.62-10\" ในโพยเดียวกัน = 22 62 ยอด 10", () => {
-    const ticket = parseTicket("22.62-10\n11.51.91-5\n19.59.99-5", { lakMultiplier: 1 });
-    expect(ticket.issues).toEqual([]);
-    expect(ticket.bets.map((b) => `${b.number} ${b.amount} @${b.line}`)).toEqual([
+  test("605-645-685 / 724-764 ไม่มียอด → ได้ยอดของบรรทัดล่าง (ทุกรูปแบบของบรรทัดยอด)", () => {
+    const brief = (text: string) => parseTicket(text, { lakMultiplier: 1 }).bets.map((b) => `${b.number} ${b.amount}`);
+    const top = ["605 5", "645 5", "685 5", "724 5", "764 5"];
+    expect(brief("605-645-685\n724-764=5")).toEqual(top);
+    expect(brief("605-645-685\n724-764\nໂຕ5")).toEqual(top);
+    expect(brief("605-645-685\n724-764\n26-66=5")).toEqual([...top, "26 5", "66 5"]);
+    // ไม่มียอดด้านล่างเลย → รอตรวจ
+    expect(parseTicket("605-645-685\n724-764").issues.map((i) => i.code)).toEqual(["NO_AMOUNT", "NO_AMOUNT"]);
+  });
+
+  test("เลขคั่นด้วย . แล้วขีดตัวเดียว = หลังขีดเป็นยอด (08.48.88-20 · 22.62-10)", () => {
+    const brief = (text: string) => parseTicket(text, { lakMultiplier: 1 }).bets.map((b) => `${b.number} ${b.amount} @${b.line}`);
+    expect(brief("08.48.88-20")).toEqual(["08 20 @1", "48 20 @1", "88 20 @1"]);
+    expect(brief("22.62-10")).toEqual(["22 10 @1", "62 10 @1"]);
+    expect(brief("22.62-10\n11.51.91-5\n19.59.99-5")).toEqual([
       "22 10 @1", "62 10 @1", "11 5 @2", "51 5 @2", "91 5 @2", "19 5 @3", "59 5 @3", "99 5 @3",
     ]);
-    // อยู่ลำพัง ไม่มีบรรทัดที่บอกว่าขีดคั่นยอด → ไม่เดา
-    expect(parseTicket("22.62-10").issues.map((i) => i.code)).toEqual(["NO_AMOUNT"]);
-    expect(parseTicket("38.78-33").issues.map((i) => i.code)).toEqual(["NO_AMOUNT"]);
+    expect(parseTicket("08.48.88-20").issues).toEqual([]);
   });
 
   test("โพยที่ใช้ขีดคั่นเลข →\"724-764\" เป็นเลข 2 ตัว ไม่ใช่เลข 724 ยอด 764", () => {

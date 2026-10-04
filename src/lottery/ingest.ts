@@ -1,9 +1,10 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 
-import { logAudit } from "@/lib/audit";
+import { logAudit, type AuditActor } from "@/lib/audit";
 import { nextBillNo } from "./bill";
 import { acceptsTickets } from "./draw-status";
 import type { LotteryTypeValue } from "./labels";
+import { isAiRead, type AiRead } from "./image-ai";
 import { imageToTicketText, transcribeImage, type OcrResult } from "./image-text";
 import { DEFAULT_LAK_MULTIPLIER, parseTicket } from "./parser";
 import { READ_RULES_MAX, type ReadRuleSpec } from "./read-rules";
@@ -65,8 +66,11 @@ export type IncomingImage = MessageMeta & {
   caption: string;
 };
 
-/** ผลอ่านรูปจากบริการ OCR — text = ข้อความโพยที่กรองตามกติกาแล้ว (ขั้นที่ 2 ของ image-text.ts) */
-export type OcrOutcome = { text: string; ocr: OcrResult } | { error: string };
+/**
+ * ผลอ่านรูป — text = ข้อความโพยที่ใส่หน้าข้อความของโพย
+ * บริการ OCR: ข้อความที่กรองตามกติกาแล้ว (ขั้นที่ 2 ของ image-text.ts) · Claude: ข้อความโพยที่ถอดจากรูปตรง ๆ (image-ai.ts)
+ */
+export type OcrOutcome = { text: string; ocr: OcrResult | AiRead } | { error: string };
 
 export type SkipReason =
   | "not-ticket"
@@ -79,7 +83,9 @@ export type SkipReason =
   /** อ่านรูปใหม่ (reapplyOcr): คนแก้หรือยืนยันโพยนี้แล้ว — ไม่ทับงานของคน */
   | "edited-by-user"
   /** อ่านรูปใหม่ (reapplyOcr): กติกาใหม่ได้ข้อความเท่าเดิม */
-  | "unchanged";
+  | "unchanged"
+  /** อ่านรูปใหม่ (reapplyOcr): รูปนี้ Claude อ่าน ไม่มีผล OCR ให้กรองใหม่ */
+  | "read-by-ai";
 
 export type IngestResult =
   | {
@@ -367,7 +373,7 @@ export async function applyOcr(db: PrismaClient, ticketId: string, outcome: OcrO
     if ("error" in outcome) {
       await tx.ticketImage.update({
         where: { ticketId },
-        data: { ocrStatus: "FAILED", ocrError: outcome.error.slice(0, 500), ocrAt },
+        data: { ocrStatus: "FAILED", ocrError: outcome.error.slice(0, 500), ocrAt, ocrEngine: null },
       });
       return { action: "ocr-failed", ticketId, status: before.status };
     }
@@ -375,9 +381,10 @@ export async function applyOcr(db: PrismaClient, ticketId: string, outcome: OcrO
     const done = {
       ocrStatus: "DONE" as const,
       ocr: outcome.ocr as Prisma.InputJsonValue,
-      transcript: transcribeImage(outcome.ocr),
+      transcript: isAiRead(outcome.ocr) ? outcome.ocr.text : transcribeImage(outcome.ocr),
       ocrError: null,
       ocrAt,
+      ocrEngine: null,
     };
     // คนบันทึกผ่านหน้าโพยแล้ว = อ่านด้วยกติกาข้อความปกติ issue FROM_IMAGE จึงหายไป
     const untouched = image.ocrStatus === "PENDING" && hasIssue(before.issues, "FROM_IMAGE") && draw.status === "OPEN";
@@ -432,6 +439,7 @@ export async function reapplyOcr(db: PrismaClient, ticketId: string): Promise<In
     });
     if (!existing?.image?.ocr || existing.image.ocrStatus !== "DONE") return { action: "skipped", reason: "unknown-message" };
     const { draw, image, ...before } = existing;
+    if (isAiRead(image.ocr)) return { action: "skipped", reason: "read-by-ai" };
     const ocr = image.ocr as unknown as OcrResult;
     const ocrText = imageToTicketText(ocr);
 
@@ -466,6 +474,69 @@ export async function reapplyOcr(db: PrismaClient, ticketId: string): Promise<In
     });
 
     return { action: "ocr", ticketId: ticket.id, status: ticket.status };
+  });
+}
+
+/** ตัวอ่านรูปที่คนเลือกตอนสั่งอ่านใหม่ — AI = Claude (มีค่าใช้จ่ายต่อรูป) · OCR = บริการ OCR ในเครื่อง */
+export type ImageEngine = "AI" | "OCR";
+
+/** เหตุที่สั่งอ่านรูปใหม่ไม่ได้ */
+export type RereadSkip = "not-found" | "no-image" | "not-review" | "reading" | "draw-closed";
+
+/**
+ * คนสั่งอ่านรูปของโพยรอตรวจใหม่ (หน้าโพย) → โพยกลับเป็น "รอรูป" แล้วรูปเข้าคิวของบอทอีกครั้ง ด้วยตัวอ่านที่เลือก
+ * บอท (worker/ocr.ts) เห็นรูปที่ ocrStatus = PENDING แล้วอ่านตาม ocrEngine → applyOcr ตามเส้นทางเดิมทุกอย่าง
+ *
+ * ข้อความจากรูปครั้งก่อนถูกตัดออก ส่วนท้าย (คำบรรยายใต้รูป / ยอดรวมที่ส่งตามมา) คงไว้ให้ applyOcr ต่อท้ายข้อความใหม่
+ * คนแก้ข้อความไปแล้ว (ข้อความไม่ได้ขึ้นต้นด้วยข้อความจากรูป) = คนสั่งอ่านใหม่ทั้งที่รู้ ข้อความเดิมจึงถูกแทนทั้งหมด
+ * (ข้อความเดิมยังอยู่ใน audit log) · เฉพาะโพยรอตรวจในงวดที่ยังเปิดรับ — โพยที่นับยอดแล้วไม่แตะ
+ * คืน null = สั่งแล้ว
+ */
+export async function requestImageReread(
+  db: PrismaClient,
+  ticketId: string,
+  dealerId: string,
+  engine: ImageEngine,
+  user: AuditActor,
+): Promise<RereadSkip | null> {
+  return db.$transaction(async (tx) => {
+    const existing = await tx.ticket.findFirst({
+      where: { id: ticketId, draw: { dealerId } },
+      include: {
+        draw: { select: { status: true, closesAt: true } },
+        image: { select: { ocrStatus: true, ocrText: true, path: true } },
+      },
+    });
+    if (!existing) return "not-found";
+    const { draw, image, ...before } = existing;
+    if (!image?.path) return "no-image";
+    if (before.status !== "REVIEW") return "not-review";
+    if (image.ocrStatus === "PENDING") return "reading";
+    if (!acceptsTickets(draw)) return "draw-closed";
+
+    // ไม่มีข้อความจากรูปครั้งก่อน: ยังเป็นของระบบล้วน (มี FROM_IMAGE) = ข้อความทั้งหมดคือส่วนท้าย · คนพิมพ์เองแล้ว = แทนทั้งหมด
+    const rest = image.ocrText
+      ? (afterImageText(before.rawText, image.ocrText)?.rest ?? "")
+      : hasIssue(before.issues, "FROM_IMAGE")
+        ? before.rawText
+        : "";
+    const read = readImageTicketText(rest, { lakMultiplier: before.lakMultiplier, rules: await rulesOf(tx, dealerId) });
+    const ticket = await rewriteTicket(tx, before, read.fields, read.bets);
+    await tx.ticketImage.update({
+      where: { ticketId },
+      data: { ocrStatus: "PENDING", ocrEngine: engine, ocrError: null, ocrText: null },
+    });
+
+    await logAudit(tx, {
+      action: "UPDATE",
+      entity: "Ticket",
+      entityId: ticket.id,
+      summary: summaryOf(before.rawText) || before.senderName,
+      before,
+      after: ticket,
+      user,
+    });
+    return null;
   });
 }
 

@@ -44,6 +44,16 @@ export function isTicketStatus(value: unknown): value is TicketStatusValue {
   return (TICKET_STATUSES as readonly unknown[]).includes(value);
 }
 
+/**
+ * ปุ่มอ่านรูปโพยรอตรวจทั้งงวดใหม่ของผู้ดูแลระบบ — count = จำนวนใบที่อ่านใหม่ได้ (rereadableWhere)
+ * limit = อ่านได้ครั้งละไม่เกินเท่านี้ใบ (REREAD_DRAW_MAX)
+ */
+export type RereadDrawTarget = { drawId: string; drawName: string; count: number; limit: number };
+
+/** สั่งอ่านรูปใหม่ได้ไหม: โพยจากรูปที่ยังรอตรวจ และรูปไม่ได้อยู่ในคิวอ่าน */
+export const canRereadImage = (row: Pick<TicketRow, "status" | "ocrStatus">) =>
+  row.status === "REVIEW" && !!row.ocrStatus && row.ocrStatus !== "PENDING";
+
 /** ค่าตัวกรองใน URL (?draw=&status=) — draw: "all" = ทุกงวด */
 export type TicketFilterValues = { drawId: string | null; status: TicketStatusValue | null };
 

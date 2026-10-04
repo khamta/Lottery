@@ -88,6 +88,9 @@ POSTGRES_PASSWORD="$(rand)"
 POSTGRES_DB="lottery"
 
 AUTH_SECRET="$(openssl rand -base64 32)"
+
+# อ่านรูปโพยด้วย Claude (ไม่บังคับ) — ใส่ key แล้ว up -d worker · ไม่ใส่ = ใช้บริการ ocr ตามเดิม (ดู DEPLOY.md)
+# ANTHROPIC_API_KEY="sk-ant-..."
 EOF
   chown "$RUNNER_USER:$RUNNER_USER" "$DEPLOY_PATH/.env"
   chmod 600 "$DEPLOY_PATH/.env"

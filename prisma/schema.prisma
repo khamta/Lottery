@@ -199,6 +199,12 @@ enum OcrStatus {
   FAILED // อ่านไม่ได้ (บริการ OCR ล่ม/รูปเสีย) — คนต้องดูรูปแล้วพิมพ์เอง
 }
 
+/// ตัวอ่านรูปที่คนสั่งให้อ่านโพยรอตรวจใหม่ (หน้าโพย) — ไม่ระบุ = บอทเลือกเอง (Claude ก่อน ไม่ได้ใช้บริการ OCR)
+enum OcrEngine {
+  AI // Claude — มีค่าใช้จ่ายต่อรูป
+  OCR // บริการ OCR ในเครื่อง (ocr/server.py) — ไม่มีค่าใช้จ่าย
+}
+
 enum BetPosition {
   TOP
   BOTTOM
@@ -368,6 +374,8 @@ model TicketImage {
   ocrText    String?
   ocrError   String?
   ocrAt      DateTime?
+  /// ตัวอ่านที่คนสั่งให้อ่านรอบถัดไป (อ่านใหม่จากหน้าโพย) — บอทล้างเป็น null เมื่ออ่านเสร็จ · null = เลือกเอง
+  ocrEngine  OcrEngine?
 
   createdAt DateTime @default(now())
 

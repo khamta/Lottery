@@ -4,22 +4,26 @@ import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth";
+import { requireRole, requireUser } from "@/lib/auth";
 import { createAction } from "@/lib/action";
 import { logAudit, logAuditMany } from "@/lib/audit";
+import { requireAdminAccess } from "@/lottery/access";
 import { acceptsTickets } from "@/lottery/draw-status";
 import { nextBillNo } from "@/lottery/bill";
 import { requireDealerId } from "@/lottery/dealer";
 import { DEFAULT_LAK_MULTIPLIER } from "@/lottery/parser";
-import { rulesOf } from "@/lottery/ingest";
+import { requestImageReread, rulesOf, type RereadSkip } from "@/lottery/ingest";
 import { readTicketText } from "@/lottery/ticket";
 import {
   createTicketSchema,
   deleteTicketSchema,
   deleteTicketsSchema,
+  rereadDrawImagesSchema,
+  rereadTicketImageSchema,
   updateTicketSchema,
   type TicketInput,
 } from "@/lib/validations/ticket";
+import { REREAD_DRAW_MAX, rereadableWhere } from "./filters";
 
 /**
  * โพย = ข้อความ 1 ข้อความ — server แยกรายการจากข้อความเองทุกครั้ง (ไม่เชื่อผลที่ client แยก)
@@ -173,6 +177,67 @@ export const deleteTicket = createAction(
     return { id };
   },
   { successMessage: "tickets.deleted" },
+);
+
+/** เหตุที่อ่านรูปใหม่ไม่ได้ → คีย์ i18n */
+const rereadErrorKey: Record<RereadSkip, string> = {
+  "not-found": "tickets.notFound",
+  "no-image": "tickets.rereadNoImage",
+  "not-review": "tickets.rereadNotReview",
+  reading: "tickets.rereadReading",
+  "draw-closed": "tickets.drawNotOpen",
+};
+
+/**
+ * อ่านรูปของโพยรอตรวจใบเดียวใหม่ (ผู้ใช้ทุกคน) — รูปกลับเข้าคิวของบอทด้วยตัวอ่านที่เลือก แล้วข้อความขึ้นเองเมื่ออ่านเสร็จ
+ * AI มีค่าใช้จ่าย — หน้าโพยถามยืนยันก่อนส่งมาที่นี่
+ */
+export const rereadTicketImage = createAction(
+  rereadTicketImageSchema,
+  async ({ id, engine }) => {
+    const user = await requireUser();
+    const dealerId = await requireDealerId(user.id);
+
+    const skip = await requestImageReread(prisma, id, dealerId, engine, user);
+    if (skip) throw new Error(rereadErrorKey[skip]);
+
+    revalidateTickets();
+    return { id };
+  },
+  { successMessage: "tickets.rereadQueued" },
+);
+
+/**
+ * อ่านรูปของโพยรอตรวจทั้งงวดใหม่ (ผู้ดูแลระบบเท่านั้น) — ทุกใบที่มีรูป ยังรอตรวจ และไม่ได้อยู่ในคิวอ่าน
+ * แยก transaction ทีละใบ: ใบที่สถานะเปลี่ยนระหว่างทาง (คนเพิ่งยืนยัน) ข้ามไป ไม่ล้มทั้งชุด
+ */
+export const rereadDrawImages = createAction(
+  rereadDrawImagesSchema,
+  async ({ drawId, engine }) => {
+    const user = await requireRole(["ADMIN"]);
+    await requireAdminAccess(user.id);
+    const dealerId = await requireDealerId(user.id);
+
+    const draw = await prisma.draw.findFirst({ where: { id: drawId, dealerId }, select: { status: true, closesAt: true } });
+    if (!draw) throw new Error("tickets.drawNotFound");
+    if (!acceptsTickets(draw)) throw new Error("tickets.drawNotOpen");
+
+    const tickets = await prisma.ticket.findMany({
+      where: rereadableWhere(dealerId, drawId),
+      orderBy: { createdAt: "asc" },
+      take: REREAD_DRAW_MAX,
+      select: { id: true },
+    });
+    let count = 0;
+    for (const { id } of tickets) {
+      if (!(await requestImageReread(prisma, id, dealerId, engine, user))) count++;
+    }
+    if (count === 0) throw new Error("tickets.rereadNone");
+
+    revalidateTickets();
+    return { count };
+  },
+  { successMessage: "tickets.rereadQueuedDraw" },
 );
 
 /** ลบรายการที่เลือกจากตาราง (checkbox) ในคำสั่งเดียว — audit หนึ่งแถวต่อโพยหนึ่งใบ */

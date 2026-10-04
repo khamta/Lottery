@@ -88,10 +88,47 @@ caddy :3002 ──► app:3000          APP_SITE http://:3002 (ทุก host)
 migrate (รันแล้วจบ) ──► db         prisma migrate deploy · บัญชีแรก · ย้ายรูปเก่า
 app / worker ──► db:5432          (ทั้งหมดอยู่ใน network lottery-net)
 worker ──► ocr:8000               อ่านรูปโพย · ──ออก──► WhatsApp
+       ──ออก──► api.anthropic.com  อ่านรูปโพยด้วย Claude ก่อน (ถ้าตั้ง ANTHROPIC_API_KEY) — ใช้ไม่ได้ก็ใช้ ocr
 runner (service) ──ออก──► github.com
 ```
 
 ข้อมูลอยู่ที่: volume `lottery-pgdata` (ฐานข้อมูล), `lottery-wa-auth` (session WhatsApp), โฟลเดอร์ `/opt/lottery/uploads` (รูปโพย)
+
+## อ่านรูปโพยด้วย Claude (ไม่บังคับ)
+
+ตั้ง key แล้วบอทส่งรูปโพยให้ Claude อ่านเป็นข้อความโพยก่อน (แม่นกว่า ocr มากกับลายมือ/ตัวลาว) — ไม่ตั้ง = ใช้ ocr อย่างเดียวเหมือนเดิม
+ไม่ต้อง deploy ใหม่: key อยู่ใน `.env` ของเซิร์ฟเวอร์ (deploy ไม่แตะไฟล์นี้)
+
+1. สร้าง key ที่ <https://console.anthropic.com> → **API Keys** และเติมเครดิตที่ **Billing**
+   (แนะนำตั้ง auto-reload หรือ spend limit — ประมาณการ: วันละ 2,000–3,000 รูป ≈ $60–120/วัน วัดจริงที่หน้า **Usage**)
+2. บนเซิร์ฟเวอร์:
+
+   ```bash
+   cd /opt/lottery
+   sudo nano .env        # เพิ่มบรรทัด ANTHROPIC_API_KEY="sk-ant-..."
+   sudo -u lottery docker compose -f docker-compose.prod.yml up -d worker
+   sudo -u lottery docker compose -f docker-compose.prod.yml logs -f worker
+   # ต้องเห็น: [OCR] อ่านรูปด้วย Claude (claude-opus-5-5) พร้อมกัน 4 รูป
+   ```
+
+3. เซิร์ฟเวอร์ต้องออกเน็ตไปที่ `api.anthropic.com:443` ได้ (ทดสอบ: `curl -sI https://api.anthropic.com | head -1`)
+
+พฤติกรรมเมื่อ Claude ใช้ไม่ได้ (ไม่ต้องทำอะไร ระบบสลับเอง — ดู `worker/ocr.ts`):
+
+| กรณี | รูปนั้น | รูปถัดไป |
+|---|---|---|
+| Claude อ่านรูปนี้ไม่ได้ (รูปเสีย/ปฏิเสธ) | ocr อ่านแทนทันที | ยังใช้ Claude |
+| เครดิตหมด / key ผิด | ocr อ่านแทนทันที | ใช้ ocr 30 นาที แล้วลอง Claude ใหม่ (เติมเครดิตแล้วไม่ต้องรีสตาร์ต) |
+| ติดต่อไม่ได้ / ล่ม / rate limit | ocr อ่านแทนทันที | ใช้ ocr 2 นาที แล้วลอง Claude ใหม่ |
+
+ดูว่ากำลังใช้ตัวไหน: `$C logs worker | grep OCR` — ทุกรูปบอกว่าอ่านด้วย Claude หรือบริการ OCR ·
+ตอนสลับไป ocr จะมีบรรทัด `! Claude ... ใช้บริการ OCR แทน`
+
+ข้อควรรู้:
+- **service `ocr` ต้องเปิดไว้เสมอ** — เป็นตัวสำรองของ Claude
+- รูปโพยถูกส่งออกนอกเครื่องไปที่ Anthropic (ocr อ่านในเครื่องล้วน) — ปิดได้ทุกเมื่อด้วยการลบ `ANTHROPIC_API_KEY` แล้ว `up -d worker`
+- เปลี่ยนรุ่น/จำนวนที่อ่านพร้อมกัน: `CLAUDE_OCR_MODEL`, `OCR_CONCURRENCY` ใน `.env` (ดู `.env.production.example`)
+- `ocr-reapply` ข้ามรูปที่ Claude อ่าน (ไม่มีผล ocr ให้กรองใหม่)
 
 ## เข้าผ่านโดเมน (HTTPS)
 

@@ -33,6 +33,19 @@ export function readTicketFilters(raw: SearchParamsInput, draws: Pick<DrawOption
   return { drawId, status: isTicketStatus(statusParam) ? statusParam : null };
 }
 
+/** อ่านรูปใหม่ทั้งงวดได้ครั้งละไม่เกินเท่านี้ใบ — กันคำสั่งเดียวใช้เวลา/ค่า AI มากเกินไป (กดซ้ำเพื่ออ่านส่วนที่เหลือ) */
+export const REREAD_DRAW_MAX = 300;
+
+/** โพยที่สั่งอ่านรูปใหม่ได้ในงวดนี้: มีรูป ยังรอตรวจ และรูปไม่ได้อยู่ในคิวอ่าน (ปุ่มของผู้ดูแลนับจำนวนด้วยเงื่อนไขนี้) */
+export function rereadableWhere(dealerId: string, drawId: string): Prisma.TicketWhereInput {
+  return {
+    drawId,
+    draw: { dealerId },
+    status: "REVIEW",
+    image: { is: { ocrStatus: { not: "PENDING" }, path: { not: null } } },
+  };
+}
+
 /** เงื่อนไข where ของโพย — เป็นของแม่หวยผ่านงวด ?draw= ของแม่หวยอื่นจึงไม่เจออะไร */
 export function ticketWhere(dealerId: string, filters: TicketFilterValues, q: string): Prisma.TicketWhereInput {
   const conditions: Prisma.TicketWhereInput[] = [{ draw: { dealerId } }];

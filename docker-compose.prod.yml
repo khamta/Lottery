@@ -80,6 +80,11 @@ services:
       <<: *app-env
       WA_AUTH_DIR: /data/wa-auth
       OCR_URL: http://ocr:8000
+      # ตั้งใน .env ของเซิร์ฟเวอร์แล้วบอทอ่านรูปด้วย Claude ก่อน — อ่านไม่ได้/เครดิตหมด/ติดต่อไม่ได้ ใช้ ocr แทน (ocr จึงต้องเปิดไว้เสมอ)
+      # ว่าง = ใช้ ocr อย่างเดียวตามเดิม · ดู DEPLOY.md หัวข้อ "อ่านรูปโพยด้วย Claude"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_OCR_MODEL: ${CLAUDE_OCR_MODEL:-}
+      OCR_CONCURRENCY: ${OCR_CONCURRENCY:-}
     volumes:
       - wa-auth:/data/wa-auth
       - ./uploads:/app/uploads
@@ -90,6 +95,7 @@ services:
         condition: service_completed_successfully
 
   # อ่านตัวหนังสือจากรูปโพย (PaddleOCR + Tesseract บน CPU) — บอทเรียกใช้ภายใน network เท่านั้น
+  # ตั้ง ANTHROPIC_API_KEY แล้ว = ตัวสำรองเมื่อ Claude ใช้ไม่ได้ — ห้ามปิด
   ocr:
     image: ${OCR_IMAGE:-ghcr.io/khamta/lottery-ocr:latest}
     container_name: lottery-ocr

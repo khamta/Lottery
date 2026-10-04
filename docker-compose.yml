@@ -81,6 +81,11 @@ services:
       <<: *app-env
       WA_AUTH_DIR: /data/wa-auth
       OCR_URL: http://ocr:8000
+      # ตั้งใน .env แล้วบอทอ่านรูปด้วย Claude ก่อน (src/lottery/image-ai.ts) — อ่านไม่ได้/เครดิตหมด/ติดต่อไม่ได้ ใช้บริการ ocr แทน
+      # (บริการ ocr จึงต้องเปิดไว้เสมอ) · ว่าง = ใช้บริการ ocr อย่างเดียวตามเดิม
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_OCR_MODEL: ${CLAUDE_OCR_MODEL:-}
+      OCR_CONCURRENCY: ${OCR_CONCURRENCY:-}
     volumes:
       - wa-auth:/data/wa-auth
       - ./uploads:/app/uploads

@@ -12,7 +12,7 @@ import { DealerSwitcher } from "@/lottery/components/dealer-switcher";
 import { NoDealer } from "@/lottery/components/no-dealer";
 import type { PageProps } from "@/types";
 import { TicketsView } from "./_components/tickets-view";
-import { readTicketFilters, ticketWhere } from "./filters";
+import { readTicketFilters, REREAD_DRAW_MAX, rereadableWhere, ticketWhere } from "./filters";
 import { TICKET_SORTABLE, type TicketRow } from "./types";
 
 export const metadata: Metadata = { title: "Tickets" };
@@ -25,7 +25,7 @@ const OCR_REFRESH_MS = 3_000;
 
 export default async function TicketsPage({ searchParams }: PageProps) {
   const { t } = await getTranslations();
-  const { dealers, current } = await getDealerContext();
+  const { access, dealers, current } = await getDealerContext();
   if (!current) return <NoDealer title={t("tickets.title")} description={t("tickets.subtitle")} />;
   // งวดที่เลยเวลาออกผลแล้วปิดรับก่อนแสดง (เผื่อบอทไม่ได้ทำงานอยู่)
   await closeExpiredDraws(prisma, { dealerId: current.id });
@@ -57,6 +57,18 @@ export default async function TicketsPage({ searchParams }: PageProps) {
   // ตัวกรองจาก URL (?draw=<id>|all&status=REVIEW) — ไม่ระบุงวด = งวดที่เปิดรับล่าสุด · ไฟล์ส่งออกใช้ชุดเดียวกัน
   const filters = readTicketFilters(raw, draws);
   const where = ticketWhere(current.id, filters, params.q);
+
+  // ผู้ดูแลระบบ: ปุ่มอ่านรูปโพยรอตรวจทั้งงวดใหม่ — เฉพาะเมื่อกรองงวดเดียวที่ยังเปิดรับ (null = ไม่แสดงปุ่ม)
+  const filteredDraw = draws.find((draw) => draw.id === filters.drawId);
+  const rereadDraw =
+    access.isAdmin && filteredDraw?.status === "OPEN"
+      ? {
+          drawId: filteredDraw.id,
+          drawName: filteredDraw.name,
+          count: await prisma.ticket.count({ where: rereadableWhere(current.id, filteredDraw.id) }),
+          limit: REREAD_DRAW_MAX,
+        }
+      : null;
 
   const page = await paginate<
     TicketRow,
@@ -126,7 +138,14 @@ export default async function TicketsPage({ searchParams }: PageProps) {
         action={<DealerSwitcher dealers={dealers} currentId={current.id} />}
       />
       {page.rows.some((row) => row.ocrStatus === "PENDING") ? <LiveRefresh intervalMs={OCR_REFRESH_MS} /> : null}
-      <TicketsView page={page} draws={draws} customers={customers} rules={rules} filters={filters} />
+      <TicketsView
+        page={page}
+        draws={draws}
+        customers={customers}
+        rules={rules}
+        filters={filters}
+        rereadDraw={rereadDraw}
+      />
     </>
   );
 }

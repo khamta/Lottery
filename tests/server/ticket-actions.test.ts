@@ -12,6 +12,8 @@ const db = {
   tickets: new Map<string, Row>(),
   bets: [] as Row[],
   auditRows: [] as Row[],
+  /** ticketId -> รูปโพย (โพยจาก WhatsApp ที่เป็นรูป) */
+  images: new Map<string, Row>(),
 };
 
 const revalidated: string[] = [];
@@ -21,7 +23,11 @@ let currentDealerId: string | null = "dealer-1";
 let nextId = 1;
 
 /** include: { draw } ของ findUnique / findMany */
-const withDraw = (ticket: Row) => ({ ...ticket, draw: db.draws.get(ticket.drawId as string)! });
+const withDraw = (ticket: Row) => ({
+  ...ticket,
+  draw: db.draws.get(ticket.drawId as string)!,
+  image: db.images.get(ticket.id as string) ?? null,
+});
 
 const ofDealer = (ticket: Row, dealerId: string) => db.draws.get(ticket.drawId as string)?.dealerId === dealerId;
 
@@ -75,7 +81,26 @@ const tx = {
       const ticket = db.tickets.get(where.id);
       return ticket && ofDealer(ticket, where.draw.dealerId) ? withDraw(ticket) : null;
     },
-    findMany: async ({ where }: { where: { id: { in: string[] }; draw: { dealerId: string } } }) => {
+    findMany: async ({
+      where,
+    }: {
+      where: { id: { in: string[] }; draw: { dealerId: string } } | { drawId: string; draw: { dealerId: string } };
+    }) => {
+      // อ่านรูปใหม่ทั้งงวด (rereadableWhere): มีรูป · รอตรวจ · รูปไม่ได้อยู่ในคิวอ่าน
+      if ("drawId" in where) {
+        return [...db.tickets.values()]
+          .filter((ticket) => {
+            const image = db.images.get(ticket.id as string);
+            return (
+              ticket.drawId === where.drawId &&
+              ofDealer(ticket, where.draw.dealerId) &&
+              ticket.status === "REVIEW" &&
+              !!image?.path &&
+              image.ocrStatus !== "PENDING"
+            );
+          })
+          .map((ticket) => ({ id: ticket.id }));
+      }
       return where.id.in.flatMap((id) => {
         const ticket = db.tickets.get(id);
         return ticket && ofDealer(ticket, where.draw.dealerId) ? [withDraw(ticket)] : [];
@@ -92,6 +117,18 @@ const tx = {
       return { count: 0 };
     },
   },
+  ticketImage: {
+    update: async ({ where, data }: { where: { ticketId: string }; data: Row }) => {
+      const updated = { ...db.images.get(where.ticketId)!, ...data };
+      db.images.set(where.ticketId, updated);
+      return updated;
+    },
+  },
+  // src/lottery/access.ts อ่าน role/isActive จากฐานข้อมูล (requireAdminAccess)
+  user: {
+    findUnique: async ({ where }: { where: { id: string } }) =>
+      currentUser && currentUser.id === where.id ? { role: currentUser.role, isActive: true } : null,
+  },
   auditLog: {
     create: async ({ data }: { data: Row }) => {
       db.auditRows.push(data);
@@ -106,6 +143,7 @@ const tx = {
 
 mock.module("@/lib/prisma", () => ({
   prisma: {
+    ...tx,
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(tx),
   },
 }));
@@ -136,7 +174,9 @@ mock.module("next/cache", () => ({
   },
 }));
 
-const { createTicket, updateTicket, deleteTicket, deleteTickets } = await import("@/app/(dashboard)/tickets/actions");
+const { createTicket, updateTicket, deleteTicket, deleteTickets, rereadTicketImage, rereadDrawImages } = await import(
+  "@/app/(dashboard)/tickets/actions"
+);
 
 const valid = { drawId: "draw-open", customerId: "", text: "32.72=300\n243=150", note: "", force: false };
 
@@ -155,6 +195,7 @@ beforeEach(() => {
   db.tickets.clear();
   db.bets = [];
   db.auditRows = [];
+  db.images.clear();
   revalidated.length = 0;
   currentUser = { id: "user-1", role: "USER" };
   nextId = 1;
@@ -429,5 +470,141 @@ describe("deleteTickets (ลบที่เลือก)", () => {
     const result = await deleteTickets({ ids: [] });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("VALIDATION");
+  });
+});
+
+describe("อ่านรูปโพยรอตรวจใหม่", () => {
+  /** โพยจากรูปที่บอทอ่านแล้วแต่ยังรอตรวจ: ข้อความจากรูป + คำบรรยายใต้รูป (ລວມ400) */
+  function seedImageTicket(
+    id: string,
+    { drawId = "draw-open", status = "REVIEW", ocrStatus = "DONE", path = `tickets/2026-10/${id}.jpg` as string | null } = {},
+  ) {
+    db.tickets.set(id, {
+      id,
+      drawId,
+      status,
+      rawText: "32=300\n43240\n\nລວມ400",
+      lakMultiplier: 1000,
+      issues: [{ code: "UNREADABLE", line: 2, text: "43240" }],
+      senderName: "Noy",
+      betCount: 0,
+      totalLak: 0,
+      totalThb: 0,
+    });
+    db.images.set(id, { ticketId: id, path, ocrStatus, ocrText: "32=300\n43240", ocrEngine: null, ocrError: null });
+  }
+
+  describe("ใบเดียว (ผู้ใช้ทุกคน)", () => {
+    test("ตัวอ่านปกติ → รูปกลับเข้าคิว ตัดข้อความจากรูปครั้งก่อน คงคำบรรยายใต้รูป และ audit ในชื่อคนสั่ง", async () => {
+      seedImageTicket("t1");
+
+      const result = await rereadTicketImage({ id: "t1", engine: "OCR" });
+
+      expect(result.ok).toBe(true);
+      expect(db.images.get("t1")).toMatchObject({ ocrStatus: "PENDING", ocrEngine: "OCR", ocrText: null });
+      expect(db.tickets.get("t1")).toMatchObject({ status: "REVIEW", rawText: "ລວມ400", betCount: 0 });
+      expect((db.tickets.get("t1")!.issues as Array<{ code: string }>)[0]!.code).toBe("FROM_IMAGE");
+      expect(db.auditRows.at(-1)).toMatchObject({ action: "UPDATE", entityId: "t1", userId: "user-1" });
+      expect(revalidated).toContain("/tickets");
+    });
+
+    test("AI → จำตัวอ่านที่เลือกไว้ให้บอท", async () => {
+      seedImageTicket("t1");
+
+      await rereadTicketImage({ id: "t1", engine: "AI" });
+
+      expect(db.images.get("t1")).toMatchObject({ ocrStatus: "PENDING", ocrEngine: "AI" });
+    });
+
+    test("คนแก้ข้อความไปแล้ว → แทนข้อความทั้งหมดด้วยผลอ่านใหม่", async () => {
+      seedImageTicket("t1");
+      db.tickets.set("t1", { ...db.tickets.get("t1")!, rawText: "32=500\n43=240" });
+
+      await rereadTicketImage({ id: "t1", engine: "OCR" });
+
+      expect(db.tickets.get("t1")).toMatchObject({ rawText: "" });
+    });
+
+    test("โพยที่นับยอดแล้ว / รูปอยู่ในคิวอยู่แล้ว / ไม่มีรูป / งวดปิด / แม่หวยอื่น → ไม่สั่ง", async () => {
+      seedImageTicket("confirmed", { status: "CONFIRMED" });
+      seedImageTicket("reading", { ocrStatus: "PENDING" });
+      seedImageTicket("closed", { drawId: "draw-closed" });
+      seedImageTicket("other", { drawId: "draw-other" });
+      seedImageTicket("no-file", { path: null });
+      db.tickets.set("manual", { id: "manual", drawId: "draw-open", status: "REVIEW", rawText: "43240" });
+
+      const messages = [];
+      for (const id of ["confirmed", "reading", "closed", "other", "no-file", "manual"]) {
+        const result = await rereadTicketImage({ id, engine: "OCR" });
+        messages.push(result.ok ? "ok" : result.message);
+      }
+
+      expect(messages).toEqual([
+        "tickets.rereadNotReview",
+        "tickets.rereadReading",
+        "tickets.drawNotOpen",
+        "tickets.notFound",
+        "tickets.rereadNoImage",
+        "tickets.rereadNoImage",
+      ]);
+      expect(db.images.get("confirmed")).toMatchObject({ ocrStatus: "DONE" });
+      expect(db.auditRows).toHaveLength(0);
+    });
+
+    test("ตัวอ่านที่ไม่รู้จัก → VALIDATION", async () => {
+      seedImageTicket("t1");
+      const result = await rereadTicketImage({ id: "t1", engine: "GPT" as "AI" });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.code).toBe("VALIDATION");
+    });
+  });
+
+  describe("ทั้งงวด (ผู้ดูแลระบบเท่านั้น)", () => {
+    test("ผู้ใช้ทั่วไป → FORBIDDEN ไม่แตะรูป", async () => {
+      seedImageTicket("t1");
+
+      const result = await rereadDrawImages({ drawId: "draw-open", engine: "OCR" });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.code).toBe("FORBIDDEN");
+      expect(db.images.get("t1")).toMatchObject({ ocrStatus: "DONE" });
+    });
+
+    test("ผู้ดูแล → สั่งอ่านเฉพาะโพยรอตรวจที่มีรูปและไม่ได้อยู่ในคิว ของงวดนั้น", async () => {
+      currentUser = { id: "admin-1", role: "ADMIN" };
+      seedImageTicket("a");
+      seedImageTicket("b");
+      seedImageTicket("confirmed", { status: "CONFIRMED" });
+      seedImageTicket("reading", { ocrStatus: "PENDING" });
+      db.draws.set("draw-next", { dealerId: "dealer-1", status: "OPEN" });
+      seedImageTicket("next-draw", { drawId: "draw-next" });
+
+      const result = await rereadDrawImages({ drawId: "draw-open", engine: "AI" });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.count).toBe(2);
+      expect(db.images.get("a")).toMatchObject({ ocrStatus: "PENDING", ocrEngine: "AI" });
+      expect(db.images.get("b")).toMatchObject({ ocrStatus: "PENDING", ocrEngine: "AI" });
+      expect(db.images.get("confirmed")).toMatchObject({ ocrStatus: "DONE", ocrEngine: null });
+      expect(db.images.get("reading")).toMatchObject({ ocrEngine: null });
+      expect(db.images.get("next-draw")).toMatchObject({ ocrStatus: "DONE" });
+      expect(db.auditRows.map((row) => row.userId)).toEqual(["admin-1", "admin-1"]);
+    });
+
+    test("ไม่มีอะไรให้อ่าน / งวดปิด / งวดของแม่หวยอื่น → แจ้งเหตุ", async () => {
+      currentUser = { id: "admin-1", role: "ADMIN" };
+      seedImageTicket("closed", { drawId: "draw-closed" });
+
+      const results = await Promise.all(
+        ["draw-open", "draw-closed", "draw-other"].map((drawId) => rereadDrawImages({ drawId, engine: "OCR" })),
+      );
+
+      expect(results.map((result) => (result.ok ? "ok" : result.message))).toEqual([
+        "tickets.rereadNone",
+        "tickets.drawNotOpen",
+        "tickets.drawNotFound",
+      ]);
+    });
   });
 });
