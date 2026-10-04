@@ -499,45 +499,89 @@ export async function requestImageReread(
   engine: ImageEngine,
   user: AuditActor,
 ): Promise<RereadSkip | null> {
-  return db.$transaction(async (tx) => {
-    const existing = await tx.ticket.findFirst({
-      where: { id: ticketId, draw: { dealerId } },
-      include: {
-        draw: { select: { status: true, closesAt: true } },
-        image: { select: { ocrStatus: true, ocrText: true, path: true } },
-      },
-    });
-    if (!existing) return "not-found";
-    const { draw, image, ...before } = existing;
-    if (!image?.path) return "no-image";
-    if (before.status !== "REVIEW") return "not-review";
-    if (image.ocrStatus === "PENDING") return "reading";
-    if (!acceptsTickets(draw)) return "draw-closed";
+  const result = await db.$transaction((tx) => queueImageReread(tx, ticketId, dealerId, engine, user, null));
+  return typeof result === "string" ? result : null;
+}
 
-    // ไม่มีข้อความจากรูปครั้งก่อน: ยังเป็นของระบบล้วน (มี FROM_IMAGE) = ข้อความทั้งหมดคือส่วนท้าย · คนพิมพ์เองแล้ว = แทนทั้งหมด
-    const rest = image.ocrText
-      ? (afterImageText(before.rawText, image.ocrText)?.rest ?? "")
-      : hasIssue(before.issues, "FROM_IMAGE")
-        ? before.rawText
-        : "";
-    const read = readImageTicketText(rest, { lakMultiplier: before.lakMultiplier, rules: await rulesOf(tx, dealerId) });
-    const ticket = await rewriteTicket(tx, before, read.fields, read.bets);
-    await tx.ticketImage.update({
-      where: { ticketId },
-      data: { ocrStatus: "PENDING", ocrEngine: engine, ocrError: null, ocrText: null },
-    });
+/** รูปที่คนแก้แล้ว (ครอป / ลบ / หมุน) บันทึกลงดิสก์แล้ว — path ใต้โฟลเดอร์ uploads */
+export type EditedImage = { path: string; mimeType: string };
 
-    await logAudit(tx, {
-      action: "UPDATE",
-      entity: "Ticket",
-      entityId: ticket.id,
-      summary: summaryOf(before.rawText) || before.senderName,
-      before,
-      after: ticket,
-      user,
-    });
-    return null;
+/**
+ * คนแก้รูปโพยรอตรวจ (ครอป / ยางลบ / หมุน) แล้วสั่งอ่านใหม่ — เปลี่ยนรูปและเข้าคิวอ่านใน transaction เดียว
+ * เงื่อนไขเดียวกับ requestImageReread ทุกข้อ (ไม่ผ่าน = รูปเดิมไม่ถูกแตะ คนเรียกลบไฟล์ใหม่ทิ้งเอง)
+ * รูปต้นฉบับ (ก่อนแก้ครั้งแรก) เก็บไว้ใน originalPath เสมอ — รูปที่แก้รอบก่อน ๆ ไม่มีใครใช้แล้ว คืน path ให้คนเรียกลบไฟล์
+ */
+export async function replaceImageAndReread(
+  db: PrismaClient,
+  ticketId: string,
+  dealerId: string,
+  engine: ImageEngine,
+  user: AuditActor,
+  edited: EditedImage,
+): Promise<{ skip: RereadSkip } | { stalePath: string | null }> {
+  const result = await db.$transaction((tx) => queueImageReread(tx, ticketId, dealerId, engine, user, edited));
+  return typeof result === "string" ? { skip: result } : result;
+}
+
+async function queueImageReread(
+  tx: Prisma.TransactionClient,
+  ticketId: string,
+  dealerId: string,
+  engine: ImageEngine,
+  user: AuditActor,
+  edited: EditedImage | null,
+): Promise<RereadSkip | { stalePath: string | null }> {
+  const existing = await tx.ticket.findFirst({
+    where: { id: ticketId, draw: { dealerId } },
+    include: {
+      draw: { select: { status: true, closesAt: true } },
+      image: { select: { ocrStatus: true, ocrText: true, path: true, originalPath: true } },
+    },
   });
+  if (!existing) return "not-found";
+  const { draw, image, ...before } = existing;
+  if (!image?.path) return "no-image";
+  if (before.status !== "REVIEW") return "not-review";
+  if (image.ocrStatus === "PENDING") return "reading";
+  if (!acceptsTickets(draw)) return "draw-closed";
+
+  // ไม่มีข้อความจากรูปครั้งก่อน: ยังเป็นของระบบล้วน (มี FROM_IMAGE) = ข้อความทั้งหมดคือส่วนท้าย · คนพิมพ์เองแล้ว = แทนทั้งหมด
+  const rest = image.ocrText
+    ? (afterImageText(before.rawText, image.ocrText)?.rest ?? "")
+    : hasIssue(before.issues, "FROM_IMAGE")
+      ? before.rawText
+      : "";
+  const read = readImageTicketText(rest, { lakMultiplier: before.lakMultiplier, rules: await rulesOf(tx, dealerId) });
+  const ticket = await rewriteTicket(tx, before, read.fields, read.bets);
+  await tx.ticketImage.update({
+    where: { ticketId },
+    data: {
+      ocrStatus: "PENDING",
+      ocrEngine: engine,
+      ocrError: null,
+      ocrText: null,
+      ...(edited
+        ? {
+            path: edited.path,
+            mimeType: edited.mimeType,
+            originalPath: image.originalPath ?? image.path,
+            editedAt: new Date(),
+          }
+        : {}),
+    },
+  });
+
+  await logAudit(tx, {
+    action: "UPDATE",
+    entity: "Ticket",
+    entityId: ticket.id,
+    summary: summaryOf(before.rawText) || before.senderName,
+    before,
+    after: ticket,
+    user,
+  });
+  // รูปที่แก้รอบก่อน (ไม่ใช่ต้นฉบับ) ไม่มีใครใช้แล้ว
+  return { stalePath: edited && image.originalPath && image.path !== image.originalPath ? image.path : null };
 }
 
 /** ข้อความที่มีแต่ยอดรวม → ต่อท้ายโพยล่าสุดของคนเดิม แล้วอ่านใหม่ (ยอดไม่ตรง = กลับไปรอตรวจ) */

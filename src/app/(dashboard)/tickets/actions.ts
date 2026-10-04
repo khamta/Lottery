@@ -12,15 +12,18 @@ import { acceptsTickets } from "@/lottery/draw-status";
 import { nextBillNo } from "@/lottery/bill";
 import { requireDealerId } from "@/lottery/dealer";
 import { DEFAULT_LAK_MULTIPLIER } from "@/lottery/parser";
-import { requestImageReread, rulesOf, type RereadSkip } from "@/lottery/ingest";
+import { removeTicketImage, saveTicketImage } from "@/lottery/image-store";
+import { replaceImageAndReread, requestImageReread, rulesOf, type RereadSkip } from "@/lottery/ingest";
 import { readTicketText } from "@/lottery/ticket";
 import {
   createTicketSchema,
   deleteTicketSchema,
   deleteTicketsSchema,
+  editTicketImageSchema,
   rereadDrawImagesSchema,
   rereadTicketImageSchema,
   updateTicketSchema,
+  type EditedImageMime,
   type TicketInput,
 } from "@/lib/validations/ticket";
 import { REREAD_DRAW_MAX, rereadableWhere } from "./filters";
@@ -205,6 +208,48 @@ export const rereadTicketImage = createAction(
     return { id };
   },
   { successMessage: "tickets.rereadQueued" },
+);
+
+/** ไบต์แรกของไฟล์ต้องตรงกับชนิดที่บอกมา — กันไฟล์อื่นปลอมเป็นรูป */
+const IMAGE_SIGNATURES: Record<EditedImageMime, number[]> = {
+  "image/jpeg": [0xff, 0xd8, 0xff],
+  "image/png": [0x89, 0x50, 0x4e, 0x47],
+};
+
+/**
+ * แก้รูปโพยรอตรวจ (ครอป / ยางลบ / หมุน ในหน้าแก้รูป) แล้วอ่านใหม่ด้วยตัวอ่านที่เลือก (ผู้ใช้ทุกคน)
+ * บันทึกไฟล์ใหม่ก่อน แล้วเปลี่ยนรูป + เข้าคิวอ่านใน transaction เดียว — สั่งไม่ได้ = ลบไฟล์ใหม่ทิ้ง รูปเดิมไม่ถูกแตะ
+ * รูปต้นฉบับเก็บไว้เสมอ (ย้อนกลับไปแก้จากต้นฉบับได้) · AI มีค่าใช้จ่าย — หน้าโพยถามยืนยันก่อนส่งมาที่นี่
+ */
+export const editTicketImage = createAction(
+  editTicketImageSchema,
+  async ({ id, engine, mimeType, data }) => {
+    const user = await requireUser();
+    const dealerId = await requireDealerId(user.id);
+
+    const bytes = new Uint8Array(Buffer.from(data, "base64"));
+    if (!IMAGE_SIGNATURES[mimeType].every((byte, index) => bytes[index] === byte)) {
+      throw new Error("tickets.validation.imageInvalid");
+    }
+
+    const path = await saveTicketImage(bytes, mimeType);
+    let result: Awaited<ReturnType<typeof replaceImageAndReread>>;
+    try {
+      result = await replaceImageAndReread(prisma, id, dealerId, engine, user, { path, mimeType });
+    } catch (error) {
+      await removeTicketImage(path).catch(() => undefined);
+      throw error;
+    }
+    if ("skip" in result) {
+      await removeTicketImage(path).catch(() => undefined);
+      throw new Error(rereadErrorKey[result.skip]);
+    }
+    if (result.stalePath) await removeTicketImage(result.stalePath).catch(() => undefined);
+
+    revalidateTickets();
+    return { id };
+  },
+  { successMessage: "tickets.imageEditQueued" },
 );
 
 /**

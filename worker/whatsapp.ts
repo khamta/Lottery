@@ -334,8 +334,12 @@ async function handleImage(
 /** ไฟล์รูปของโพยที่ถูกลบ/รวมไปแล้ว — ลบตอนบอทเริ่มและทุก IMAGE_SWEEP_MS */
 async function sweepImages() {
   const removed = await sweepTicketImages(async (paths) => {
-    const rows = await prisma.ticketImage.findMany({ where: { path: { in: paths } }, select: { path: true } });
-    return new Set(rows.map((row) => row.path!));
+    // รูปต้นฉบับของรูปที่คนแก้แล้ว (originalPath) ยังใช้อยู่ — ย้อนกลับไปใช้ได้
+    const rows = await prisma.ticketImage.findMany({
+      where: { OR: [{ path: { in: paths } }, { originalPath: { in: paths } }] },
+      select: { path: true, originalPath: true },
+    });
+    return new Set(rows.flatMap((row) => [row.path, row.originalPath]).filter((path): path is string => !!path));
   });
   if (removed > 0) log(`ลบไฟล์รูปโพยที่ไม่มีโพยแล้ว ${removed} ไฟล์`);
 }

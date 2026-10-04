@@ -3,7 +3,7 @@
 import * as React from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { Save } from "lucide-react";
+import { Crop, Save } from "lucide-react";
 
 import {
   Dialog,
@@ -36,7 +36,7 @@ import { useI18n } from "@/i18n/client";
 import { DEFAULT_LAK_MULTIPLIER, parseTicket } from "@/lottery/parser";
 import type { ReadRuleSpec } from "@/lottery/read-rules";
 import { isTicketMessage } from "@/lottery/ticket";
-import { ticketImageUrl, type CustomerOption, type DrawOption, type TicketRow } from "../types";
+import { canRereadImage, ticketImageUrl, type CustomerOption, type DrawOption, type TicketRow } from "../types";
 import { countFilledLines, NumberedTextarea } from "./numbered-textarea";
 import { TicketPreview } from "./ticket-preview";
 
@@ -58,6 +58,8 @@ type TicketDialogProps = {
   /** งวดที่กำลังกรองอยู่ในตาราง — ใช้เป็นค่าตั้งต้นของโพยใหม่ */
   defaultDrawId: string | null;
   onSubmit: (values: TicketInput) => void;
+  /** เปิดหน้าแก้รูป (ครอป / ยางลบ) ของโพยนี้ — แสดงปุ่มเฉพาะโพยที่สั่งอ่านรูปใหม่ได้ */
+  onEditImage: (ticket: TicketRow) => void;
 };
 
 /** Radix Select ไม่รับค่าว่าง จึงใช้ค่านี้แทน "ไม่ระบุลูกค้า" */
@@ -79,6 +81,7 @@ export function TicketDialog({
   rules,
   defaultDrawId,
   onSubmit,
+  onEditImage,
 }: TicketDialogProps) {
   const { t } = useI18n();
   const isEdit = !!ticket;
@@ -225,7 +228,11 @@ export function TicketDialog({
 
             <div className={hasImage ? "grid gap-4 lg:grid-cols-2 lg:items-start" : "contents"}>
               {ticket?.ocrStatus ? (
-                <TicketImage ticketId={ticket.id} status={ticket.ocrStatus} transcript={ticket.ocrTranscript} />
+                <TicketImage
+                  ticket={ticket}
+                  status={ticket.ocrStatus}
+                  onEdit={canRereadImage(ticket) ? () => onEditImage(ticket) : null}
+                />
               ) : null}
               <div className="grid gap-4">
                 <FormField
@@ -316,20 +323,22 @@ export function TicketDialog({
 }
 
 /**
- * รูปโพยที่ลูกค้าส่งมา — กดเปิดขนาดเต็มในแท็บใหม่
+ * รูปโพยที่ลูกค้าส่งมา — กดเปิดขนาดเต็มในแท็บใหม่ · ปุ่มแก้รูป (ครอป / ยางลบ) แล้วอ่านใหม่
  * ใต้รูปแสดงทุกอย่างที่ OCR อ่านได้ (ก่อนกรอง) ให้เทียบว่าอะไรถูกกรองทิ้งไป
  */
 function TicketImage({
-  ticketId,
+  ticket,
   status,
-  transcript,
+  onEdit,
 }: {
-  ticketId: string;
+  ticket: TicketRow;
   status: NonNullable<TicketRow["ocrStatus"]>;
-  transcript: string | null;
+  /** null = แก้รูปไม่ได้ (นับยอดแล้ว / อยู่ในคิวอ่าน) */
+  onEdit: (() => void) | null;
 }) {
   const { t } = useI18n();
-  const src = ticketImageUrl(ticketId);
+  const src = ticketImageUrl(ticket.id, { editedAt: ticket.imageEditedAt });
+  const transcript = ticket.ocrTranscript;
 
   return (
     <div className="grid gap-2">
@@ -337,9 +346,17 @@ function TicketImage({
         {/* eslint-disable-next-line @next/next/no-img-element -- route ภายในที่ตรวจสิทธิ์เอง ไม่ต้องผ่าน next/image */}
         <img src={src} alt={t("tickets.imageAlt")} className="max-h-[60dvh] w-full object-contain" />
       </a>
-      <p className={`text-xs ${status === "FAILED" ? "font-medium text-destructive" : "text-muted-foreground"}`}>
-        {t(`tickets.imageHint${status}`)}
-      </p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <p className={`text-xs ${status === "FAILED" ? "font-medium text-destructive" : "text-muted-foreground"}`}>
+          {t(`tickets.imageHint${status}`)}
+          {ticket.imageEditedAt ? ` · ${t("tickets.imageEdited")}` : ""}
+        </p>
+        {onEdit ? (
+          <Button type="button" variant="outline" size="sm" className="w-full shrink-0 sm:w-auto" onClick={onEdit}>
+            <Crop /> {t("tickets.editImage")}
+          </Button>
+        ) : null}
+      </div>
       {transcript ? (
         <div className="grid gap-1">
           <p className="text-sm font-medium">{t("tickets.transcript")}</p>

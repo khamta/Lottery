@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { getTranslations } from "@/i18n/server";
 import { getDealerContext } from "@/lottery/dealer";
 import { rulesOf } from "@/lottery/ingest";
+import { oddLakTicketIds } from "@/lottery/odd-lak";
 import { DealerSwitcher } from "@/lottery/components/dealer-switcher";
 import { NoDealer } from "@/lottery/components/no-dealer";
 import type { PageProps } from "@/types";
@@ -56,7 +57,9 @@ export default async function TicketsPage({ searchParams }: PageProps) {
 
   // ตัวกรองจาก URL (?draw=<id>|all&status=REVIEW) — ไม่ระบุงวด = งวดที่เปิดรับล่าสุด · ไฟล์ส่งออกใช้ชุดเดียวกัน
   const filters = readTicketFilters(raw, draws);
-  const where = ticketWhere(current.id, filters, params.q);
+  // โพยที่มียอดกีบไม่ลงท้าย 000 ของงวดที่กรองอยู่ — ปุ่มกรองแสดงจำนวนเสมอ ให้รู้ว่ามีต้องตรวจไหม
+  const oddLakIds = await oddLakTicketIds(prisma, current.id, filters.drawId);
+  const where = ticketWhere(current.id, filters, params.q, oddLakIds);
 
   // ผู้ดูแลระบบ: ปุ่มอ่านรูปโพยรอตรวจทั้งงวดใหม่ — เฉพาะเมื่อกรองงวดเดียวที่ยังเปิดรับ (null = ไม่แสดงปุ่ม)
   const filteredDraw = draws.find((draw) => draw.id === filters.drawId);
@@ -86,7 +89,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       lakMultiplier: number;
       note: string | null;
       issues: unknown;
-      image: { ocrStatus: TicketRow["ocrStatus"]; transcript: string | null } | null;
+      image: { ocrStatus: TicketRow["ocrStatus"]; transcript: string | null; editedAt: Date | null } | null;
       betCount: number;
       totalLak: unknown;
       totalThb: unknown;
@@ -111,7 +114,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       note: true,
       issues: true,
       // สถานะ + ข้อความทุกอย่างที่อ่านได้จากรูป (ขั้นที่ 1) — ตัวรูปดึงแยกทีละรูปตอนเปิดดู
-      image: { select: { ocrStatus: true, transcript: true } },
+      image: { select: { ocrStatus: true, transcript: true, editedAt: true } },
       betCount: true,
       totalLak: true,
       totalThb: true,
@@ -124,6 +127,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       issueCount: Array.isArray(issues) ? issues.length : 0,
       ocrStatus: image?.ocrStatus ?? null,
       ocrTranscript: image?.transcript ?? null,
+      imageEditedAt: image?.editedAt?.toISOString() ?? null,
       totalLak: Number(row.totalLak),
       totalThb: Number(row.totalThb),
       createdAt: row.createdAt.toISOString(),
@@ -144,6 +148,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
         customers={customers}
         rules={rules}
         filters={filters}
+        oddLakCount={oddLakIds.length}
         rereadDraw={rereadDraw}
       />
     </>

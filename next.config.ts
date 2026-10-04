@@ -7,6 +7,10 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["192.168.*.*", "10.*.*.*"],
   // ส่งออกโพย (src/lottery/ticket-export.ts) — pdfkit อ่านไฟล์ข้อมูลของตัวเองจาก node_modules ตอนรัน ห้าม bundle
   serverExternalPackages: ["pdfkit", "exceljs"],
+  // แก้รูปโพยแล้วส่งรูปใหม่ผ่าน server action (tickets/actions.ts → editTicketImage) — ค่าเริ่มต้น 1MB เล็กไปสำหรับรูป
+  experimental: {
+    serverActions: { bodySizeLimit: "8mb" },
+  },
   images: {
     remotePatterns: [{ protocol: "https", hostname: "**" }],
   },

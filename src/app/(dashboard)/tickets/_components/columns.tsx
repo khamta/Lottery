@@ -1,7 +1,7 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { ClipboardCheck, EllipsisVertical, ImageIcon, RefreshCw, Trash2 } from "lucide-react";
+import { ClipboardCheck, Crop, EllipsisVertical, ImageIcon, RefreshCw, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,10 +24,12 @@ type ColumnOptions = {
   onEdit: (row: TicketRow) => void;
   /** อ่านรูปของโพยรอตรวจใหม่ (เลือกตัวอ่านในหน้าต่างถัดไป) */
   onReread: (row: TicketRow) => void;
+  /** แก้รูปโพย (ครอป / ยางลบ) แล้วอ่านใหม่ */
+  onEditImage: (row: TicketRow) => void;
   onDelete: (row: TicketRow) => void;
 };
 
-export function getTicketColumns({ t, intl, onEdit, onReread, onDelete }: ColumnOptions): ColumnDef<TicketRow>[] {
+export function getTicketColumns({ t, intl, onEdit, onReread, onEditImage, onDelete }: ColumnOptions): ColumnDef<TicketRow>[] {
   const money = (value: number) =>
     value ? <span className="font-medium tabular-nums">{formatNumber(value, intl)}</span> : <span className="text-muted-foreground">–</span>;
 
@@ -37,12 +39,16 @@ export function getTicketColumns({ t, intl, onEdit, onReread, onDelete }: Column
       accessorKey: "billNo",
       header: t("tickets.billNo"),
       enableSorting: true,
-      cell: ({ row }) =>
-        row.original.billNo === null ? (
-          <span className="text-muted-foreground">–</span>
-        ) : (
-          <span className="font-medium whitespace-nowrap tabular-nums">{row.original.billNo}</span>
-        ),
+      // data-ticket-id: กดที่แถวไหนก็เปิดหน้าตรวจโพย — view หาแถวจาก attribute นี้ (ตารางกลางรับ onClick ของแถวไม่ได้)
+      cell: ({ row }) => (
+        <span data-ticket-id={row.original.id}>
+          {row.original.billNo === null ? (
+            <span className="text-muted-foreground">–</span>
+          ) : (
+            <span className="font-medium whitespace-nowrap tabular-nums">{row.original.billNo}</span>
+          )}
+        </span>
+      ),
     },
     {
       id: "createdAt",
@@ -157,9 +163,14 @@ export function getTicketColumns({ t, intl, onEdit, onReread, onDelete }: Column
                 <ClipboardCheck /> {t("tickets.review")}
               </DropdownMenuItem>
               {canRereadImage(row.original) ? (
-                <DropdownMenuItem onClick={() => onReread(row.original)}>
-                  <RefreshCw /> {t("tickets.reread")}
-                </DropdownMenuItem>
+                <>
+                  <DropdownMenuItem onClick={() => onReread(row.original)}>
+                    <RefreshCw /> {t("tickets.reread")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onEditImage(row.original)}>
+                    <Crop /> {t("tickets.editImage")}
+                  </DropdownMenuItem>
+                </>
               ) : null}
               <DropdownMenuItem variant="destructive" onClick={() => onDelete(row.original)}>
                 <Trash2 /> {t("common.delete")}

@@ -39,7 +39,24 @@ export const rereadDrawImagesSchema = z.object({
   engine: imageEngineEnum,
 });
 
+/** รูปที่แก้แล้วส่งเป็น base64 — ไม่เกิน ~5MB ต่อรูป (หน้าแก้รูปย่อด้านยาวเหลือ 2,400px ก่อนส่ง) */
+export const EDITED_IMAGE_MAX_BASE64 = 7_000_000;
+export const editedImageMimeEnum = z.enum(["image/jpeg", "image/png"]);
+/** แก้รูปโพยรอตรวจ (ครอป / ยางลบ / หมุน) แล้วอ่านใหม่ด้วยตัวอ่านที่เลือก — ผู้ใช้ทุกคน */
+export const editTicketImageSchema = z.object({
+  id: z.string().min(1, "validation.required"),
+  engine: imageEngineEnum,
+  mimeType: editedImageMimeEnum,
+  data: z
+    .string()
+    .min(1, "validation.required")
+    .max(EDITED_IMAGE_MAX_BASE64, "tickets.validation.imageTooLarge")
+    .regex(/^[A-Za-z0-9+/]+=*$/, "tickets.validation.imageInvalid"),
+});
+
 export type TicketInput = z.infer<typeof ticketSchema>;
+export type EditTicketImageInput = z.infer<typeof editTicketImageSchema>;
+export type EditedImageMime = z.infer<typeof editedImageMimeEnum>;
 export type ImageEngineValue = z.infer<typeof imageEngineEnum>;
 export type TicketStatusValue = z.infer<typeof ticketStatusEnum>;
 export type TicketSourceValue = z.infer<typeof ticketSourceEnum>;

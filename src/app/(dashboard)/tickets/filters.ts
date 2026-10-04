@@ -24,13 +24,13 @@ export function billQueryPrefix(q: string): string | null {
   return match ? BILL_PREFIX + match[1] : null;
 }
 
-/** อ่าน ?draw=<id>|all&status= จาก URL — ไม่ระบุงวด = งวดที่เปิดรับล่าสุด (draws เรียงใหม่ → เก่า) */
+/** อ่าน ?draw=<id>|all&status=&odd=1 จาก URL — ไม่ระบุงวด = งวดที่เปิดรับล่าสุด (draws เรียงใหม่ → เก่า) */
 export function readTicketFilters(raw: SearchParamsInput, draws: Pick<DrawOption, "id" | "status">[]): TicketFilterValues {
   const drawParam = (first(raw.draw) ?? "").slice(0, 50);
   const drawId =
     drawParam === "all" ? null : drawParam || (draws.find((draw) => draw.status === "OPEN")?.id ?? null);
   const statusParam = first(raw.status);
-  return { drawId, status: isTicketStatus(statusParam) ? statusParam : null };
+  return { drawId, status: isTicketStatus(statusParam) ? statusParam : null, oddLak: first(raw.odd) === "1" };
 }
 
 /** อ่านรูปใหม่ทั้งงวดได้ครั้งละไม่เกินเท่านี้ใบ — กันคำสั่งเดียวใช้เวลา/ค่า AI มากเกินไป (กดซ้ำเพื่ออ่านส่วนที่เหลือ) */
@@ -46,11 +46,20 @@ export function rereadableWhere(dealerId: string, drawId: string): Prisma.Ticket
   };
 }
 
-/** เงื่อนไข where ของโพย — เป็นของแม่หวยผ่านงวด ?draw= ของแม่หวยอื่นจึงไม่เจออะไร */
-export function ticketWhere(dealerId: string, filters: TicketFilterValues, q: string): Prisma.TicketWhereInput {
+/**
+ * เงื่อนไข where ของโพย — เป็นของแม่หวยผ่านงวด ?draw= ของแม่หวยอื่นจึงไม่เจออะไร
+ * oddLakIds = โพยที่มียอดกีบแปลก (oddLakTicketIds) — ใช้เมื่อเปิดตัวกรอง ?odd=1 · ไม่ส่งมา = ไม่เจออะไร
+ */
+export function ticketWhere(
+  dealerId: string,
+  filters: TicketFilterValues,
+  q: string,
+  oddLakIds: string[] = [],
+): Prisma.TicketWhereInput {
   const conditions: Prisma.TicketWhereInput[] = [{ draw: { dealerId } }];
   if (filters.drawId) conditions.push({ drawId: filters.drawId });
   if (filters.status) conditions.push({ status: filters.status });
+  if (filters.oddLak) conditions.push({ id: { in: oddLakIds } });
   if (q) {
     const bill = billQueryPrefix(q);
     conditions.push({

@@ -13,7 +13,15 @@ import { DEFAULT_LAK_MULTIPLIER, parseTicket } from "@/lottery/parser";
 import type { ReadRuleSpec } from "@/lottery/read-rules";
 import { summarizeTicket } from "@/lottery/ticket";
 import type { Paginated } from "@/types";
-import { createTicket, deleteTicket, deleteTickets, rereadDrawImages, rereadTicketImage, updateTicket } from "../actions";
+import {
+  createTicket,
+  deleteTicket,
+  deleteTickets,
+  editTicketImage,
+  rereadDrawImages,
+  rereadTicketImage,
+  updateTicket,
+} from "../actions";
 import {
   canRereadImage,
   type CustomerOption,
@@ -25,10 +33,17 @@ import {
 import { getTicketColumns } from "./columns";
 import { TicketDialog } from "./ticket-dialog";
 import { RereadImageDialog } from "./reread-image-dialog";
+import { ImageEditorDialog, type EditedImageData } from "./image-editor-dialog";
 import { TicketFilters } from "./ticket-filters";
 
-/** สิ่งที่จะอ่านรูปใหม่: โพยใบเดียว (ทุกคน) หรือโพยรอตรวจทั้งงวด (ผู้ดูแลระบบ) */
-type RereadTarget = { kind: "ticket"; row: TicketRow } | { kind: "draw"; draw: RereadDrawTarget };
+/** สิ่งที่จะอ่านรูปใหม่: โพยใบเดียว (ทุกคน) · โพยใบเดียวด้วยรูปที่เพิ่งแก้ (ทุกคน) · โพยรอตรวจทั้งงวด (ผู้ดูแลระบบ) */
+type RereadTarget =
+  | { kind: "ticket"; row: TicketRow }
+  | { kind: "edited"; row: TicketRow; image: EditedImageData }
+  | { kind: "draw"; draw: RereadDrawTarget };
+
+/** กดตรงนี้ในแถว = ใช้งานปุ่ม/checkbox/เมนูนั้น ไม่ใช่เปิดหน้าตรวจโพย */
+const INTERACTIVE = "button, a, input, label, [role='checkbox'], [role='menuitem']";
 
 export function TicketsView({
   page,
@@ -36,6 +51,7 @@ export function TicketsView({
   customers,
   rules,
   filters,
+  oddLakCount,
   rereadDraw,
 }: {
   page: Paginated<TicketRow>;
@@ -44,6 +60,8 @@ export function TicketsView({
   /** เงื่อนไขอ่านโพยของแม่หวย (read-rules.ts) */
   rules: ReadRuleSpec[];
   filters: TicketFilterValues;
+  /** จำนวนโพยที่มียอดกีบแปลก (ไม่ลงท้าย 000) ในงวดที่กรองอยู่ */
+  oddLakCount: number;
   /** ผู้ดูแลระบบ + กรองงวดที่เปิดรับอยู่ = ปุ่มอ่านรูปโพยรอตรวจทั้งงวดใหม่ (null = ไม่แสดงปุ่ม) */
   rereadDraw: RereadDrawTarget | null;
 }) {
@@ -64,25 +82,42 @@ export function TicketsView({
   // อ่านรูปใหม่: เลือกตัวอ่าน (rereading) → เลือก AI ต้องยืนยันค่าใช้จ่ายอีกขั้น (aiConfirm) → สั่งจริง
   const [rereading, setRereading] = React.useState<RereadTarget | null>(null);
   const [aiConfirm, setAiConfirm] = React.useState<RereadTarget | null>(null);
+  // แก้รูป (ครอป / ยางลบ) → เลือกตัวอ่าน (rereading kind "edited") → สั่งบันทึกรูป + อ่านใหม่
+  const [editingImage, setEditingImage] = React.useState<TicketRow | null>(null);
+
+  const openReview = React.useCallback((row: TicketRow) => {
+    setEditing(row);
+    setFormOpen(true);
+  }, []);
 
   const columns = React.useMemo(
     () =>
       getTicketColumns({
         t,
         intl,
-        onEdit: (row) => {
-          setEditing(row);
-          setFormOpen(true);
-        },
+        onEdit: openReview,
         onReread: (row) => setRereading({ kind: "ticket", row }),
+        onEditImage: setEditingImage,
         onDelete: (row) => setDeleting(row),
       }),
-    [t, intl],
+    [t, intl, openReview],
   );
+
+  /** กดที่แถวของตาราง (นอกปุ่ม/checkbox/เมนู) = เปิดหน้าตรวจโพยใบนั้นเลย — ลากเลือกข้อความไม่นับ */
+  function handleRowClick(event: React.MouseEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement;
+    if (target.closest(INTERACTIVE) || window.getSelection()?.toString()) return;
+    const id = target.closest("tbody tr")?.querySelector<HTMLElement>("[data-ticket-id]")?.dataset.ticketId;
+    const row = id ? rows.find((item) => item.id === id) : undefined;
+    if (row) openReview(row);
+  }
 
   function describeReread(target: RereadTarget) {
     if (target.kind === "ticket") {
       return t("tickets.rereadDesc", { bill: target.row.billNo ?? "–" });
+    }
+    if (target.kind === "edited") {
+      return t("tickets.editImageRereadDesc", { bill: target.row.billNo ?? "–" });
     }
     const { drawName, count, limit } = target.draw;
     const desc = t("tickets.rereadDrawDesc", { count, draw: drawName });
@@ -91,7 +126,7 @@ export function TicketsView({
 
   /** จำนวนรูปที่จะอ่าน — บอกในคำเตือนค่าใช้จ่ายของ AI */
   const imageCount = (target: RereadTarget) =>
-    target.kind === "ticket" ? 1 : Math.min(target.draw.count, target.draw.limit);
+    target.kind === "draw" ? Math.min(target.draw.count, target.draw.limit) : 1;
 
   function handleRereadEngine(engine: ImageEngineValue) {
     const target = rereading;
@@ -106,6 +141,14 @@ export function TicketsView({
       mutate({
         patch: { type: "update", item: { ...target.row, ocrStatus: "PENDING" } },
         action: () => rereadTicketImage({ id: target.row.id, engine }),
+      });
+      return;
+    }
+    if (target.kind === "edited") {
+      const { row, image } = target;
+      mutate({
+        patch: { type: "update", item: { ...row, ocrStatus: "PENDING" } },
+        action: () => editTicketImage({ id: row.id, engine, ...image }),
       });
       return;
     }
@@ -157,6 +200,7 @@ export function TicketsView({
             senderName: null,
             ocrStatus: null,
             ocrTranscript: null,
+            imageEditedAt: null,
             createdAt: new Date().toISOString(),
             ...shared,
           },
@@ -188,48 +232,51 @@ export function TicketsView({
     setBulkDeleting(null);
   }
 
-  const filtered = !!filters.status;
+  const filtered = !!filters.status || filters.oddLak;
 
   return (
     <>
-      <DataTable
-        columns={columns}
-        page={{ ...page, rows }}
-        pending={isPending}
-        searchPlaceholderKey="tickets.search"
-        emptyTitleKey={filtered ? "tickets.emptyFiltered" : "tickets.empty"}
-        emptyDescriptionKey={filtered ? "tickets.emptyFilteredDesc" : "tickets.emptyDesc"}
-        selectable
-        bulkActions={(ctx) => (
-          <Button variant="destructive" size="sm" onClick={() => setBulkDeleting(ctx)}>
-            <Trash2 /> {t("common.deleteSelected")}
-          </Button>
-        )}
-        toolbar={
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <TicketFilters draws={draws} filters={filters} disabled={isPending} />
-            {rereadDraw ? (
-              <Button
-                variant="outline"
-                className="w-full sm:w-auto"
-                disabled={isPending || rereadDraw.count === 0}
-                onClick={() => setRereading({ kind: "draw", draw: rereadDraw })}
-              >
-                <RefreshCw /> {t("tickets.rereadDraw", { count: rereadDraw.count })}
-              </Button>
-            ) : null}
-            <Button
-              className="w-full sm:w-auto"
-              onClick={() => {
-                setEditing(null);
-                setFormOpen(true);
-              }}
-            >
-              <Plus /> {t("tickets.add")}
+      {/* กดที่แถว = เปิดหน้าตรวจโพย (ตารางกลางรับ onClick ของแถวไม่ได้ จึงดักที่กรอบนอก) */}
+      <div onClick={handleRowClick} className="[&_tbody_tr:has([data-ticket-id])]:cursor-pointer">
+        <DataTable
+          columns={columns}
+          page={{ ...page, rows }}
+          pending={isPending}
+          searchPlaceholderKey="tickets.search"
+          emptyTitleKey={filtered ? "tickets.emptyFiltered" : "tickets.empty"}
+          emptyDescriptionKey={filtered ? "tickets.emptyFilteredDesc" : "tickets.emptyDesc"}
+          selectable
+          bulkActions={(ctx) => (
+            <Button variant="destructive" size="sm" onClick={() => setBulkDeleting(ctx)}>
+              <Trash2 /> {t("common.deleteSelected")}
             </Button>
-          </div>
-        }
-      />
+          )}
+          toolbar={
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <TicketFilters draws={draws} filters={filters} oddLakCount={oddLakCount} disabled={isPending} />
+              {rereadDraw ? (
+                <Button
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  disabled={isPending || rereadDraw.count === 0}
+                  onClick={() => setRereading({ kind: "draw", draw: rereadDraw })}
+                >
+                  <RefreshCw /> {t("tickets.rereadDraw", { count: rereadDraw.count })}
+                </Button>
+              ) : null}
+              <Button
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  setEditing(null);
+                  setFormOpen(true);
+                }}
+              >
+                <Plus /> {t("tickets.add")}
+              </Button>
+            </div>
+          }
+        />
+      </div>
 
       <TicketDialog
         open={formOpen}
@@ -240,6 +287,17 @@ export function TicketsView({
         rules={rules}
         defaultDrawId={filters.drawId}
         onSubmit={handleSave}
+        onEditImage={setEditingImage}
+      />
+
+      <ImageEditorDialog
+        ticket={editingImage}
+        onOpenChange={(open) => !open && setEditingImage(null)}
+        onSubmit={(image) => {
+          const row = editingImage;
+          setEditingImage(null);
+          if (row) setRereading({ kind: "edited", row, image });
+        }}
       />
 
       <ConfirmDialog

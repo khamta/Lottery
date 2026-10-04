@@ -25,6 +25,8 @@ export type TicketRow = {
   ocrStatus: OcrStatusValue | null;
   /** โพยจากรูป: ทุกอย่างที่ OCR อ่านได้จากรูป ก่อนกรองตามกติกา (null = ยังไม่ได้อ่าน / ไม่มีรูป) */
   ocrTranscript: string | null;
+  /** โพยจากรูป: เวลาที่คนแก้รูป (ครอป/ลบ/หมุน) ล่าสุด — null = ยังไม่เคยแก้ (รูปตามที่ลูกค้าส่งมา) */
+  imageEditedAt: string | null;
   betCount: number;
   totalLak: number;
   totalThb: number;
@@ -54,8 +56,8 @@ export type RereadDrawTarget = { drawId: string; drawName: string; count: number
 export const canRereadImage = (row: Pick<TicketRow, "status" | "ocrStatus">) =>
   row.status === "REVIEW" && !!row.ocrStatus && row.ocrStatus !== "PENDING";
 
-/** ค่าตัวกรองใน URL (?draw=&status=) — draw: "all" = ทุกงวด */
-export type TicketFilterValues = { drawId: string | null; status: TicketStatusValue | null };
+/** ค่าตัวกรองใน URL (?draw=&status=&odd=1) — draw: "all" = ทุกงวด · oddLak = เฉพาะโพยที่มียอดกีบไม่ลงท้าย 000 */
+export type TicketFilterValues = { drawId: string | null; status: TicketStatusValue | null; oddLak: boolean };
 
 /** สถานะ -> คีย์ i18n (ห้ามเก็บข้อความตรง ๆ เพราะระบบรองรับ 4 ภาษา) */
 export const statusKey: Record<TicketStatusValue, string> = {
@@ -84,5 +86,11 @@ export const issueKey: Record<ParseIssueCode, string> = {
   FROM_IMAGE: "tickets.issueFROM_IMAGE",
 };
 
-/** รูปโพย — เสิร์ฟจาก tickets/image/[id]/route.ts */
-export const ticketImageUrl = (ticketId: string) => `/tickets/image/${ticketId}`;
+/**
+ * รูปโพย — เสิร์ฟจาก tickets/image/[id]/route.ts · original = รูปต้นฉบับก่อนแก้
+ * editedAt ต่อท้าย URL: แก้รูปแล้ว URL เปลี่ยน เบราว์เซอร์จึงไม่ใช้รูปเก่าที่ cache ไว้
+ */
+export function ticketImageUrl(ticketId: string, { editedAt = null, original = false }: { editedAt?: string | null; original?: boolean } = {}) {
+  if (original) return `/tickets/image/${ticketId}?original=1`;
+  return editedAt ? `/tickets/image/${ticketId}?v=${new Date(editedAt).getTime()}` : `/tickets/image/${ticketId}`;
+}

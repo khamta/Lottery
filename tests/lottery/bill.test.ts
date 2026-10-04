@@ -35,14 +35,14 @@ describe("ค้นหาด้วยเลขบิล (tickets/filters.ts)", (
   });
 
   test("เลขบิล → ค้นแบบขึ้นต้นด้วย (261002 = ทุกบิลของวันนั้น) และยังค้นในข้อความโพยด้วย", () => {
-    const where = ticketWhere("dealer-1", { drawId: null, status: null }, "261002");
+    const where = ticketWhere("dealer-1", { drawId: null, status: null, oddLak: false }, "261002");
     const or = (where.AND as { OR?: unknown[] }[])[1]!.OR!;
     expect(or[0]).toEqual({ billNo: { startsWith: "BNO261002" } });
     expect(or[1]).toEqual({ rawText: { contains: "261002", mode: "insensitive" } });
   });
 
   test("คำค้นธรรมดาไม่มีเงื่อนไขเลขบิล", () => {
-    const where = ticketWhere("dealer-1", { drawId: "draw-1", status: "REVIEW" }, "ສົມ");
+    const where = ticketWhere("dealer-1", { drawId: "draw-1", status: "REVIEW", oddLak: false }, "ສົມ");
     const conditions = where.AND as Record<string, unknown>[];
     expect(conditions.slice(0, 3)).toEqual([{ draw: { dealerId: "dealer-1" } }, { drawId: "draw-1" }, { status: "REVIEW" }]);
     expect((conditions[3]!.OR as Record<string, unknown>[]).some((condition) => "billNo" in condition)).toBe(false);
