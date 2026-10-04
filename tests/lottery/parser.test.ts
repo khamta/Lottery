@@ -1061,3 +1061,17 @@ describe("ลัก (สะกดไทยไม่มี ห) = ຫລັກ", 
     ]);
   });
 });
+
+describe("บาด (ບາດ พิมพ์ด้วยตัวไทย) = บาท", () => {
+  const brief5 = (text: string) => parseTicket(text).bets.map((b) => `${b.number}${b.position[0]} ${b.currency} ${b.amount}`);
+
+  test("บรรทัด บาด ท้ายโพย → ทั้งโพยเป็นบาท ไม่คูณ", () => {
+    expect(brief5("07=50×50\n91=100×100\n915=20\nบาด")).toEqual([
+      "07T THB 50", "07B THB 50", "91T THB 100", "91B THB 100", "915T THB 20",
+    ]);
+  });
+
+  test("บาด ท้ายยอด → บาท", () => {
+    expect(brief5("32=100บาด")).toEqual(["32T THB 100"]);
+  });
+});
