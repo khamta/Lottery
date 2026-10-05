@@ -106,6 +106,10 @@ type SuffixToken = { text: string; position?: PositionMark; currency?: Currency 
 const SUFFIX_TOKENS: SuffixToken[] = [
   { text: "ບົນລ່າງ", position: "BOTH" },
   { text: "ບົນລາງ", position: "BOTH" },
+  // ລ່າງບົນ = ບົນລ່າງ ที่พิมพ์สลับลำดับ
+  { text: "ລ່າງບົນ", position: "BOTH" },
+  { text: "ລາງບົນ", position: "BOTH" },
+  { text: "ล่างบน", position: "BOTH" },
   { text: "ບລ", position: "BOTH" },
   { text: "บนล่าง", position: "BOTH" },
   { text: "บล", position: "BOTH" },
@@ -150,8 +154,8 @@ SUFFIX_TOKENS.sort((a, b) => b.text.length - a.text.length);
 
 /** ยอด: คั่นหลักพันด้วย , หรือ . ได้ (10,000 / 10.000) — จุดที่ไม่ใช่หลักพันไม่ถูกนับเป็นยอด */
 const AMOUNT = String.raw`\d{1,3}(?:[.,]\d{3})+(?!\d)|\d[\d,]*`;
-/** ລາວ200,000 = ยอดรวมของโพยหวยลาว */
-const TOTAL_LINE = new RegExp(String.raw`^(?:ລວມ|รวม|total|ລາວ|ลาว)[^\d]*(${AMOUNT})`, "i");
+/** ລາວ200,000 = ยอดรวมของโพยหวยลาว · ลวม = ລວມ ที่พิมพ์ด้วยตัวอักษรไทย */
+const TOTAL_LINE = new RegExp(String.raw`^(?:ລວມ|รวม|ลวม|total|ລາວ|ลาว)[^\d]*(${AMOUNT})`, "i");
 /** =15/ລາວ · =15 ລາວ = ยอดรวมของโพยหวยลาว (ລາວ ต่อท้ายแทนนำหน้า) */
 const LAO_TOTAL_TAIL = new RegExp(String.raw`^[=:]\s*(${AMOUNT})\s*[/\s]*(?:ລາວ|ลาว)\s*$`, "iu");
 /**
@@ -176,7 +180,7 @@ function totalOf(text: string): RegExpMatchArray | null {
 }
 /** หน่วยเต็มของยอดรวม: ລວມ:1ລ້ານ = 1,000,000 กีบ · ລວມ5ແສນ = 500,000 กีบ */
 const TOTAL_UNITS: Record<string, number> = { ລ້ານ: 1_000_000, ລານ: 1_000_000, ล้าน: 1_000_000, ແສນ: 100_000, แสน: 100_000 };
-const TOTAL_UNIT_LINE = /^(?:ລວມ|รวม|total|ລາວ|ลาว)[^\d]*(\d+(?:[.,]\d+)?)\s*(ລ້ານ|ລານ|ล้าน|ແສນ|แสน)/iu;
+const TOTAL_UNIT_LINE = /^(?:ລວມ|รวม|ลวม|total|ລາວ|ลาว)[^\d]*(\d+(?:[.,]\d+)?)\s*(ລ້ານ|ລານ|ล้าน|ແສນ|แสน)/iu;
 /** สกุลเงิน/หลักพันระหว่างยอดบนกับ × : "20ບາດ×20ບາດ" */
 const CURRENCY_BEFORE_TIMES = /(\d)\s*(฿|ບາດ|บาท|บาด|baht|b|₭|ກີບ|กีบ|kip|ພັນ|ພ|พัน|k)\s*(?=[*x×]\s*\d)/iu;
 /** ໂຕ / ຮູ / ປ່ອງ (+ລະ) หน้ายอด: "255=ໂຕ5ພັນ" */
@@ -285,6 +289,12 @@ const EACH_AMOUNT_LINE = /^(?:ປ່ອງ|ປອງ|ป่อง|ຮູ|รู|
  * จึงเป็นยอดของบรรทัดเลขที่ไม่มียอดด้านล่าง (จนกว่าจะเจอหัวยอดใหม่หรือ ລວມ)
  */
 const HEADING_LINE = /^([^\d=:;]*?)\s*(?:ປ່ອງ|ປອງ|ป่อง|ຮູ|รู|hu|ໂຕ|ຕົວ|ตัว|โต)\s*(?:ລະ|ละ)?\s*(\d.*)$/iu;
+/** บรรทัดยอดที่ไม่มีเลข (ໂຕ5ພັນ / =10 / ປ່ອງ3 / ບລ ໂຕ10) — ยอดของเลขที่ไม่มียอดในบรรทัดติดกันด้านบน */
+function isAmountOnlyLine(text: string) {
+  if (SHARED_AMOUNT_LINE.test(text) || EACH_AMOUNT_LINE.test(text)) return true;
+  const head = text.match(HEADING_LINE);
+  return !!head && readSuffix(head[1]) !== null;
+}
 /**
  * อักขระควบคุมที่มองไม่เห็น (Unicode Cf): zero-width space / joiner, BOM, soft hyphen และเครื่องหมายทิศทาง
  * (LRM/RLM U+200E–U+200F, U+202A–U+202E, U+2066–U+2069) ที่ WhatsApp Web/Desktop แทรกมาตอน copy —
@@ -599,8 +609,18 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
   });
   // เลขที่อ่านไม่ชัด (5?) ในชุดเต็มนามสัตว์ → เติมเลขที่ทำให้นามครบ: "11 5? 91" = 11 51 91
   fillAnimalGuesses(segments.map((segment) => segment.original)).forEach((text, i) => (segments[i]!.original = text));
+  // บรรทัดเลขล้วนติดกันที่ตามด้วยบรรทัดยอดเปล่า ๆ ("28 68 / 228 268 / ໂຕ5ພັນ") = เลขที่รอยอดด้านล่าง
+  // ไม่ใช้เงื่อนไขอ่านโพยกับบรรทัดเหล่านี้ — ไม่งั้น "{N} {A}" อ่าน "28 68" เป็นเลข 28 ยอด 68
+  const awaitsAmount = new Set<number>();
+  for (let i = segments.length - 1, next = false; i >= 0; i--) {
+    const text = segments[i]!.original;
+    const tokens = text.split(NUMBER_SEPARATOR).filter(Boolean);
+    const numbersOnly = tokens.length > 0 && tokens.every((t) => /^\d{2,3}$/.test(t));
+    if (numbersOnly && next) awaitsAmount.add(i);
+    else next = !numbersOnly && isAmountOnlyLine(text);
+  }
 
-  segments.forEach(({ original, line }) => {
+  segments.forEach(({ original, line }, index) => {
     if (!original) {
       gap = true;
       return;
@@ -608,7 +628,7 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
 
     // เงื่อนไขของผู้ใช้: ข้ามบรรทัด = ไม่ใช่รายการแทง · แปลงแล้วอ่านต่อตามรูปแบบมาตรฐาน
     // (issue ยังแสดงบรรทัดตามที่ลูกค้าพิมพ์ ให้คนหาเจอในแชต)
-    const ruled = applyReadRules(original, rules);
+    const ruled = awaitsAmount.has(index) ? original : applyReadRules(original, rules);
     if (ruled === null) {
       notes.push(original);
       return;

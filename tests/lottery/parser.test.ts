@@ -696,6 +696,24 @@ describe("parseTicket — กติกา", () => {
     expect(parseNative("32=10(ບລ)").issues).toEqual([]);
   });
 
+  test("ລ່າງບົນ / ล่างบน (สลับลำดับ) = บนล่าง", () => {
+    const brief = (text: string) => parseTicket(text).bets.map((b) => `${b.number} ${b.position} ${b.amount}`);
+    expect(brief("32-72=3ພັນລ່າງບົນລາວ")).toEqual(["32 TOP 3000", "32 BOTTOM 3000", "72 TOP 3000", "72 BOTTOM 3000"]);
+    expect(brief("32=3ล่างบน")).toEqual(["32 TOP 3000", "32 BOTTOM 3000"]);
+    const ticket = parseTicket("17-57-97-30-70-08-48-88-07-47-87-30-78-38=3ພັນລ່າງບົນລາວ");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets).toHaveLength(28);
+  });
+
+  test("ลวม (ລວມ พิมพ์ด้วยตัวอักษรไทย) = ยอดรวม", () => {
+    const ticket = parseTicket("11.51.91.12.52.92.77.37=3\n32.72.28.68=3\nบน 🇱🇦\nลวม36.000");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.declaredTotal).toBe(36);
+    expect(ticket.bets).toHaveLength(12);
+    expect(ticket.bets.every((b) => b.position === "TOP" && b.amount === 3000)).toBe(true);
+    expect(parseTicket("32=3\nลวม5.000").issues.map((i) => i.code)).toEqual(["TOTAL_MISMATCH"]);
+  });
+
   test("b = บาท (01=200*100b) — ไม่ต้องมีเงื่อนไขอ่านโพย", () => {
     const text = "01=200*100b\n41=200*100b\n81=200*100b\n101=100b\n141=100b\n181=100b";
     const expected = [
