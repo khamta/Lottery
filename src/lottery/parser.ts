@@ -481,6 +481,11 @@ const HUNDREDS_LINE = /^(?:(?:ໃສ່|ຕື່ມ|ເອົາ|ใส่|เ�
 const MULTI_GROUP_BREAK = /(?<=[=:]\s*\d[^\s=:]*)\s+(?=\d{2,3}(?:\s*[.,\-/_]\s*\d{2,3})*\s*[=:])/u;
 /** รายการ + ຫລັກ ในบรรทัดเดียว: "16.56.96=10₭ ຫລັກ 8=2₭" → [รายการ, ຫລັກ…] */
 const INLINE_HUNDREDS = /^(.*\d\D*?)\s*((?:(?:ໃສ່|ຕື່ມ|ເອົາ|ใส่|เติม|เอา)\s*)?(?:ຫລັກ|ຫຼັກ|ລັກ|หลัก|ลัก)\s*\d.*)$/u;
+/**
+ * รายการ + ยอดรวมท้ายบรรทัด (เว้นวรรคคั่น): "24.64=5x10.     ລາວ/90" → [รายการ, ยอดรวม]
+ * ต้องมีเลขหลังคำ — "=10 ລາວ" ยังเป็นคำกำกับท้ายยอด
+ */
+const INLINE_TOTAL = /^(.*\d\D*?)\s+((?:ລວມ|รวม|ลวม|ລາວ|ลาว)[^\d]*\d[^=;:]*)$/u;
 
 /**
  * บรรทัด ຫລັກ… → รายการ · null = ไม่ใช่บรรทัดหลัก — bases = เลข 2 ตัวในบรรทัดด้านบน (ไม่ซ้ำ ตามลำดับ)
@@ -600,11 +605,16 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
 
   // ຫລັກ กลางบรรทัด แยกเป็นอีกบรรทัด (เลขแถวเดิม): "16.56=10₭ ຫລັກ 8=2₭" = "16.56=10₭" + "ຫລັກ 8=2₭"
   const segments = message.split(/\r?\n/).flatMap((raw, index) => {
-    const text = normalize(raw);
+    let text = normalize(raw);
+    // ยอดรวมท้ายบรรทัด แยกเป็นอีกบรรทัด (เลขแถวเดิม): "24.64=5x10. ລາວ/90" = "24.64=5x10." + "ລາວ/90"
+    const total = text.match(INLINE_TOTAL);
+    const tail = total && totalOf(total[2]) ? total[2] : null;
+    if (tail) text = total![1];
     const inline = text.match(INLINE_HUNDREDS);
     return (inline ? [inline[1], inline[2]] : [text])
       // หลายชุด "เลข=ยอด" ในบรรทัดเดียว: "10.50=3 510.550=1" → แยกทีละชุด (เลขแถวเดิม)
       .flatMap((part) => part.split(MULTI_GROUP_BREAK))
+      .concat(tail ? [tail] : [])
       .map((original) => ({ original: original.trim(), line: index + 1 }));
   });
   // เลขที่อ่านไม่ชัด (5?) ในชุดเต็มนามสัตว์ → เติมเลขที่ทำให้นามครบ: "11 5? 91" = 11 51 91

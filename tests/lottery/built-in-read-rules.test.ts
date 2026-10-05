@@ -81,6 +81,9 @@ describe("เงื่อนไขอ่านโพยที่ติดมา�
       "228 TOP LAK 5000",
       "268 TOP LAK 5000",
     ]);
+    expect(brief("423 463 623 663 \n009 049 089 \nໂຕ 3ພັນ")).toEqual(
+      ["423", "463", "623", "663", "009", "049", "089"].map((n) => `${n} TOP LAK 3000`),
+    );
     expect(brief("24 64\nປ່ອງ3")).toEqual(["24 TOP LAK 3000", "64 TOP LAK 3000"]);
     expect(brief("24 64\n07\n=10ບລ")).toEqual([
       "24 TOP LAK 10000",

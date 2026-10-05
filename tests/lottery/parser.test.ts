@@ -714,6 +714,19 @@ describe("parseTicket — กติกา", () => {
     expect(parseTicket("32=3\nลวม5.000").issues.map((i) => i.code)).toEqual(["TOTAL_MISMATCH"]);
   });
 
+  test("ยอดรวมท้ายบรรทัดรายการ (24.64=5x10.     ລາວ/90) แยกเป็นยอดรวม", () => {
+    const ticket = parseTicket("39.79.979=20\n24.64=5x10.     ລາວ/90");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.declaredTotal).toBe(90);
+    expect(ticket.bets.map((b) => `${b.number} ${b.position} ${b.amount}`)).toEqual([
+      "39 TOP 20000", "79 TOP 20000", "979 TOP 20000",
+      "24 TOP 5000", "24 BOTTOM 10000", "64 TOP 5000", "64 BOTTOM 10000",
+    ]);
+    expect(parseTicket("32=10 ລວມ20").issues.map((i) => i.code)).toEqual(["TOTAL_MISMATCH"]);
+    // ລາວ ท้ายยอดที่ไม่มีเลขตาม = คำกำกับ ไม่ใช่ยอดรวม
+    expect(parseTicket("32=10 ລາວ").declaredTotal).toBeNull();
+  });
+
   test("b = บาท (01=200*100b) — ไม่ต้องมีเงื่อนไขอ่านโพย", () => {
     const text = "01=200*100b\n41=200*100b\n81=200*100b\n101=100b\n141=100b\n181=100b";
     const expected = [
