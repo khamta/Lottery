@@ -54,6 +54,20 @@ export const editTicketImageSchema = z.object({
     .regex(/^[A-Za-z0-9+/]+=*$/, "tickets.validation.imageInvalid"),
 });
 
+/** กลุ่มโพยที่กด "ดูทั้งหมดแล้ว" ได้พร้อมกันสูงสุด — เกินนี้ไม่มีแม่หวยไหนใช้จริง */
+export const SEEN_GROUPS_MAX = 200;
+/**
+ * กด "ดูทั้งหมดแล้ว" ของกลุ่มที่เปิดดูอยู่ — groupKeys = WhatsappGroup.id หรือ "none" (โพยที่ไม่มีกลุ่ม)
+ * seenAt = เวลาที่ server render หน้านั้น: โพยที่เข้ามาหลังจากนั้น (ยังไม่เห็นบนจอ) ยังคงขึ้นเป็นยังไม่ได้ดู
+ */
+export const markTicketsSeenSchema = z.object({
+  groupKeys: z
+    .array(z.string().min(1, "validation.required").max(50, "validation.required"))
+    .min(1, "validation.required")
+    .max(SEEN_GROUPS_MAX, "validation.required"),
+  seenAt: z.string().datetime("validation.required"),
+});
+
 export type TicketInput = z.infer<typeof ticketSchema>;
 export type EditTicketImageInput = z.infer<typeof editTicketImageSchema>;
 export type EditedImageMime = z.infer<typeof editedImageMimeEnum>;

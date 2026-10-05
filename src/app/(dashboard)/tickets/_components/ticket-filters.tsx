@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CircleAlert, Coins, ImageIcon } from "lucide-react";
+import { CircleAlert, Coins, FilterX, ImageIcon } from "lucide-react";
 
 import {
   Select,
@@ -62,12 +62,16 @@ export function TicketFilters({
     if (value !== urlAmount) apply({ amount: value || null });
   }
 
+  // ตัวกรองที่ผู้ใช้ตั้งเอง (ไม่นับกลุ่ม — กลุ่มถูกเลือกให้เสมอ)
+  const hasFilters =
+    searchParams.has("draw") || !!searchParams.get("q") || !!filters.status || filters.oddLak || !!filters.amount || !!filters.image;
+
   return (
     <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-nowrap">
-      {/* "ทุกงวด" ต้องเขียน draw=all ลง URL เพราะไม่ระบุ = งวดที่เปิดรับล่าสุด */}
+      {/* "ทุกงวด" ต้องเขียน draw=all ลง URL เพราะไม่ระบุ = งวดที่เปิดรับล่าสุด · เปลี่ยนงวด = กลับไปกลุ่มเริ่มต้นของงวดนั้น (กลุ่มที่มีโพยล่าสุด) */}
       <Select
         value={filters.drawId ?? ALL}
-        onValueChange={(value) => apply({ draw: value })}
+        onValueChange={(value) => apply({ draw: value, group: null })}
         disabled={disabled || isPending}
       >
         <SelectTrigger className="min-w-0 flex-1 sm:w-44" aria-label={t("tickets.filterDraw")}>
@@ -144,6 +148,20 @@ export function TicketFilters({
         <CircleAlert className={filters.oddLak || oddLakCount === 0 ? undefined : "text-warning"} />
         {t("tickets.filterOddLak", { count: oddLakCount })}
       </Button>
+
+      {/* หน้านี้จำตัวกรองไว้ (กลับมาจากหน้าอื่นยังกรองเหมือนเดิม) จึงต้องมีทางกลับไปค่าเริ่มต้นในคลิกเดียว */}
+      {hasFilters ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="w-full sm:w-auto"
+          disabled={disabled || isPending}
+          onClick={() => apply({ draw: null, group: null, status: null, odd: null, amount: null, image: null, q: null })}
+        >
+          <FilterX />
+          {t("tickets.clearFilters")}
+        </Button>
+      ) : null}
     </div>
   );
 }

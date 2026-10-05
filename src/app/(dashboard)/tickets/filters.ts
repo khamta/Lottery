@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 
 import { BILL_PREFIX } from "@/lottery/bill";
 import type { SearchParamsInput } from "@/types";
+import { groupWhere } from "./groups";
 import { isTicketStatus, type DrawOption, type TicketFilterValues } from "./types";
 
 /**
@@ -74,6 +75,7 @@ export function rereadableWhere(dealerId: string, drawId: string): Prisma.Ticket
  * oddLakIds = โพยที่มียอดกีบแปลก (oddLakTicketIds) — ใช้เมื่อเปิดตัวกรอง ?odd=1 · ไม่ส่งมา = ไม่เจออะไร
  * ?amount= = มีรายการแทงยอดต่อตัวเท่านี้อย่างน้อย 1 รายการ — ดูจากตาราง bets จึงเจอเฉพาะโพยที่นับยอดแล้ว
  * ?image=1 = เฉพาะโพยที่มีรูป (withImageWhere)
+ * groups = กลุ่มที่ดูอยู่ (groups.ts) · null/ไม่มี = ทุกกลุ่ม — page.tsx ตรวจกับกลุ่มจริงก่อนส่งมา
  */
 export function ticketWhere(
   dealerId: string,
@@ -87,6 +89,7 @@ export function ticketWhere(
   if (filters.oddLak) conditions.push({ id: { in: oddLakIds } });
   if (filters.amount) conditions.push({ bets: { some: { amount: filters.amount } } });
   if (filters.image) conditions.push(withImageWhere);
+  if (filters.groups) conditions.push(groupWhere(filters.groups));
   if (q) {
     const bill = billQueryPrefix(q);
     conditions.push({

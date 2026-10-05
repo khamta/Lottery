@@ -30,6 +30,10 @@ export type TicketRow = {
   ocrTranscript: string | null;
   /** โพยจากรูป: เวลาที่คนแก้รูป (ครอป/ลบ/หมุน) ล่าสุด — null = ยังไม่เคยแก้ (รูปตามที่ลูกค้าส่งมา) */
   imageEditedAt: string | null;
+  /** กลุ่ม WhatsApp ที่ส่งโพยนี้มา (null = คีย์เอง / ไม่รู้กลุ่ม) */
+  groupId: string | null;
+  /** เข้ามาหลังจากที่ผู้ใช้กด "ดูทั้งหมดแล้ว" ของกลุ่มนี้ครั้งล่าสุด (ยังไม่ได้ดู) */
+  isNew: boolean;
   betCount: number;
   totalLak: number;
   totalThb: number;
@@ -42,6 +46,37 @@ export const TICKET_SORTABLE = ["billNo", "createdAt", "status", "betCount", "to
 /** ตัวเลือกในฟอร์ม/ตัวกรอง — server ส่งมาให้ client ไม่ดึงเอง */
 export type DrawOption = { id: string; name: string; status: DrawStatusValue };
 export type CustomerOption = { id: string; name: string; lakMultiplier: number };
+
+/** กลุ่มโพยของโพยที่ไม่มีกลุ่ม WhatsApp (คีย์เอง / ไม่รู้กลุ่ม) — ใช้ทั้งใน URL (?group=none) และ TicketSeen.groupKey */
+export const NO_GROUP = "none";
+/** ?group=all = ดูทุกกลุ่มรวมกัน */
+export const ALL_GROUPS = "all";
+
+/**
+ * ตัวเลือกกลุ่มในหน้าโพย (ของงวดที่กรองอยู่) — key = WhatsappGroup.id หรือ NO_GROUP · name null = NO_GROUP (แปลตอนแสดง)
+ * total = จำนวนโพยในงวด · unread = จำนวนที่ยังไม่ได้ดู
+ */
+export type TicketGroupOption = { key: string; name: string | null; total: number; unread: number };
+
+/**
+ * ค่าใน URL ที่หน้าโพยจำไว้ (cookie แยกตามแม่หวย) — กลับมาที่ /tickets เปล่า ๆ จะได้ตัวกรองเดิม
+ * ไม่จำเลขหน้า: กลับมาแล้วเริ่มที่หน้าแรก (โพยใหม่อยู่บนสุด)
+ */
+export const REMEMBERED_TICKET_PARAMS = [
+  "draw",
+  "group",
+  "status",
+  "odd",
+  "amount",
+  "image",
+  "q",
+  "pageSize",
+  "sort",
+  "order",
+] as const;
+
+/** ชื่อ cookie ที่จำตัวกรองของหน้าโพย — แยกตามแม่หวย เพราะงวด/กลุ่มเป็นของแม่หวยแต่ละคน */
+export const ticketFiltersCookie = (dealerId: string) => `tickets-filters-${dealerId}`;
 
 export const TICKET_STATUSES = ["REVIEW", "CONFIRMED"] as const;
 
@@ -70,6 +105,8 @@ export type TicketFilterValues = {
   oddLak: boolean;
   amount?: number | null;
   image?: boolean;
+  /** กลุ่มที่ดูอยู่ (TicketGroupOption.key) — null/ไม่มี = ทุกกลุ่ม */
+  groups?: string[] | null;
 };
 
 /** สถานะ -> คีย์ i18n (ห้ามเก็บข้อความตรง ๆ เพราะระบบรองรับ 4 ภาษา) */

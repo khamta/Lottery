@@ -22,12 +22,14 @@ import {
   rereadTicketImage,
   updateTicket,
 } from "../actions";
+import { markTicketsSeen } from "../seen/actions";
 import {
   canRereadImage,
   type CustomerOption,
   type DrawOption,
   type RereadDrawTarget,
   type TicketFilterValues,
+  type TicketGroupOption,
   type TicketRow,
 } from "../types";
 import { getTicketColumns } from "./columns";
@@ -35,6 +37,8 @@ import { TicketDialog } from "./ticket-dialog";
 import { RereadImageDialog } from "./reread-image-dialog";
 import { ImageEditorDialog, type EditedImageData } from "./image-editor-dialog";
 import { TicketFilters } from "./ticket-filters";
+import { TicketGroups } from "./ticket-groups";
+import { RememberTicketFilters } from "./remember-ticket-filters";
 
 /** สิ่งที่จะอ่านรูปใหม่: โพยใบเดียว (ทุกคน) · โพยใบเดียวด้วยรูปที่เพิ่งแก้ (ทุกคน) · โพยรอตรวจทั้งงวด (ผู้ดูแลระบบ) */
 type RereadTarget =
@@ -54,6 +58,9 @@ export function TicketsView({
   oddLakCount,
   imageTicketCount,
   rereadDraw,
+  groupOptions,
+  renderedAt,
+  dealerId,
 }: {
   page: Paginated<TicketRow>;
   draws: DrawOption[];
@@ -66,6 +73,11 @@ export function TicketsView({
   imageTicketCount: number;
   /** ผู้ดูแลระบบ + กรองงวดที่เปิดรับอยู่ = ปุ่มอ่านรูปโพยรอตรวจทั้งงวดใหม่ (null = ไม่แสดงปุ่ม) */
   rereadDraw: RereadDrawTarget | null;
+  /** กลุ่มของงวดที่กรองอยู่ + จำนวนที่ยังไม่ได้ดู */
+  groupOptions: TicketGroupOption[];
+  /** เวลาที่ server render หน้านี้ — "ดูทั้งหมดแล้ว" ทำเครื่องหมายถึงเวลานี้ (โพยที่เข้ามาหลังจากนั้นยังไม่ได้เห็นบนจอ) */
+  renderedAt: string;
+  dealerId: string;
 }) {
   const { t, intl } = useI18n();
   const { rows, isPending, mutate, tempId } = useOptimisticList(page.rows);
@@ -204,6 +216,8 @@ export function TicketsView({
             ocrReader: null,
             ocrTranscript: null,
             imageEditedAt: null,
+            groupId: null, // คีย์เอง = ไม่มีกลุ่ม
+            isNew: false,
             createdAt: new Date().toISOString(),
             ...shared,
           },
@@ -235,12 +249,33 @@ export function TicketsView({
     setBulkDeleting(null);
   }
 
+  /** ดูทั้งหมดแล้ว — แถวไม่หายไปไหน จึงไม่มีอะไรต้องเปลี่ยนบนจอก่อน (patch ว่าง) ม่านโหลดปิดเมื่อ refresh ได้ป้ายใหม่ */
+  function handleMarkSeen(groupKeys: string[]) {
+    mutate({
+      patch: { type: "delete-many", ids: [] },
+      action: () => markTicketsSeen({ groupKeys, seenAt: renderedAt }),
+    });
+  }
+
   const filtered = !!filters.status || filters.oddLak || !!filters.amount || !!filters.image;
 
   return (
     <>
-      {/* กดที่แถว = เปิดหน้าตรวจโพย (ตารางกลางรับ onClick ของแถวไม่ได้ จึงดักที่กรอบนอก) */}
-      <div onClick={handleRowClick} className="[&_tbody_tr:has([data-ticket-id])]:cursor-pointer">
+      <RememberTicketFilters dealerId={dealerId} />
+      <div className="mb-4">
+        <TicketGroups
+          options={groupOptions}
+          selected={filters.groups ?? null}
+          onMarkSeen={handleMarkSeen}
+          disabled={isPending}
+        />
+      </div>
+
+      {/* กดที่แถว = เปิดหน้าตรวจโพย (ตารางกลางรับ onClick ของแถวไม่ได้ จึงดักที่กรอบนอก) · แถวที่ยังไม่ได้ดูมีพื้นเน้น */}
+      <div
+        onClick={handleRowClick}
+        className="[&_tbody_tr:has([data-ticket-id])]:cursor-pointer [&_tbody_tr:has([data-unread])]:bg-primary/5"
+      >
         <DataTable
           columns={columns}
           page={{ ...page, rows }}

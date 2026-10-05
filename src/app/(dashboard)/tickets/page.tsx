@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
 import { prisma } from "@/lib/prisma";
 import { closeExpiredDraws } from "@/lottery/draw-close";
-import { buildOrderBy, paginate, parseListParams } from "@/lib/query";
+import { buildOrderBy, buildQueryString, paginate, parseListParams, toRoute } from "@/lib/query";
 import { LiveRefresh } from "@/components/shared/live-refresh";
 import { PageHeader } from "@/components/shared/page-header";
 import { getTranslations } from "@/i18n/server";
@@ -14,7 +16,17 @@ import { NoDealer } from "@/lottery/components/no-dealer";
 import type { PageProps } from "@/types";
 import { TicketsView } from "./_components/tickets-view";
 import { readTicketFilters, REREAD_DRAW_MAX, rereadableWhere, ticketWhere, withImageWhere } from "./filters";
-import { TICKET_SORTABLE, type TicketRow } from "./types";
+import {
+  groupKeyOf,
+  groupWhere,
+  groupParamValue,
+  isUnread,
+  loadTicketGroups,
+  readGroupParam,
+  readRememberedParams,
+  resolveGroups,
+} from "./groups";
+import { TICKET_SORTABLE, ticketFiltersCookie, type TicketRow } from "./types";
 
 export const metadata: Metadata = { title: "Tickets" };
 
@@ -31,7 +43,13 @@ export default async function TicketsPage({ searchParams }: PageProps) {
   // งวดที่เลยเวลาออกผลแล้วปิดรับก่อนแสดง (เผื่อบอทไม่ได้ทำงานอยู่)
   await closeExpiredDraws(prisma, { dealerId: current.id });
 
-  const raw = await searchParams;
+  // เข้ามาที่ /tickets เปล่า ๆ (เช่นกดเมนู) → ใช้ตัวกรองที่จำไว้ล่าสุดของแม่หวยนี้ (เขียนโดย <RememberTicketFilters />)
+  const requested = await searchParams;
+  const remembered =
+    Object.keys(requested).length === 0
+      ? readRememberedParams((await cookies()).get(ticketFiltersCookie(current.id))?.value)
+      : null;
+  const raw = remembered ?? requested;
   const params = parseListParams(raw, {
     sortable: TICKET_SORTABLE,
     defaultSort: "createdAt",
@@ -44,7 +62,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       where: { dealerId: current.id },
       orderBy: { drawDate: "desc" },
       take: DRAW_OPTIONS,
-      select: { id: true, name: true, status: true },
+      select: { id: true, name: true, status: true, lottery: true },
     }),
     prisma.customer.findMany({
       where: { dealerId: current.id },
@@ -57,16 +75,38 @@ export default async function TicketsPage({ searchParams }: PageProps) {
 
   // ตัวกรองจาก URL (?draw=<id>|all&status=REVIEW) — ไม่ระบุงวด = งวดที่เปิดรับล่าสุด · ไฟล์ส่งออกใช้ชุดเดียวกัน
   const filters = readTicketFilters(raw, draws);
+
+  // กลุ่มของงวดนี้ + จำนวนที่ยังไม่ได้ดู — แสดงทีละกลุ่ม (ไม่ระบุ = กลุ่มที่มีโพยล่าสุด) เลือกหลายกลุ่มรวมกันได้
+  const renderedAt = new Date();
+  const { options: groupOptions, seen } = await loadTicketGroups(prisma, {
+    userId: access.userId,
+    dealerId: current.id,
+    drawId: filters.drawId,
+    lottery: draws.find((draw) => draw.id === filters.drawId)?.lottery ?? null,
+  });
+  filters.groups = resolveGroups(readGroupParam(raw), groupOptions);
+
+  // เขียนกลุ่มที่แสดงจริงลง URL เสมอ (+ ตัวกรองที่จำไว้) — โพยใหม่จากกลุ่มอื่นเข้ามาแล้ว refresh จะไม่สลับกลุ่มเอง
+  const group = groupParamValue(filters.groups);
+  if (remembered || [raw.group].flat()[0] !== group) {
+    redirect(toRoute(`/tickets?${buildQueryString(raw, { group })}`));
+  }
+
   // โพยที่มียอดกีบไม่ลงท้าย 000 ของงวดที่กรองอยู่ — ปุ่มกรองแสดงจำนวนเสมอ ให้รู้ว่ามีต้องตรวจไหม
-  // + จำนวนโพยที่มีรูปของงวดที่กรองอยู่ — แสดงบนปุ่มกรอง "มีรูป"
+  // + จำนวนโพยที่มีรูปของงวดที่กรองอยู่ — แสดงบนปุ่มกรอง "มีรูป" · ทั้งสองนับเฉพาะกลุ่มที่ดูอยู่ ให้ตรงกับรายการบนจอ
+  const scope = [
+    { draw: { dealerId: current.id } },
+    ...(filters.drawId ? [{ drawId: filters.drawId }] : []),
+    ...(filters.groups ? [groupWhere(filters.groups)] : []),
+  ];
   const [oddLakIds, imageCount] = await Promise.all([
     oddLakTicketIds(prisma, current.id, filters.drawId),
-    prisma.ticket.count({
-      where: {
-        AND: [{ draw: { dealerId: current.id } }, ...(filters.drawId ? [{ drawId: filters.drawId }] : []), withImageWhere],
-      },
-    }),
+    prisma.ticket.count({ where: { AND: [...scope, withImageWhere] } }),
   ]);
+  const oddLakCount =
+    filters.groups && oddLakIds.length
+      ? await prisma.ticket.count({ where: { AND: [...scope, { id: { in: oddLakIds } }] } })
+      : oddLakIds.length;
   const where = ticketWhere(current.id, filters, params.q, oddLakIds);
 
   // ผู้ดูแลระบบ: ปุ่มอ่านรูปโพยรอตรวจทั้งงวดใหม่ — เฉพาะเมื่อกรองงวดเดียวที่ยังเปิดรับ (null = ไม่แสดงปุ่ม)
@@ -91,6 +131,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       customerId: string | null;
       customer: { name: string } | null;
       senderName: string | null;
+      groupId: string | null;
       source: TicketRow["source"];
       status: TicketRow["status"];
       rawText: string;
@@ -124,6 +165,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       customerId: true,
       customer: { select: { name: true } },
       senderName: true,
+      groupId: true,
       source: true,
       status: true,
       rawText: true,
@@ -149,6 +191,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       totalLak: Number(row.totalLak),
       totalThb: Number(row.totalThb),
       createdAt: row.createdAt.toISOString(),
+      isNew: isUnread(row.createdAt, seen.get(groupKeyOf(row.groupId))),
     }),
   });
 
@@ -166,9 +209,12 @@ export default async function TicketsPage({ searchParams }: PageProps) {
         customers={customers}
         rules={rules}
         filters={filters}
-        oddLakCount={oddLakIds.length}
+        oddLakCount={oddLakCount}
         imageTicketCount={imageCount}
         rereadDraw={rereadDraw}
+        groupOptions={groupOptions}
+        renderedAt={renderedAt.toISOString()}
+        dealerId={current.id}
       />
     </>
   );

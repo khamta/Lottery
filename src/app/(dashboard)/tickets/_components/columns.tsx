@@ -40,7 +40,17 @@ export function getTicketColumns({ t, intl, onEdit, onReread, onEditImage, onDel
       enableSorting: true,
       // data-ticket-id: กดที่แถวไหนก็เปิดหน้าตรวจโพย — view หาแถวจาก attribute นี้ (ตารางกลางรับ onClick ของแถวไม่ได้)
       cell: ({ row }) => (
-        <span data-ticket-id={row.original.id}>
+        <span data-ticket-id={row.original.id} className="inline-flex items-center gap-2">
+          {/* จุดยังไม่ได้ดู (เหมือนแอปแชท) — data-unread ให้ view เน้นพื้นทั้งแถว */}
+          {row.original.isNew ? (
+            <span
+              data-unread
+              role="img"
+              aria-label={t("tickets.newTicket")}
+              title={t("tickets.newTicket")}
+              className="size-2 shrink-0 rounded-full bg-primary"
+            />
+          ) : null}
           {row.original.billNo === null ? (
             <span className="text-muted-foreground">–</span>
           ) : (
