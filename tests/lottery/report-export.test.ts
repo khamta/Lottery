@@ -7,7 +7,8 @@ import {
   type ReportExportInput,
   type SettlementExportInput,
 } from "@/app/(dashboard)/reports/export-tables";
-import { toAmount, toPercent } from "@/app/(dashboard)/reports/types";
+import { pickReportGroup, reportGroupWhere } from "@/app/(dashboard)/reports/groups";
+import { reportGroupName, toAmount, toPercent } from "@/app/(dashboard)/reports/types";
 import { dictionaries } from "@/i18n/dictionaries";
 import { translateWith } from "@/i18n/translate";
 import type { StakeGroup } from "@/lottery/report";
@@ -358,5 +359,46 @@ describe("รายงานตามบิล (view=bills)", () => {
     expect(table.rows[0]![4]).toEqual({ value: 300, bold: true });
     expect(table.rows[2]![6]).toEqual({ value: "รอตรวจ", tone: "danger" });
     expect(table.totals).toEqual(["รวม", null, "3 บิล", 6, 400, 0, null]);
+  });
+});
+
+describe("รายงานตามกลุ่ม (?group=)", () => {
+  const options = [
+    { key: "g1", name: "ກຸ່ມ A", bills: 3 },
+    { key: "none", name: null, bills: 1 },
+  ];
+
+  test("เลือกได้เฉพาะกลุ่มที่มีโพยในงวด — ไม่ระบุ / all / กลุ่มอื่น = ทุกกลุ่ม", () => {
+    expect(pickReportGroup(options, "g1")).toEqual(options[0]!);
+    expect(pickReportGroup(options, "none")).toEqual(options[1]!);
+    expect(pickReportGroup(options, undefined)).toBeNull();
+    expect(pickReportGroup(options, "all")).toBeNull();
+    expect(pickReportGroup(options, "other-dealer-group")).toBeNull();
+  });
+
+  test("where: กลุ่มจริง = groupId · none = โพยที่ไม่มีกลุ่ม · ทุกกลุ่ม = ไม่กรอง", () => {
+    expect(reportGroupWhere(options[0]!)).toEqual({ groupId: { in: ["g1"] } });
+    expect(reportGroupWhere(options[1]!)).toEqual({ groupId: null });
+    expect(reportGroupWhere(null)).toBeUndefined();
+  });
+
+  test("ชื่อกลุ่มอยู่ในหัวไฟล์ทั้งแบบเดิมและใบสรุป · ไม่มีกลุ่มใช้ข้อความแปล", () => {
+    const t = (key: string, params?: Record<string, string | number>) => translateWith(dictionaries.th, key, params);
+    expect(buildReportTable(input({ group: "ກຸ່ມ A" })).meta).toContain("กลุ่ม: ກຸ່ມ A");
+    expect(buildReportTable(input()).meta.some((line) => line.startsWith("กลุ่ม:"))).toBe(false);
+    expect(reportGroupName(options[1]!, t)).toBe("คีย์เอง / ไม่มีกลุ่ม");
+
+    const sheet = buildSettlementSheet({
+      t,
+      intl: "th-TH",
+      date: "2026-10-01",
+      draws: [],
+      group: "ກຸ່ມ A",
+      exportedAt: new Date("2026-10-02T05:00:00Z"),
+      percents: { left: 15, right: 30 },
+      outstanding: { lak: 0, thb: 0 },
+      bills: [],
+    });
+    expect(sheet.meta).toContain("กลุ่ม: ກຸ່ມ A");
   });
 });

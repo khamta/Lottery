@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { Trophy } from "lucide-react";
 
 import {
@@ -19,10 +20,13 @@ import { formatNumber } from "@/lottery/format";
 export async function WinnersSection({
   drawId,
   keys,
+  ticket,
 }: {
   drawId: string;
   /** null = ยังไม่ได้กรอกผล */
   keys: WinningKey[] | null;
+  /** เฉพาะโพยของกลุ่มที่เลือก — ไม่มี = ทั้งงวด */
+  ticket?: Prisma.TicketWhereInput;
 }) {
   const { t, intl } = await getTranslations();
 
@@ -30,7 +34,7 @@ export async function WinnersSection({
     return <EmptyState icon={Trophy} title={t("reports.noResult")} description={t("reports.noResultDesc")} />;
   }
 
-  const bets = await getWinningBets(drawId, keys);
+  const bets = await getWinningBets(drawId, keys, ticket);
   if (bets.length === 0) {
     return <EmptyState icon={Trophy} title={t("reports.emptyWinners")} description={t("reports.emptyWinnersDesc")} />;
   }

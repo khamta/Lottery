@@ -41,6 +41,8 @@ export type ReportExportInput = {
   view: ReportView;
   top: TopOption;
   draw: { name: string; status: DrawStatusValue };
+  /** ชื่อกลุ่มที่เลือก (?group=) — ไม่มี = ทุกกลุ่ม */
+  group?: string | null;
   keys: WinningKey[] | null;
   exportedAt: Date;
   /** ยอดต่อเลข — ใช้กับมุมมอง two / three / limits */
@@ -64,6 +66,7 @@ export function buildReportTable(input: ReportExportInput): ExportTable {
   const ranked = view === "two" || view === "three";
   const meta = [
     `${draw.name} · ${t(statusKey[draw.status])} · ${result}`,
+    ...(input.group ? [`${t("reports.group")}: ${input.group}`] : []),
     [
       `${t("reports.exportedAt")}: ${formatDate(input.exportedAt, intl)}`,
       ...(ranked ? [top ? t("reports.topN", { count: top }) : t("reports.topAll")] : []),
@@ -278,6 +281,8 @@ export type SettlementExportInput = {
   date: string;
   /** งวดของวันนั้น พร้อมชื่อไว้แสดงในหัวใบ */
   draws: (SettlementDraw & { name: string })[];
+  /** ชื่อกลุ่มที่เลือก (?group=) — ใบนี้คิดเฉพาะโพยของกลุ่มนั้น · ไม่มี = ทุกกลุ่ม */
+  group?: string | null;
   exportedAt: Date;
   /** เปอร์เซ็นต์ที่หักของกล่องซ้าย (V3 V4 V8 V9) / กล่องขวา (V5 V6 V7 ลาว ไทย) — ผู้ใช้ตั้งเองตอนส่งออก */
   percents: { left: number; right: number };
@@ -307,6 +312,7 @@ export function buildSettlementSheet(input: SettlementExportInput): SheetExport 
       input.draws.length
         ? `${t("reports.sheetDraws")}: ${input.draws.map((draw) => draw.name).join(" · ")}`
         : t("reports.sheetNoDraws"),
+      ...(input.group ? [`${t("reports.group")}: ${input.group}`] : []),
       `${t("reports.exportedAt")}: ${formatDate(input.exportedAt, intl)}`,
     ],
     header: ["", t("lottery.currencyLAK"), t("lottery.currencyTHB")],

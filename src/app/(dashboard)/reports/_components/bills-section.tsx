@@ -1,5 +1,6 @@
+import type { Prisma } from "@prisma/client";
 import Link from "next/link";
-import { MessagesSquare } from "lucide-react";
+import { FileSpreadsheet, FileText, MessagesSquare } from "lucide-react";
 
 import {
   Table,
@@ -10,21 +11,26 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/empty-state";
 import { buildQueryString, toRoute } from "@/lib/query";
 import { cn } from "@/lib/utils";
 import { getTranslations } from "@/i18n/server";
 import { DRAW_BILLS_MAX, getDrawBills } from "@/lottery/queries";
 import { formatDateTimeSeconds, formatNumber } from "@/lottery/format";
+import { NO_GROUP } from "../../tickets/types";
 import { billGroupName } from "../types";
 
 /**
  * รายงานตามบิล: บิลของงวดจัดกลุ่มตามกลุ่ม WhatsApp ที่ส่งมา ในกลุ่มเรียงตามวันเวลา
  * เลขบิลกดไปเปิดโพยนั้นที่หน้าโพย · ข้อมูลชุดเดียวกับไฟล์ส่งออก (getDrawBills)
+ * หัวกลุ่มมีปุ่มส่งออก Excel / PDF เฉพาะบิลของกลุ่มนั้น (คีย์เอง / ไม่รู้กลุ่ม ส่งออกรวมกันเป็นกลุ่ม NO_GROUP)
  */
-export async function BillsSection({ drawId }: { drawId: string }) {
+export async function BillsSection({ drawId, ticket }: { drawId: string; ticket?: Prisma.TicketWhereInput }) {
   const { t, intl } = await getTranslations();
-  const groups = await getDrawBills(drawId);
+  const groups = await getDrawBills(drawId, ticket);
+  const exportHref = (group: (typeof groups)[number], format: "xlsx" | "pdf") =>
+    `/reports/export?${buildQueryString({}, { format, draw: drawId, view: "bills", group: group.kind === "group" ? group.key : NO_GROUP })}`;
 
   if (groups.length === 0) {
     return <EmptyState title={t("reports.emptyBets")} description={t("reports.emptyBetsDesc")} />;
@@ -46,12 +52,26 @@ export async function BillsSection({ drawId }: { drawId: string }) {
               <MessagesSquare className="text-muted-foreground size-4" />
               {billGroupName(group, t)}
             </h2>
-            <p className="text-muted-foreground text-sm tabular-nums">
-              {t("reports.billCount", { count: group.bills.length })} · {t("tickets.totalLak")}{" "}
-              <span className="text-foreground font-semibold">{formatNumber(group.total.lak, intl)}</span> ·{" "}
-              {t("tickets.totalThb")}{" "}
-              <span className="text-foreground font-semibold">{formatNumber(group.total.thb, intl)}</span>
-            </p>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <p className="text-muted-foreground text-sm tabular-nums">
+                {t("reports.billCount", { count: group.bills.length })} · {t("tickets.totalLak")}{" "}
+                <span className="text-foreground font-semibold">{formatNumber(group.total.lak, intl)}</span> ·{" "}
+                {t("tickets.totalThb")}{" "}
+                <span className="text-foreground font-semibold">{formatNumber(group.total.thb, intl)}</span>
+              </p>
+              <div className="flex gap-2" role="group" aria-label={t("reports.exportGroup")}>
+                <Button asChild variant="outline" size="sm">
+                  <a href={exportHref(group, "xlsx")} download>
+                    <FileSpreadsheet /> {t("reports.exportExcel")}
+                  </a>
+                </Button>
+                <Button asChild variant="outline" size="sm">
+                  <a href={exportHref(group, "pdf")} download>
+                    <FileText /> {t("reports.exportPdf")}
+                  </a>
+                </Button>
+              </div>
+            </div>
           </header>
           <Table>
             <TableHeader>

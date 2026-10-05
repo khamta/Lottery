@@ -9,7 +9,17 @@ import { winningKeys } from "@/lottery/report";
 import { dateToIso, isoToDate } from "@/lottery/date";
 import { exportFileName, sheetToPdf, sheetToXlsx, tableToPdf, tableToXlsx } from "@/lottery/table-export";
 import { buildReportTable, buildSettlementSheet } from "../export-tables";
-import { DEFAULT_PERCENTS, isReportView, toAmount, toPercent, toTopOption, viewKey, type ReportView } from "../types";
+import { findReportGroup, reportGroupWhere } from "../groups";
+import {
+  DEFAULT_PERCENTS,
+  isReportView,
+  reportGroupName,
+  toAmount,
+  toPercent,
+  toTopOption,
+  viewKey,
+  type ReportView,
+} from "../types";
 
 /** งวดสูงสุดในใบสรุปหนึ่งวัน (หวย 9 ประเภท เผื่อเปิดซ้ำ) */
 const SHEET_DRAWS_MAX = 50;
@@ -36,6 +46,7 @@ const FILE_VIEW: Record<ReportView, string> = {
  * แบบใบสรุปส่งแม่: &layout=sheet&date=YYYY-MM-DD&pl=15&pr=30&owLak=&owThb= (ไม่สนมุมมอง)
  *   ใบเดียวรวมทุกงวดของวันนั้น — หวยเวียดนามหลายรอบ + ลาว + ไทย · ไม่ระบุวันที่ = วันของงวดที่เลือก
  * งวดเลือกแบบเดียวกับหน้ารายงาน (ไม่ระบุ = งวดที่เปิดรับล่าสุด ไม่มี = งวดล่าสุด)
+ * &group=<id|none> = เฉพาะโพยของกลุ่มนั้น (ทั้งแบบเดิมและใบสรุป) · ไม่ระบุ = ทุกกลุ่ม · มุมมองเกินอั้นนับทั้งงวดเสมอ
  * เห็นได้เฉพาะงวดของแม่หวยที่เลือกอยู่ (getDealerContext ตรวจสิทธิ์ + cookie แม่หวยให้)
  */
 export async function GET(request: Request) {
@@ -70,15 +81,20 @@ export async function GET(request: Request) {
     (await prisma.draw.findFirst({ where: { dealerId: current.id }, orderBy: { drawDate: "desc" }, select }));
   if (!draw) return new Response(null, { status: 404 });
 
+  // เพดานอั้นคิดกับยอดทั้งงวด — มุมมองเกินอั้นไม่กรองกลุ่ม
+  const group = !sheet && view === "limits" ? null : await findReportGroup(current.id, url.searchParams.get("group"));
+  const ticket = reportGroupWhere(group);
+
   // ดึงเฉพาะข้อมูลที่มุมมองนี้ใช้
   const keys = winningKeys(draw);
   const byStake = !sheet && (view === "two" || view === "three" || view === "limits");
   const [stakes, limits, customers, winners, bills] = await Promise.all([
-    byStake ? getDrawStakes(draw.id) : [],
-    byStake ? getLimitRules(current.id) : [],
-    view === "customers" && !sheet ? getCustomerSummary(draw.id, keys) : [],
-    view === "winners" && !sheet && keys ? getWinningBets(draw.id, keys) : [],
-    view === "bills" && !sheet ? getDrawBills(draw.id) : [],
+    byStake ? getDrawStakes(draw.id, ticket) : [],
+    // ยอดของกลุ่มเดียวเทียบกับเพดานของทั้งงวดไม่ได้ — ดูกลุ่มอยู่ไม่ระบายสีเกินอั้น
+    byStake && !group ? getLimitRules(current.id) : [],
+    view === "customers" && !sheet ? getCustomerSummary(draw.id, keys, ticket) : [],
+    view === "winners" && !sheet && keys ? getWinningBets(draw.id, keys, ticket) : [],
+    view === "bills" && !sheet ? getDrawBills(draw.id, ticket) : [],
   ]);
 
   // PDF ฝังฟอนต์ไทย/ลาวเท่านั้น (ไม่มีฟอนต์จีน) — ผู้ใช้ภาษาจีนได้ PDF ภาษาอังกฤษ · Excel ใช้ฟอนต์ของเครื่องจึงแปลตามภาษาที่เลือก
@@ -91,6 +107,7 @@ export async function GET(request: Request) {
         }
       : i18n;
 
+  const groupName = group ? reportGroupName(group, t) : null;
   const exportedAt = new Date();
   const pageLabel = (page: number, pages: number) => t("reports.exportPage", { page, pages });
   let file: Buffer;
@@ -112,12 +129,12 @@ export async function GET(request: Request) {
         lottery: item.lottery,
         keys: winningKeys(item),
         rates: { rate2Top: Number(item.rate2Top), rate2Bottom: Number(item.rate2Bottom), rate3Top: Number(item.rate3Top) },
-        stakes: await getDrawStakes(item.id),
+        stakes: await getDrawStakes(item.id, ticket),
       })),
     );
     // ยอดของแต่ละบิลที่นับยอดแล้ว ของทุกงวดในวันนั้น เรียงตามเวลา (ตารางล่างของใบ)
     const bills = await prisma.ticket.findMany({
-      where: { drawId: { in: dayDraws.map((item) => item.id) }, status: "CONFIRMED" },
+      where: { ...ticket, drawId: { in: dayDraws.map((item) => item.id) }, status: "CONFIRMED" },
       orderBy: [{ createdAt: "asc" }, { billNo: "asc" }],
       take: SHEET_BILLS_MAX,
       select: { totalLak: true, totalThb: true },
@@ -127,6 +144,7 @@ export async function GET(request: Request) {
       intl,
       date,
       draws,
+      group: groupName,
       exportedAt,
       percents: {
         left: toPercent(url.searchParams.get("pl"), DEFAULT_PERCENTS.left),
@@ -140,12 +158,12 @@ export async function GET(request: Request) {
     fileView = "settlement";
     fileName = date;
   } else {
-    const table = buildReportTable({ t, intl, view, top, draw, keys, exportedAt, stakes, limits, customers, winners, bills });
+    const table = buildReportTable({ t, intl, view, top, draw, group: groupName, keys, exportedAt, stakes, limits, customers, winners, bills });
     const options = { intl, exportedAt, sheetName: t(viewKey[view]), pageLabel };
     file = format === "xlsx" ? await tableToXlsx(table, options) : await tableToPdf(table, options);
     fileView = FILE_VIEW[view];
   }
-  const name = exportFileName(["report", fileName, fileView], exportedAt, format);
+  const name = exportFileName(["report", fileName, ...(groupName ? [groupName] : []), fileView], exportedAt, format);
 
   return new Response(new Uint8Array(file), {
     headers: {

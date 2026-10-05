@@ -53,3 +53,11 @@ export function billGroupName(group: Pick<BillGroup, "kind" | "name">, t: (key: 
   if (group.kind === "whatsapp") return t("reports.billsUnknownGroup");
   return group.name ?? t("reports.billsUnknownGroup");
 }
+
+/** ตัวเลือกกลุ่มของรายงาน (?group=) — key = WhatsappGroup.id หรือ NO_GROUP · name null = NO_GROUP (แปลตอนแสดง) · bills = จำนวนบิลในงวด */
+export type ReportGroupOption = { key: string; name: string | null; bills: number };
+
+/** ชื่อกลุ่มที่แสดง — NO_GROUP ใช้ข้อความแปล */
+export function reportGroupName(group: Pick<ReportGroupOption, "name">, t: (key: string) => string) {
+  return group.name ?? t("tickets.groupNone");
+}

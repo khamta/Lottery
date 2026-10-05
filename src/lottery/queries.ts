@@ -1,9 +1,12 @@
+import type { Prisma } from "@prisma/client";
+
 import { prisma } from "@/lib/prisma";
 import { addMoney, emptyMoney, type LimitRule, type MoneyPair, type StakeGroup, type WinningKey } from "./report";
 
 /**
  * คิวรีที่ dashboard กับรายงานใช้ร่วมกัน — รวมยอดที่ฐานข้อมูล (groupBy) ไม่ดึงรายการแทงทีละแถว
  * ตาราง bets มีเฉพาะรายการของโพยที่นับยอดแล้ว จึงไม่ต้องกรองสถานะโพยซ้ำ
+ * ticket (ไม่บังคับ) = กรองเฉพาะโพยบางส่วน เช่น กลุ่ม WhatsApp ที่เลือกในหน้ารายงาน — ไม่ระบุ = ทั้งงวด
  */
 
 /** จำนวนเพดานสูงสุดที่อ่านมาคิด (เลข 2+3 ตัว × ฝั่ง × สกุลเงิน ไม่เกินนี้) */
@@ -12,10 +15,10 @@ const LIMIT_RULES_MAX = 5000;
 export const DRAW_OPTIONS_MAX = 30;
 
 /** ยอดรวมต่อ เลข / ฝั่ง / สกุลเงิน ของงวด — ไม่เกิน 100 + 1,000 เลข × ฝั่ง × สกุลเงิน */
-export async function getDrawStakes(drawId: string): Promise<StakeGroup[]> {
+export async function getDrawStakes(drawId: string, ticket?: Prisma.TicketWhereInput): Promise<StakeGroup[]> {
   const groups = await prisma.bet.groupBy({
     by: ["number", "digits", "position", "currency"],
-    where: { drawId },
+    where: { drawId, ...(ticket ? { ticket } : {}) },
     _sum: { amount: true },
   });
 
@@ -44,9 +47,13 @@ export const WINNING_BETS_MAX = 1000;
 export type WinningBet = StakeGroup & { id: string; customerId: string | null; customerName: string | null };
 
 /** รายการแทงที่ถูกรางวัล พร้อมเจ้าของโพย เรียงตามยอดแทงมากไปน้อย */
-export async function getWinningBets(drawId: string, keys: WinningKey[]): Promise<WinningBet[]> {
+export async function getWinningBets(
+  drawId: string,
+  keys: WinningKey[],
+  ticket?: Prisma.TicketWhereInput,
+): Promise<WinningBet[]> {
   const bets = await prisma.bet.findMany({
-    where: { drawId, OR: keys },
+    where: { drawId, OR: keys, ...(ticket ? { ticket } : {}) },
     orderBy: { amount: "desc" },
     take: WINNING_BETS_MAX,
     select: {
@@ -69,10 +76,10 @@ export async function getWinningBets(drawId: string, keys: WinningKey[]): Promis
 }
 
 /** จำนวนโพยของงวด แยกที่นับยอดแล้วกับที่รอตรวจ */
-export async function getTicketCounts(drawId: string) {
+export async function getTicketCounts(drawId: string, ticket?: Prisma.TicketWhereInput) {
   const [confirmed, review] = await Promise.all([
-    prisma.ticket.count({ where: { drawId, status: "CONFIRMED" } }),
-    prisma.ticket.count({ where: { drawId, status: "REVIEW" } }),
+    prisma.ticket.count({ where: { ...ticket, drawId, status: "CONFIRMED" } }),
+    prisma.ticket.count({ where: { ...ticket, drawId, status: "REVIEW" } }),
   ]);
   return { confirmed, review };
 }
@@ -91,17 +98,21 @@ export type CustomerSummary = {
 };
 
 /** สรุปตามลูกค้าของงวด: ยอดซื้อ · ยอดแทงของเลขที่ถูก — หน้ารายงานและไฟล์ส่งออกใช้ชุดเดียวกัน */
-export async function getCustomerSummary(drawId: string, keys: WinningKey[] | null): Promise<CustomerSummary[]> {
+export async function getCustomerSummary(
+  drawId: string,
+  keys: WinningKey[] | null,
+  ticket?: Prisma.TicketWhereInput,
+): Promise<CustomerSummary[]> {
   const [groups, winners] = await Promise.all([
     prisma.ticket.groupBy({
       by: ["customerId"],
-      where: { drawId, status: "CONFIRMED" },
+      where: { ...ticket, drawId, status: "CONFIRMED" },
       _sum: { totalLak: true, totalThb: true },
       _count: { _all: true },
       orderBy: { _sum: { totalLak: "desc" } },
       take: CUSTOMER_SUMMARY_MAX,
     }),
-    keys ? getWinningBets(drawId, keys) : [],
+    keys ? getWinningBets(drawId, keys, ticket) : [],
   ]);
   if (groups.length === 0) return [];
 
@@ -149,9 +160,9 @@ export type BillGroup = {
  * บิลของงวดจัดกลุ่มตามกลุ่ม WhatsApp ที่ส่งมา — ในกลุ่มเรียงตามวันเวลาของบิล
  * กลุ่มจริงเรียงตามชื่อ ตามด้วย WhatsApp ที่ไม่รู้กลุ่ม แล้วคีย์เอง · หน้ารายงานและไฟล์ส่งออกใช้ชุดเดียวกัน
  */
-export async function getDrawBills(drawId: string): Promise<BillGroup[]> {
+export async function getDrawBills(drawId: string, ticket?: Prisma.TicketWhereInput): Promise<BillGroup[]> {
   const tickets = await prisma.ticket.findMany({
-    where: { drawId },
+    where: { ...ticket, drawId },
     orderBy: [{ createdAt: "asc" }, { billNo: "asc" }],
     take: DRAW_BILLS_MAX,
     select: {

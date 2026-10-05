@@ -1,3 +1,5 @@
+import type { Prisma } from "@prisma/client";
+
 import {
   Table,
   TableBody,
@@ -20,12 +22,15 @@ import { formatNumber } from "@/lottery/format";
 export async function CustomersSection({
   drawId,
   keys,
+  ticket,
 }: {
   drawId: string;
   keys: WinningKey[] | null;
+  /** เฉพาะโพยของกลุ่มที่เลือก — ไม่มี = ทั้งงวด */
+  ticket?: Prisma.TicketWhereInput;
 }) {
   const { t, intl } = await getTranslations();
-  const rows = await getCustomerSummary(drawId, keys);
+  const rows = await getCustomerSummary(drawId, keys, ticket);
 
   if (rows.length === 0) {
     return <EmptyState title={t("reports.emptyBets")} description={t("reports.emptyBetsDesc")} />;

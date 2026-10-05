@@ -36,7 +36,8 @@ import { ReportExport } from "./_components/report-export";
 import { ReportFilters } from "./_components/report-filters";
 import { ThreeDigitSection } from "./_components/three-digit-section";
 import { WinnersSection } from "./_components/winners-section";
-import { REPORT_VIEWS, isReportView, toTopOption, viewKey, type ReportView } from "./types";
+import { getReportGroups, pickReportGroup, reportGroupWhere } from "./groups";
+import { REPORT_VIEWS, isReportView, reportGroupName, toTopOption, viewKey, type ReportView } from "./types";
 
 export const metadata: Metadata = { title: "Reports" };
 
@@ -46,7 +47,8 @@ function first(value: string | string[] | undefined) {
 
 /**
  * รายงานสรุปของงวด — ไม่ใช่หน้ารายการ: ยอดถูกรวมที่ฐานข้อมูล (groupBy) แล้วจัดตารางที่ server
- * สถานะของหน้า (งวด / มุมมอง / จำนวนอันดับ) อยู่ใน URL: ?draw=&view=&top=
+ * สถานะของหน้า (งวด / กลุ่ม / มุมมอง / จำนวนอันดับ) อยู่ใน URL: ?draw=&group=&view=&top=
+ * เลือกกลุ่ม = ทุกมุมมองและไฟล์ส่งออกคิดเฉพาะโพยของกลุ่มนั้น — ยกเว้นเกินอั้นที่นับทั้งงวดเสมอ (เพดานเป็นของทั้งงวด)
  */
 export default async function ReportsPage({ searchParams }: PageProps) {
   const { t, intl } = await getTranslations();
@@ -97,15 +99,23 @@ export default async function ReportsPage({ searchParams }: PageProps) {
   const view: ReportView = isReportView(viewParam) ? viewParam : "two";
   const top = toTopOption(first(raw.top));
 
-  const [stakes, limits, counts] = await Promise.all([
-    getDrawStakes(draw.id),
+  // กลุ่มที่ไม่มีโพยในงวดนี้ (เช่น เพิ่งเปลี่ยนงวด) = ทุกกลุ่ม
+  const groups = await getReportGroups(draw.id);
+  const group = pickReportGroup(groups, first(raw.group));
+  const ticket = reportGroupWhere(group);
+
+  const [stakes, drawStakes, limits, counts] = await Promise.all([
+    getDrawStakes(draw.id, ticket),
+    group ? getDrawStakes(draw.id) : null,
     getLimitRules(current.id),
-    getTicketCounts(draw.id),
+    getTicketCounts(draw.id, ticket),
   ]);
 
   const keys = winningKeys(draw);
   const stake = totalStake(stakes);
-  const overLimits = findOverLimits(stakes, limits);
+  const overLimits = findOverLimits(drawStakes ?? stakes, limits);
+  // ยอดของกลุ่มเดียวเทียบกับเพดานของทั้งงวดไม่ได้ — ดูกลุ่มอยู่ไม่ระบายสีเกินอั้นในตารางเลข
+  const highlightLimits = group ? [] : limits;
   const twoDigit = pivotTwoDigit(stakes);
 
   const stats: Stat[] = [
@@ -144,6 +154,8 @@ export default async function ReportsPage({ searchParams }: PageProps) {
             <ReportFilters
               draws={draws.map(({ id, name }) => ({ id, name }))}
               drawId={draw.id}
+              groups={groups}
+              groupKey={group?.key ?? null}
               top={top}
               showTop={view === "two" || view === "three"}
             />
@@ -162,6 +174,11 @@ export default async function ReportsPage({ searchParams }: PageProps) {
         ) : (
           <span className="text-muted-foreground">{t("reports.noResultYet")}</span>
         )}
+        {group ? (
+          <Badge variant="outline">
+            {t("reports.group")}: {reportGroupName(group, t)}
+          </Badge>
+        ) : null}
       </div>
 
       <StatCards stats={stats} />
@@ -180,7 +197,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
             </Button>
           ))}
         </nav>
-        <ReportExport drawId={draw.id} drawDate={dateToIso(draw.drawDate)} view={view} top={top} />
+        <ReportExport drawId={draw.id} drawDate={dateToIso(draw.drawDate)} group={group} view={view} top={top} />
       </div>
 
       {view === "two" ? (
@@ -188,7 +205,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
           <TwoDigitTable
             rows={top ? twoDigit.slice(0, top) : twoDigit}
             totals={sumTwoDigit(twoDigit)}
-            limits={limits}
+            limits={highlightLimits}
             winning={keys ? { top: keys[1]!.number, bottom: keys[2]!.number } : null}
           />
         ) : (
@@ -199,14 +216,19 @@ export default async function ReportsPage({ searchParams }: PageProps) {
         <ThreeDigitSection
           rows={pivotThreeDigit(stakes)}
           top={top}
-          limits={limits}
+          limits={highlightLimits}
           winning={keys ? keys[0]!.number : null}
         />
       ) : null}
-      {view === "customers" ? <CustomersSection drawId={draw.id} keys={keys} /> : null}
-      {view === "bills" ? <BillsSection drawId={draw.id} /> : null}
-      {view === "limits" ? <LimitsSection rows={overLimits} /> : null}
-      {view === "winners" ? <WinnersSection drawId={draw.id} keys={keys} /> : null}
+      {view === "customers" ? <CustomersSection drawId={draw.id} keys={keys} ticket={ticket} /> : null}
+      {view === "bills" ? <BillsSection drawId={draw.id} ticket={ticket} /> : null}
+      {view === "limits" ? (
+        <>
+          {group ? <p className="text-muted-foreground text-sm">{t("reports.limitsWholeDraw")}</p> : null}
+          <LimitsSection rows={overLimits} />
+        </>
+      ) : null}
+      {view === "winners" ? <WinnersSection drawId={draw.id} keys={keys} ticket={ticket} /> : null}
     </>
   );
 }

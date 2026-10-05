@@ -24,9 +24,18 @@ const STORAGE_KEY = "reports.settlementPercents";
 
 /**
  * ส่งออกแบบ "ใบสรุปส่งแม่" ของทั้งวัน — ตั้งวันที่ เปอร์เซ็นต์ของสองกล่อง และยอดค้าง
- * แล้วดาวน์โหลด Excel / PDF (reports/export/route.ts?layout=sheet)
+ * แล้วดาวน์โหลด Excel / PDF (reports/export/route.ts?layout=sheet) · เลือกกลุ่มอยู่ = ใบนี้คิดเฉพาะโพยของกลุ่มนั้น
  */
-export function SettlementExport({ drawId, drawDate }: { drawId: string; drawDate: string }) {
+export function SettlementExport({
+  drawId,
+  drawDate,
+  group,
+}: {
+  drawId: string;
+  drawDate: string;
+  /** กลุ่มที่เลือกในหน้ารายงาน (label แปลแล้ว) — null = ทุกกลุ่ม */
+  group: { key: string; label: string } | null;
+}) {
   const { t } = useI18n();
   const [date, setDate] = React.useState(drawDate);
   const [left, setLeft] = React.useState(String(DEFAULT_PERCENTS.left));
@@ -50,6 +59,7 @@ export function SettlementExport({ drawId, drawDate }: { drawId: string; drawDat
       {
         format,
         draw: drawId,
+        group: group?.key,
         layout: "sheet",
         date,
         pl: percents.left,
@@ -97,6 +107,11 @@ export function SettlementExport({ drawId, drawDate }: { drawId: string; drawDat
           <DialogDescription>{t("reports.sheetDesc")}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
+          {group ? (
+            <p className="text-sm">
+              {t("reports.group")}: <span className="font-semibold">{group.label}</span>
+            </p>
+          ) : null}
           <div className="grid gap-2">
             <Label htmlFor="settlement-date">{t("reports.sheetDate")}</Label>
             <Input id="settlement-date" type="date" value={date} onChange={(event) => setDate(event.target.value)} />
