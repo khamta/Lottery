@@ -68,6 +68,9 @@ export const markTicketsSeenSchema = z.object({
   seenAt: z.string().datetime("validation.required"),
 });
 
+/** เปิดหน้าตรวจโพยใบที่ยังไม่ได้ดู = ดูใบนั้นแล้ว */
+export const markTicketReadSchema = z.object({ id: z.string().min(1, "validation.required") });
+
 export type TicketInput = z.infer<typeof ticketSchema>;
 export type EditTicketImageInput = z.infer<typeof editTicketImageSchema>;
 export type EditedImageMime = z.infer<typeof editedImageMimeEnum>;

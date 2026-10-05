@@ -12,6 +12,7 @@ import { getDealerContext } from "@/lottery/dealer";
 import { rulesOf } from "@/lottery/ingest";
 import { oddLakTicketIds } from "@/lottery/odd-lak";
 import { DealerSwitcher } from "@/lottery/components/dealer-switcher";
+import { dealerUnreadCounts } from "@/lottery/unread";
 import { NoDealer } from "@/lottery/components/no-dealer";
 import type { PageProps } from "@/types";
 import { TicketsView } from "./_components/tickets-view";
@@ -99,9 +100,15 @@ export default async function TicketsPage({ searchParams }: PageProps) {
     ...(filters.drawId ? [{ drawId: filters.drawId }] : []),
     ...(filters.groups ? [groupWhere(filters.groups)] : []),
   ];
-  const [oddLakIds, imageCount] = await Promise.all([
+  // + โพยที่ยังไม่ได้ดูของแม่หวยอื่น — ป้ายบนตัวเลือกแม่หวย (แม่หวยที่ใช้อยู่ดูจากแถบกลุ่ม)
+  const [oddLakIds, imageCount, dealerUnread] = await Promise.all([
     oddLakTicketIds(prisma, current.id, filters.drawId),
     prisma.ticket.count({ where: { AND: [...scope, withImageWhere] } }),
+    dealerUnreadCounts(
+      prisma,
+      access.userId,
+      dealers.flatMap((dealer) => (dealer.id === current.id ? [] : [dealer.id])),
+    ),
   ]);
   const oddLakCount =
     filters.groups && oddLakIds.length
@@ -132,6 +139,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       customer: { name: string } | null;
       senderName: string | null;
       groupId: string | null;
+      reads: unknown[];
       source: TicketRow["source"];
       status: TicketRow["status"];
       rawText: string;
@@ -166,6 +174,8 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       customer: { select: { name: true } },
       senderName: true,
       groupId: true,
+      // ผู้ใช้คนนี้เปิดหน้าตรวจโพยใบนี้แล้วหรือยัง (ตัวนับยังไม่ได้ดู)
+      reads: { where: { userId: access.userId }, select: { userId: true }, take: 1 },
       source: true,
       status: true,
       rawText: true,
@@ -179,7 +189,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       totalThb: true,
       createdAt: true,
     },
-    map: ({ draw, customer, issues, image, ...row }) => ({
+    map: ({ draw, customer, issues, image, reads, ...row }) => ({
       ...row,
       drawName: draw.name,
       customerName: customer?.name ?? null,
@@ -191,7 +201,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       totalLak: Number(row.totalLak),
       totalThb: Number(row.totalThb),
       createdAt: row.createdAt.toISOString(),
-      isNew: isUnread(row.createdAt, seen.get(groupKeyOf(row.groupId))),
+      isNew: reads.length === 0 && isUnread(row.createdAt, seen.get(groupKeyOf(row.groupId))),
     }),
   });
 
@@ -200,7 +210,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       <PageHeader
         title={t("tickets.title")}
         description={t("tickets.subtitle")}
-        action={<DealerSwitcher dealers={dealers} currentId={current.id} />}
+        action={<DealerSwitcher dealers={dealers} currentId={current.id} unread={dealerUnread} />}
       />
       {page.rows.some((row) => row.ocrStatus === "PENDING") ? <LiveRefresh intervalMs={OCR_REFRESH_MS} /> : null}
       <TicketsView

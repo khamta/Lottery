@@ -22,9 +22,10 @@ import {
   rereadTicketImage,
   updateTicket,
 } from "../actions";
-import { markTicketsSeen } from "../seen/actions";
+import { markTicketRead, markTicketsSeen } from "../seen/actions";
 import {
   canRereadImage,
+  NO_GROUP,
   type CustomerOption,
   type DrawOption,
   type RereadDrawTarget,
@@ -80,7 +81,47 @@ export function TicketsView({
   dealerId: string;
 }) {
   const { t, intl } = useI18n();
-  const { rows, isPending, mutate, tempId } = useOptimisticList(page.rows);
+  const { rows: listRows, isPending, mutate, tempId } = useOptimisticList(page.rows);
+
+  // โพยที่เปิดหน้าตรวจไปแล้วในหน้านี้ แต่ server ยังไม่ได้ render ใหม่ — ถือว่าดูแล้ว (จุด/ตัวนับหายทันที)
+  // พอ server render ใหม่ แถวมา isNew: false เอง ตัวนับจึงไม่ถูกลบซ้ำ
+  const [readIds, setReadIds] = React.useState<ReadonlySet<string>>(() => new Set());
+  const rows = React.useMemo(
+    () => (readIds.size ? listRows.map((row) => (row.isNew && readIds.has(row.id) ? { ...row, isNew: false } : row)) : listRows),
+    [listRows, readIds],
+  );
+  const groups = React.useMemo(() => {
+    const opened = new Map<string, number>();
+    for (const row of page.rows) {
+      if (!row.isNew || !readIds.has(row.id)) continue;
+      const key = row.groupId ?? NO_GROUP;
+      opened.set(key, (opened.get(key) ?? 0) + 1);
+    }
+    return opened.size
+      ? groupOptions.map((option) => ({ ...option, unread: Math.max(0, option.unread - (opened.get(option.key) ?? 0)) }))
+      : groupOptions;
+  }, [groupOptions, page.rows, readIds]);
+
+  /**
+   * เปิดหน้าตรวจโพยใบที่ยังไม่ได้ดู = ดูแล้ว — บันทึกเบื้องหลังแบบเงียบ ๆ ไม่ผ่าน mutate() โดยตั้งใจ:
+   * ไม่ใช่การแก้ข้อมูลโพย ไม่ควรมีม่านโหลดบังหน้าต่างตรวจโพยทุกครั้งที่เปิด และไม่ refresh ระหว่างที่กำลังตรวจ
+   * สถานะบนจอเก็บใน readIds เอง (ไม่ใช่ useOptimistic) จึงไม่เด้งกลับ · บันทึกไม่สำเร็จ = เอาจุดกลับมา
+   */
+  const markRead = React.useCallback((row: TicketRow) => {
+    if (!row.isNew) return;
+    setReadIds((ids) => new Set(ids).add(row.id));
+    void markTicketRead({ id: row.id }).then(
+      (result) => result.ok,
+      () => false, // เน็ตหลุด
+    ).then((ok) => {
+      if (ok) return;
+      setReadIds((ids) => {
+        const next = new Set(ids);
+        next.delete(row.id);
+        return next;
+      });
+    });
+  }, []);
 
   const [selected, setEditing] = React.useState<TicketRow | null>(null);
   // ข้อมูลล่าสุดของโพยที่เปิดอยู่ — หน้า refresh เองระหว่างรออ่านรูป หน้าต่างจึงเห็นข้อความที่อ่านจากรูปทันทีที่เสร็จ
@@ -99,10 +140,14 @@ export function TicketsView({
   // แก้รูป (ครอป / ยางลบ) → เลือกตัวอ่าน (rereading kind "edited") → สั่งบันทึกรูป + อ่านใหม่
   const [editingImage, setEditingImage] = React.useState<TicketRow | null>(null);
 
-  const openReview = React.useCallback((row: TicketRow) => {
-    setEditing(row);
-    setFormOpen(true);
-  }, []);
+  const openReview = React.useCallback(
+    (row: TicketRow) => {
+      setEditing(row);
+      setFormOpen(true);
+      markRead(row);
+    },
+    [markRead],
+  );
 
   const columns = React.useMemo(
     () =>
@@ -264,7 +309,7 @@ export function TicketsView({
       <RememberTicketFilters dealerId={dealerId} />
       <div className="mb-4">
         <TicketGroups
-          options={groupOptions}
+          options={groups}
           selected={filters.groups ?? null}
           onMarkSeen={handleMarkSeen}
           disabled={isPending}

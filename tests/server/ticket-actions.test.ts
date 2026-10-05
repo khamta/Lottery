@@ -14,6 +14,8 @@ const db = {
   customers: new Map<string, { id: string; dealerId: string; lakMultiplier: number }>(),
   tickets: new Map<string, Row>(),
   bets: [] as Row[],
+  /** โพยที่ผู้ใช้เปิดดูแล้ว (TicketRead) */
+  reads: [] as Row[],
   auditRows: [] as Row[],
   /** ticketId -> รูปโพย (โพยจาก WhatsApp ที่เป็นรูป) */
   images: new Map<string, Row>(),
@@ -49,6 +51,12 @@ const tx = {
     findFirst: async ({ where }: { where: { id: string; dealerId: string } }) => {
       const customer = db.customers.get(where.id);
       return customer && customer.dealerId === where.dealerId ? customer : null;
+    },
+  },
+  ticketRead: {
+    create: async ({ data }: { data: Row }) => {
+      db.reads.push(data);
+      return data;
     },
   },
   ticket: {
@@ -199,6 +207,7 @@ beforeEach(() => {
   currentDealerId = "dealer-1";
   db.tickets.clear();
   db.bets = [];
+  db.reads = [];
   db.auditRows = [];
   db.images.clear();
   revalidated.length = 0;
@@ -226,6 +235,11 @@ describe("createTicket", () => {
     expect(briefBets()).toEqual(["32 TOP LAK 300000", "72 TOP LAK 300000", "243 TOP LAK 150000"]);
     expect(db.bets.every((bet) => bet.ticketId === "ticket-1" && bet.drawId === "draw-open")).toBe(true);
     expect(revalidated).toEqual(expect.arrayContaining(["/tickets", "/reports", "/dashboard"]));
+  });
+
+  test("คนคีย์โพยเห็นโพยนั้นแล้ว → ไม่ขึ้นเป็นยังไม่ได้ดูของตัวเอง", async () => {
+    await createTicket(valid);
+    expect(db.reads).toEqual([{ userId: "user-1", ticketId: "ticket-1" }]);
   });
 
   test("ลูกค้าที่พิมพ์ยอดเต็ม → ไม่คูณ และบาทไม่คูณเสมอ", async () => {

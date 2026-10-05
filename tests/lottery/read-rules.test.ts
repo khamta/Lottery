@@ -5,7 +5,8 @@ import { applyReadRules, compilePattern, prepareReadRules, type ReadRuleSpec } f
 import { readRuleSchema } from "@/lib/validations/read-rule";
 
 /** เทสต์เงื่อนไขอ่านโพยที่ผู้ใช้กำหนดเอง — ตัวแปลงล้วน และการใช้ร่วมกับตัวแยกข้อความ */
-const run = (line: string, ...rules: ReadRuleSpec[]) => applyReadRules(line, prepareReadRules(rules));
+// ทดสอบตัวเงื่อนไขเอง — ไม่รวมเงื่อนไขที่ติดมากับระบบ (มีเทสต์ของตัวเองใน built-in-read-rules.test.ts)
+const run = (line: string, ...rules: ReadRuleSpec[]) => applyReadRules(line, prepareReadRules(rules, { builtIn: false }));
 const skip = (find: string): ReadRuleSpec => ({ kind: "SKIP", find, replace: "" });
 const replace = (find: string, to: string): ReadRuleSpec => ({ kind: "REPLACE", find, replace: to });
 const pattern = (find: string, to: string): ReadRuleSpec => ({ kind: "PATTERN", find, replace: to });

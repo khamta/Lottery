@@ -85,6 +85,8 @@ export type ParseOptions = {
   lakMultiplier?: number;
   /** เงื่อนไขอ่านโพยที่ผู้ใช้กำหนดเองของแม่หวย (read-rules.ts) — ใช้กับทีละบรรทัดก่อนอ่านตามรูปแบบมาตรฐาน */
   rules?: readonly ReadRuleSpec[];
+  /** false = ไม่ใช้เงื่อนไขที่ติดมากับระบบ (built-in-read-rules.ts) — ใช้ในเทสต์ไวยากรณ์ของตัวแยกเองเท่านั้น ระบบจริงใช้เสมอ */
+  builtInRules?: boolean;
 };
 
 export const DEFAULT_LAK_MULTIPLIER = 1000;
@@ -510,7 +512,7 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
   const notes: string[] = [];
   let declaredTotal: number | null = null;
   let typedTotal = 0;
-  const rules = prepareReadRules(options.rules ?? []);
+  const rules = prepareReadRules(options.rules ?? [], { builtIn: options.builtInRules ?? true });
   // โพยบาท → รายการที่ไม่ได้ระบุสกุลเงินเป็นบาท (รายการที่ระบุ ກີບ / ₭ เองยังเป็นกีบ):
   // · มีบรรทัด B / ฿ เดี่ยว ๆ ด้านบนหรือด้านล่างของโพย
   // · ລວມ80฿ และทั้งข้อความไม่มีคำบอกกีบเลย

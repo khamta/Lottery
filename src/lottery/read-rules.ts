@@ -17,6 +17,8 @@
  *   *    อะไรก็ได้ (เฉพาะในรูปแบบที่ค้นหา — ในผลลัพธ์ * เป็นตัวอักษรธรรมดา เช่น {N}={A}*{B} = บน×ล่าง)
  */
 
+import { BUILT_IN_READ_RULES } from "./built-in-read-rules";
+
 export const READ_RULE_KINDS = ["SKIP", "REPLACE", "PATTERN"] as const;
 export type ReadRuleKind = (typeof READ_RULE_KINDS)[number];
 
@@ -117,9 +119,14 @@ type Prepared =
   | { kind: "REPLACE"; find: RegExp; replace: string }
   | { kind: "PATTERN"; compiled: Compiled; replace: string };
 
-/** เตรียมเงื่อนไขครั้งเดียวใช้กับทุกบรรทัด — เงื่อนไขที่ใช้ไม่ได้ถูกข้ามไป (ไม่ทำให้อ่านโพยพัง) */
-export function prepareReadRules(rules: readonly ReadRuleSpec[]): Prepared[] {
-  const prepared = rules.flatMap((rule) => findLines(rule.find).flatMap((find) => prepareOne(rule, find)));
+/**
+ * เตรียมเงื่อนไขครั้งเดียวใช้กับทุกบรรทัด — เงื่อนไขที่ใช้ไม่ได้ถูกข้ามไป (ไม่ทำให้อ่านโพยพัง)
+ * ต่อท้ายด้วยเงื่อนไขที่ติดมากับระบบ (built-in-read-rules.ts) เสมอ — ที่เดียวนี้ ทุกที่ที่อ่านโพย (บอท บันทึกโพย
+ * อ่านใหม่ หน้าต่างลองข้อความ) จึงได้ชุดเดียวกันในลำดับเดียวกัน · builtIn: false = เฉพาะเงื่อนไขที่ส่งมา (เทสต์ตัวเงื่อนไขเอง)
+ */
+export function prepareReadRules(rules: readonly ReadRuleSpec[], { builtIn = true }: { builtIn?: boolean } = {}): Prepared[] {
+  const all = builtIn ? [...rules, ...BUILT_IN_READ_RULES] : rules;
+  const prepared = all.flatMap((rule) => findLines(rule.find).flatMap((find) => prepareOne(rule, find)));
   // ลำดับ: ข้าม → แทนคำ → รูปแบบ (sort คงลำดับเดิมภายในชนิดเดียวกัน)
   return prepared.sort((a, b) => READ_RULE_KINDS.indexOf(a.kind) - READ_RULE_KINDS.indexOf(b.kind));
 }

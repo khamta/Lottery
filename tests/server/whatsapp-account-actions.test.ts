@@ -293,6 +293,24 @@ describe("assignWhatsappGroup", () => {
     expect(db.groups.get("group-1")).toMatchObject({ dealerId: null });
   });
 
+  test("เลือกตัวอ่านรูปของกลุ่มได้ (AI / OCR) พร้อม audit log — ไม่ส่งมา = คงค่าเดิม", async () => {
+    db.groups.set("group-1", { ...db.groups.get("group-1")!, dealerId: "dealer-1", imageReader: "AI" });
+
+    expect((await assignWhatsappGroup({ id: "group-1", dealerId: "dealer-1", imageReader: "OCR" })).ok).toBe(true);
+    expect(db.groups.get("group-1")).toMatchObject({ dealerId: "dealer-1", imageReader: "OCR" });
+    expect(db.auditRows[0]).toMatchObject({ changes: { imageReader: { from: "AI", to: "OCR" } } });
+
+    expect((await assignWhatsappGroup({ id: "group-1", dealerId: "dealer-1" })).ok).toBe(true);
+    expect(db.groups.get("group-1")).toMatchObject({ imageReader: "OCR" });
+  });
+
+  test("ตัวอ่านรูปที่ไม่รู้จัก → VALIDATION", async () => {
+    const result = await assignWhatsappGroup({ id: "group-1", dealerId: null, imageReader: "GPT" as never });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("VALIDATION");
+  });
+
   test("ไม่พบกลุ่ม → whatsapp.groupNotFound", async () => {
     const result = await assignWhatsappGroup({ id: "nope", dealerId: null });
 

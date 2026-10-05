@@ -18,6 +18,9 @@
  *
  * อ่านโพยรอตรวจใหม่จากหน้าโพย (requestImageReread) → รูปกลับเป็น PENDING พร้อมตัวอ่านที่คนเลือก (ocrEngine)
  *   บอทดึงคำสั่งเข้าคิวทุก REQUEST_POLL_MS · AI = Claude รุ่นแม่นเท่านั้น (ไม่ใช้บริการ OCR แทน) · OCR = บริการ OCR เท่านั้น
+ *
+ * แต่ละกลุ่มเลือกตัวอ่านเองได้ (whatsapp_groups.imageReader หน้า WhatsApp) — OCR = รูปจากกลุ่มนั้นอ่านด้วยบริการ OCR เท่านั้น
+ *   AI = Claude ก่อนตามปกติ · คำสั่งอ่านใหม่จากหน้าโพยใช้ตัวที่คนเลือกแทนค่าของกลุ่ม
  */
 import Anthropic from "@anthropic-ai/sdk";
 
@@ -164,15 +167,23 @@ async function markReader(ticketId: string, reader: string) {
 async function ocrTicketImage(ticketId: string) {
   const image = await prisma.ticketImage.findUnique({
     where: { ticketId },
-    select: { path: true, mimeType: true, ocrStatus: true, ocrEngine: true },
+    select: {
+      path: true,
+      mimeType: true,
+      ocrStatus: true,
+      ocrEngine: true,
+      ticket: { select: { group: { select: { imageReader: true } } } },
+    },
   });
   if (!image || image.ocrStatus !== "PENDING") return;
+  // กลุ่มตั้งให้อ่านปกติ = บริการ OCR เท่านั้น · กลุ่มตั้ง AI / โพยไม่มีกลุ่ม = บอทเลือกเอง (Claude ก่อน) · คนสั่งอ่านใหม่ = ตามที่คนเลือก
+  const requested = image.ocrEngine ?? (image.ticket.group?.imageReader === "OCR" ? "OCR" : null);
 
   try {
     const started = Date.now();
     const data = image.path ? await readTicketImage(image.path) : null;
     if (!data) throw new BadImageError(`image file missing: ${image.path ?? "(no path)"}`);
-    const { outcome, engine } = await readTicketImageText(data, image.mimeType, image.ocrEngine, (reader) => markReader(ticketId, reader));
+    const { outcome, engine } = await readTicketImageText(data, image.mimeType, requested, (reader) => markReader(ticketId, reader));
     const result = await applyOcr(prisma, ticketId, outcome);
     attempts.delete(ticketId);
     const lines = outcome.text ? outcome.text.split("\n").filter(Boolean).length : 0;
@@ -191,7 +202,7 @@ async function ocrTicketImage(ticketId: string) {
     }
 
     attempts.set(ticketId, tried);
-    const service = image.ocrEngine === "AI" ? CLAUDE : OCR_SERVICE;
+    const service = requested === "AI" ? CLAUDE : OCR_SERVICE;
     console.warn(`[OCR] ติดต่อ${service}ไม่ได้ (${message}) — ลองใหม่ใน ${RETRY_MS / 1000} วินาที (ครั้งที่ ${tried})`);
     // ระหว่างรอลองใหม่ ไม่ให้รอบดึงคำสั่งจากหน้าเว็บ (pollRequests) หยิบรูปนี้เข้าคิวก่อนเวลา
     retrying.add(ticketId);

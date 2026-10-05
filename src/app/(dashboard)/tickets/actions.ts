@@ -84,6 +84,8 @@ export const createTicket = createAction(
 
       const billNo = await nextBillNo(tx);
       const ticket = await tx.ticket.create({ data: { ...data, billNo, source: "MANUAL", createdById: user.id } });
+      // คนคีย์เห็นโพยนี้อยู่แล้ว — ไม่ต้องขึ้นเป็น "ยังไม่ได้ดู" ของตัวเอง (คนอื่นยังเห็นเป็นโพยใหม่)
+      await tx.ticketRead.create({ data: { userId: user.id, ticketId: ticket.id } });
       if (bets.length > 0) {
         await tx.bet.createMany({ data: bets.map((bet) => ({ ...bet, ticketId: ticket.id })) });
       }

@@ -56,6 +56,7 @@ model User {
   dealers          Dealer[]
   whatsappAccounts WhatsappAccount[]
   ticketSeen       TicketSeen[]
+  ticketReads      TicketRead[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -200,7 +201,7 @@ enum OcrStatus {
   FAILED // อ่านไม่ได้ (บริการ OCR ล่ม/รูปเสีย) — คนต้องดูรูปแล้วพิมพ์เอง
 }
 
-/// ตัวอ่านรูปที่คนสั่งให้อ่านโพยรอตรวจใหม่ (หน้าโพย) — ไม่ระบุ = บอทเลือกเอง (Claude ก่อน ไม่ได้ใช้บริการ OCR)
+/// ตัวอ่านรูปโพย — ค่าของกลุ่ม (whatsapp_groups.imageReader) และที่คนสั่งให้อ่านโพยรอตรวจใหม่ (ticket_images.ocrEngine)
 enum OcrEngine {
   AI // Claude — มีค่าใช้จ่ายต่อรูป
   OCR // บริการ OCR ในเครื่อง (ocr/server.py) — ไม่มีค่าใช้จ่าย
@@ -341,6 +342,8 @@ model Ticket {
   bets        Bet[]
   /// รูปโพยที่ลูกค้าส่งมาแทนข้อความ (มีเฉพาะโพยจากรูป)
   image       TicketImage?
+  /// ผู้ใช้ที่เปิดดูโพยนี้แล้ว (ตัวนับยังไม่ได้ดูของหน้าโพย)
+  reads       TicketRead[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -368,6 +371,20 @@ model TicketSeen {
 
   @@unique([userId, dealerId, groupKey])
   @@map("ticket_seen")
+}
+
+/// หน้าโพย: โพยที่ผู้ใช้เปิดหน้าตรวจดูแล้วทีละใบ (หลังเวลาใน TicketSeen) — ไม่ต้องกด "ดูทั้งหมดแล้ว" ก็หายจากยังไม่ได้ดู
+/// กด "ดูทั้งหมดแล้ว" แล้วแถวของโพยที่เวลานั้นครอบคลุมถูกลบทิ้ง (ไม่ต้องใช้แล้ว)
+model TicketRead {
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ticketId String
+  ticket   Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  readAt   DateTime @default(now())
+
+  @@id([userId, ticketId])
+  @@index([ticketId])
+  @@map("ticket_reads")
 }
 
 model TicketImage {
@@ -506,6 +523,9 @@ model WhatsappGroup {
   dealer   Dealer?     @relation(fields: [dealerId], references: [id], onDelete: SetNull)
   /// โพยจากกลุ่มนี้ลงงวดที่เปิดรับของหวยประเภทนี้
   lottery  LotteryType @default(LAO)
+  /// ตัวอ่านรูปโพยของกลุ่มนี้ — AI = Claude ก่อน (อ่านไม่ได้/เครดิตหมด ใช้บริการ OCR แทน) · OCR = บริการ OCR เท่านั้น (ไม่มีค่าใช้จ่าย)
+  /// คนสั่งอ่านใหม่จากหน้าโพย (ticket_images.ocrEngine) → ใช้ตัวที่คนเลือกแทนค่านี้
+  imageReader OcrEngine @default(AI)
 
   tickets Ticket[]
 
