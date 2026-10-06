@@ -5,6 +5,7 @@ import { buildOrderBy, paginate, parseListParams } from "@/lib/query";
 import { PageHeader } from "@/components/shared/page-header";
 import { getTranslations } from "@/i18n/server";
 import { ownerScope } from "@/lottery/access";
+import { AI_MODEL, AI_STRONG_MODEL, ocrModelField } from "@/lottery/ai-models";
 import { getDealerContext } from "@/lottery/dealer";
 import type { PageProps } from "@/types";
 import { DealersView } from "./_components/dealers-view";
@@ -46,6 +47,7 @@ export default async function DealersPage({ searchParams }: PageProps) {
       id: string;
       name: string;
       note: string | null;
+      ocrModel: string | null;
       ownerId: string;
       owner: { name: string | null; email: string };
       updatedAt: Date;
@@ -59,6 +61,7 @@ export default async function DealersPage({ searchParams }: PageProps) {
       id: true,
       name: true,
       note: true,
+      ocrModel: true,
       ownerId: true,
       owner: { select: { name: true, email: true } },
       updatedAt: true,
@@ -66,6 +69,7 @@ export default async function DealersPage({ searchParams }: PageProps) {
     },
     map: ({ _count, ownerId, owner, ...row }) => ({
       ...row,
+      ocrModel: ocrModelField(row.ocrModel),
       ownerName: ownerId === user.id ? null : (owner.name ?? owner.email),
       drawCount: _count.draws,
       customerCount: _count.customers,
@@ -77,7 +81,12 @@ export default async function DealersPage({ searchParams }: PageProps) {
   return (
     <>
       <PageHeader title={t("dealers.title")} description={t("dealers.subtitle")} />
-      <DealersView page={page} currentId={current?.id ?? null} showOwner={access.isAdmin} />
+      <DealersView
+        page={page}
+        currentId={current?.id ?? null}
+        showOwner={access.isAdmin}
+        ocrDefaults={{ model: AI_MODEL, strongModel: AI_STRONG_MODEL }}
+      />
     </>
   );
 }

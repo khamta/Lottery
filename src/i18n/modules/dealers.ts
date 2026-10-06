@@ -21,6 +21,11 @@ export const dealersMessages = defineModuleMessages({
       name: "ชื่อแม่หวย",
       namePlaceholder: "เช่น แม่หวยเวียงจันทน์",
       note: "หมายเหตุ",
+      ocrModel: "รุ่น AI ที่อ่านรูปโพย",
+      ocrModelHint: "อัตโนมัติ = รุ่นถูกอ่านก่อน อ่านไม่ผ่าน (ยอดรวมไม่ตรง / มีบรรทัดอ่านไม่ออก) จึงให้รุ่นแม่นอ่านซ้ำ · เลือกรุ่นเอง = ใช้รุ่นนั้นรุ่นเดียวทุกรูป — มีผลกับรูปถัดไปทันที",
+      ocrAuto: "อัตโนมัติ ({model} → {strong})",
+      ocrAutoSingle: "อัตโนมัติ ({model})",
+      ocrOnly: "{model} อย่างเดียว",
       draws: "งวด",
       customers: "ลูกค้า",
       groups: "กลุ่ม WhatsApp",
@@ -48,6 +53,7 @@ export const dealersMessages = defineModuleMessages({
       validation: {
         nameRequired: "กรอกชื่อแม่หวย",
         noteMax: "หมายเหตุไม่เกิน 200 ตัวอักษร",
+        ocrModel: "เลือกรุ่น AI จากรายการ",
       },
     },
     auditLogs: {
@@ -70,6 +76,11 @@ export const dealersMessages = defineModuleMessages({
       name: "ຊື່ເຈົ້າມື",
       namePlaceholder: "ເຊັ່ນ ເຈົ້າມືວຽງຈັນ",
       note: "ໝາຍເຫດ",
+      ocrModel: "ລຸ້ນ AI ທີ່ອ່ານຮູບໂພຍ",
+      ocrModelHint: "ອັດຕະໂນມັດ = ລຸ້ນລາຄາຖືກອ່ານກ່ອນ ອ່ານບໍ່ຜ່ານ (ຍອດລວມບໍ່ຕົງ / ມີແຖວອ່ານບໍ່ອອກ) ຈຶ່ງໃຫ້ລຸ້ນແມ່ນຍຳອ່ານຊ້ຳ · ເລືອກລຸ້ນເອງ = ໃຊ້ລຸ້ນນັ້ນລຸ້ນດຽວທຸກຮູບ — ມີຜົນກັບຮູບຕໍ່ໄປທັນທີ",
+      ocrAuto: "ອັດຕະໂນມັດ ({model} → {strong})",
+      ocrAutoSingle: "ອັດຕະໂນມັດ ({model})",
+      ocrOnly: "{model} ຢ່າງດຽວ",
       draws: "ງວດ",
       customers: "ລູກຄ້າ",
       groups: "ກຸ່ມ WhatsApp",
@@ -97,6 +108,7 @@ export const dealersMessages = defineModuleMessages({
       validation: {
         nameRequired: "ປ້ອນຊື່ເຈົ້າມື",
         noteMax: "ໝາຍເຫດບໍ່ເກີນ 200 ຕົວອັກສອນ",
+        ocrModel: "ເລືອກລຸ້ນ AI ຈາກລາຍການ",
       },
     },
     auditLogs: {
@@ -119,6 +131,11 @@ export const dealersMessages = defineModuleMessages({
       name: "Dealer name",
       namePlaceholder: "e.g. Vientiane dealer",
       note: "Note",
+      ocrModel: "AI model for reading slip photos",
+      ocrModelHint: "Auto = a cheaper model reads first; if the read fails (total mismatch / unreadable lines) a more accurate model re-reads it · Pick a model = that model reads every photo. Applies from the next photo.",
+      ocrAuto: "Auto ({model} → {strong})",
+      ocrAutoSingle: "Auto ({model})",
+      ocrOnly: "{model} only",
       draws: "Draws",
       customers: "Customers",
       groups: "WhatsApp groups",
@@ -146,6 +163,7 @@ export const dealersMessages = defineModuleMessages({
       validation: {
         nameRequired: "Enter the dealer name",
         noteMax: "Note must be 200 characters or fewer",
+        ocrModel: "Choose an AI model from the list",
       },
     },
     auditLogs: {
@@ -168,6 +186,11 @@ export const dealersMessages = defineModuleMessages({
       name: "庄家名称",
       namePlaceholder: "例如 万象庄家",
       note: "备注",
+      ocrModel: "识别注单照片的 AI 模型",
+      ocrModelHint: "自动 = 先用较便宜的模型识别，未通过（合计不符 / 有无法识别的行）再由更准确的模型重新识别 · 选择模型 = 每张照片都只用该模型，下一张照片起生效",
+      ocrAuto: "自动（{model} → {strong}）",
+      ocrAutoSingle: "自动（{model}）",
+      ocrOnly: "仅 {model}",
       draws: "期次",
       customers: "客户",
       groups: "WhatsApp 群组",
@@ -195,6 +218,7 @@ export const dealersMessages = defineModuleMessages({
       validation: {
         nameRequired: "请输入庄家名称",
         noteMax: "备注不超过 200 个字符",
+        ocrModel: "请从列表中选择 AI 模型",
       },
     },
     auditLogs: {

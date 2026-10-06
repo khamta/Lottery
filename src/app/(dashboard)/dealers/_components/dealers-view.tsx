@@ -9,6 +9,7 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { useOptimisticList } from "@/hooks/use-optimistic-list";
 import { useI18n } from "@/i18n/client";
 import type { DealerInput } from "@/lib/validations/dealer";
+import type { OcrModels } from "@/lottery/ai-models";
 import { useSwitchDealer } from "@/lottery/components/dealer-switcher";
 import type { Paginated } from "@/types";
 import { createDealer, deleteDealer, updateDealer } from "../actions";
@@ -20,11 +21,14 @@ export function DealersView({
   page,
   currentId,
   showOwner,
+  ocrDefaults,
 }: {
   page: Paginated<DealerRow>;
   currentId: string | null;
   /** ผู้ดูแลระบบ: แสดงคอลัมน์เจ้าของ */
   showOwner: boolean;
+  /** รุ่นที่โหมดอัตโนมัติใช้ (env) — แสดงในตัวเลือก "อัตโนมัติ" */
+  ocrDefaults: OcrModels;
 }) {
   const { t, intl } = useI18n();
   const { rows, isPending, mutate, tempId } = useOptimisticList(page.rows);
@@ -55,6 +59,7 @@ export function DealersView({
     const shared = {
       name: values.name,
       note: values.note || null,
+      ocrModel: values.ocrModel,
       updatedAt: new Date().toISOString(),
     };
 
@@ -105,7 +110,13 @@ export function DealersView({
         }
       />
 
-      <DealerDialog open={formOpen} onOpenChange={setFormOpen} dealer={editing} onSubmit={handleSave} />
+      <DealerDialog
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        dealer={editing}
+        ocrDefaults={ocrDefaults}
+        onSubmit={handleSave}
+      />
 
       <ConfirmDialog
         open={!!deleting}

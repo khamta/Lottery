@@ -1,8 +1,12 @@
+import type { OcrModelField } from "@/lottery/ai-models";
+
 /** รูปแบบข้อมูลที่ส่งจาก server ไป client (Date -> string) */
 export type DealerRow = {
   id: string;
   name: string;
   note: string | null;
+  /** รุ่นที่อ่านรูปโพย — เป็นค่าในฟอร์มแล้ว ("auto" / ชื่อรุ่น · ดู src/lottery/ai-models.ts) */
+  ocrModel: OcrModelField;
   /** ชื่อเจ้าของ — มีค่าเฉพาะแม่หวยของบัญชีอื่น (ผู้ดูแลระบบเห็น) */
   ownerName: string | null;
   drawCount: number;

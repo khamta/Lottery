@@ -96,7 +96,7 @@ mock.module("next/cache", () => ({
 
 const { createDealer, updateDealer, deleteDealer, selectDealer } = await import("@/app/(dashboard)/dealers/actions");
 
-const valid = { name: "แม่หวยเวียงจันทน์", note: "" };
+const valid = { name: "แม่หวยเวียงจันทน์", note: "", ocrModel: "auto" } as const;
 
 async function created(owner = "user-1") {
   currentUser = { id: owner, role: "USER" };
@@ -124,6 +124,22 @@ describe("createDealer", () => {
     expect(result.ok).toBe(true);
     expect([...db.dealers.values()][0]).toMatchObject({ ownerId: "user-1", name: valid.name, note: null });
     expect(db.auditRows[0]).toMatchObject({ action: "CREATE", entity: "Dealer", userId: "user-1" });
+  });
+
+  test("รุ่น AI: เลือกเอง = เก็บชื่อรุ่น · อัตโนมัติ = null", async () => {
+    await createDealer({ ...valid, ocrModel: "claude-haiku-4-5-20251001" });
+    await createDealer({ ...valid, name: "อีกราย" });
+
+    const [picked, auto] = [...db.dealers.values()];
+    expect(picked).toMatchObject({ ocrModel: "claude-haiku-4-5-20251001" });
+    expect(auto).toMatchObject({ ocrModel: null });
+  });
+
+  test("รุ่นที่ไม่อยู่ในรายการ → VALIDATION", async () => {
+    const result = await createDealer({ ...valid, ocrModel: "gpt-5" as never });
+
+    expect(result.ok).toBe(false);
+    expect(db.dealers.size).toBe(0);
   });
 
   test("ชื่อว่าง → VALIDATION ไม่แตะฐานข้อมูล", async () => {

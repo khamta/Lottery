@@ -68,7 +68,7 @@ describe("<DrawDialog /> (เปิดงวดใหม่ / แก้งวด
 });
 
 describe("<DealerDialog />", () => {
-  test("ฟอร์มมีแค่ชื่อกับหมายเหตุ (ไม่มีช่องอัตราจ่าย) และบันทึกได้", async () => {
+  test("ฟอร์มไม่มีช่องอัตราจ่าย และบันทึกได้ (รุ่น AI ที่เลือกไว้ส่งกลับตามเดิม)", async () => {
     const onSubmit = mock((_values: unknown) => {});
     render(
       <DealerDialog
@@ -78,12 +78,14 @@ describe("<DealerDialog />", () => {
           id: "dealer-1",
           name: "tar",
           note: null,
+          ocrModel: "claude-opus-5-5",
           ownerName: null,
           drawCount: 0,
           customerCount: 0,
           groupCount: 0,
           updatedAt: "2026-10-01T00:00:00.000Z",
         }}
+        ocrDefaults={{ model: "claude-sonnet-5-5", strongModel: "claude-opus-5-5" }}
         onSubmit={onSubmit}
       />,
     );
@@ -93,6 +95,10 @@ describe("<DealerDialog />", () => {
     submit();
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
-    expect(onSubmit.mock.calls[0]![0]).toEqual({ name: "ເປບຊີ່", note: "" });
+    expect(onSubmit.mock.calls[0]![0]).toEqual({
+      name: "ເປບຊີ່",
+      note: "",
+      ocrModel: "claude-opus-5-5",
+    });
   });
 });

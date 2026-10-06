@@ -26,6 +26,19 @@ describe("parseTicket — ข้อความตัวอย่างจาก
     expect(ticket.typedTotal).toBe(300);
   });
 
+  test("คำกำกับฝั่งหน้ายอด (=ບ10) = ท้ายยอด (=10ບ) — เลข 2 และ 3 ตัวปนกัน พร้อมยอดรวมท้ายบรรทัด", () => {
+    const ticket = parseTicket("09.49.89.689=ບ10 ລວມ40");
+    expect(brief(ticket.bets)).toEqual(["09 TOP LAK 10000", "49 TOP LAK 10000", "89 TOP LAK 10000", "689 TOP LAK 10000"]);
+    expect(ticket.declaredTotal).toBe(40);
+    expect(ticket.needsReview).toBe(false);
+
+    expect(brief(parseTicket("49=ລ10").bets)).toEqual(["49 BOTTOM LAK 10000"]);
+    expect(brief(parseTicket("49=ບລ 10").bets)).toEqual(["49 TOP LAK 10000", "49 BOTTOM LAK 10000"]);
+    expect(brief(parseTicket("49=ລ່າງ20").bets)).toEqual(["49 BOTTOM LAK 20000"]);
+    // เลข 3 ตัวลงล่างไม่ได้ — รอตรวจเหมือน =10ລ
+    expect(parseTicket("689=ລ10").issues[0]?.code).toBe("THREE_DIGIT_BOTTOM");
+  });
+
   test("หลายบรรทัดในข้อความเดียว = โพยเดียว", () => {
     const ticket = parseTicket("30.70=200\n32.72=300");
     expect(brief(ticket.bets)).toEqual([

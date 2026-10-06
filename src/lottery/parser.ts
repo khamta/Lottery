@@ -196,6 +196,8 @@ const TOTAL_UNIT_LINE = /^(?:ລວມ|รวม|ลวม|total|ລາວ|ล�
 const CURRENCY_BEFORE_TIMES = /(\d)\s*(฿|ບາດ|บาท|บาด|baht|b|₭|ກີບ|กีบ|kip|ພັນ|ພ|พัน|k)\s*(?=[*x×]\s*\d)/iu;
 /** ໂຕ / ຮູ / ປ່ອງ (+ລະ) หน้ายอด: "255=ໂຕ5ພັນ" */
 const AMOUNT_EACH_PREFIX = /^(?:ໂຕ|ຕົວ|ตัว|โต|ປ່ອງ|ປອງ|ป่อง|ຮູ|รู|hu)\s*(?:ລະ|ละ)?\s*(?=\d)/iu;
+/** คำกำกับหน้ายอด: "ບ10" · "ລ່າງ 20" (ตรวจกับ SUFFIX_TOKENS อีกชั้น) */
+const MARK_BEFORE_AMOUNT = /^([^\d\s][^\d]*?)\s*(\d.*)$/u;
 const THB_WORD =/฿|บาท|บาด|ບາດ|thb|baht/i;
 const LAK_WORD = /₭|ກີບ|กีบ|\bkip\b|\blak\b/i;
 /**
@@ -431,6 +433,9 @@ function readSuffixWithoutName(text: string) {
 function parseAmount(text: string, fallback: Currency = "LAK"): Amount | { issue: ParseIssueCode } {
   // =ໂຕ5ພັນ / =ຮູລະ10 — คำว่า "เลขละ" หลัง = ไม่มีผลกับยอด
   let body = text.trim().replace(AMOUNT_EACH_PREFIX, "");
+  // =ບ10 / =ລ່າງ 20 / =ບລ5 — คำกำกับฝั่ง/สกุลเงินหน้ายอด = ท้ายยอด: "10ບ"
+  const before = body.match(MARK_BEFORE_AMOUNT);
+  if (before && readSuffix(before[1])) body = `${before[2]}${before[1]}`;
   // =2ລ່າງ1 = เลข 2 ตัวล่าง เลขละ 1 → "1ລ່າງ" (parseLine ตรวจว่าเลขทุกตัวมีจำนวนหลักตรงกับที่บอก)
   const digitsSide = body.match(DIGITS_SIDE_PREFIX);
   if (digitsSide) body = `${body.slice(digitsSide[0].length)}${digitsSide[2]}`;

@@ -11,6 +11,7 @@ import {
   readSlipImage,
   slipTextOf,
 } from "@/lottery/image-ai";
+import { resolveOcrModels } from "@/lottery/ai-models";
 import { parseTicket } from "@/lottery/parser";
 
 /**
@@ -193,5 +194,45 @@ describe("claudeFailure — Claude อ่านไม่ได้แล้วร
   test("รูปนี้รูปเดียวมีปัญหา → image (รูปถัดไปยังใช้ Claude)", () => {
     expect(claudeFailure(apiError(400, "invalid_request_error", "image exceeds 5 MB maximum"))).toBe("image");
     expect(claudeFailure(new AiImageError("model refused to read the image"))).toBe("image");
+  });
+});
+
+describe("readSlipImage — รุ่นที่แม่หวยเลือกเอง (models)", () => {
+  test("ใช้รุ่นที่เลือกแทนค่าเริ่มต้น ทั้งรุ่นแรกและรุ่นอ่านซ้ำ", async () => {
+    const { client, requests } = fakeClient({ text: "2?=3*3" }, { text: "23=3*3" });
+
+    const read = await readSlipImage(client, jpeg, "image/jpeg", {
+      models: { model: "claude-haiku-4-5-20251001", strongModel: "claude-sonnet-5-5" },
+    });
+
+    expect(requests.map((request) => request.model)).toEqual(["claude-haiku-4-5-20251001", "claude-sonnet-5-5"]);
+    expect(read).toMatchObject({ model: "claude-sonnet-5-5", escalated: { model: "claude-haiku-4-5-20251001" } });
+  });
+
+  test("ไม่อ่านซ้ำ (strongModel ว่าง) → อ่านรุ่นเดียว แม้คนสั่งอ่านใหม่ (strong)", async () => {
+    const { client, requests } = fakeClient({ text: "2?=3*3" });
+
+    await readSlipImage(client, jpeg, "image/jpeg", { strong: true, models: { model: "claude-opus-5-5", strongModel: "" } });
+
+    expect(requests.map((request) => request.model)).toEqual(["claude-opus-5-5"]);
+  });
+});
+
+describe("resolveOcrModels — ค่าที่แม่หวยเลือก → รุ่นที่ใช้อ่านจริง", () => {
+  test("อัตโนมัติ (null) / ไม่มีแม่หวย = รุ่นถูกก่อน แล้วรุ่นแม่น (env)", () => {
+    const auto = { model: AI_MODEL, strongModel: AI_STRONG_MODEL };
+    expect(resolveOcrModels(null)).toEqual(auto);
+    expect(resolveOcrModels({ ocrModel: null })).toEqual(auto);
+  });
+
+  test("เลือกรุ่นเอง = รุ่นนั้นรุ่นเดียว ไม่อ่านซ้ำ", () => {
+    expect(resolveOcrModels({ ocrModel: "claude-opus-5-5" })).toEqual({ model: "claude-opus-5-5", strongModel: "" });
+  });
+
+  test("รุ่นที่เลิกให้เลือกแล้ว → อัตโนมัติ (ตรงกับที่หน้าแม่หวยแสดง)", () => {
+    expect(resolveOcrModels({ ocrModel: "claude-old-1" })).toEqual({
+      model: AI_MODEL,
+      strongModel: AI_STRONG_MODEL,
+    });
   });
 });

@@ -18,10 +18,14 @@
  * สองรุ่นเพื่อประหยัด: รุ่นถูก (AI_MODEL) อ่านทุกรูปก่อน → ผลอ่านไม่ผ่าน (escalationReason) จึงให้รุ่นแม่น (AI_STRONG_MODEL) อ่านซ้ำ
  *   ไม่ผ่าน = มีบรรทัดที่ parser อ่านไม่ออก (? / ไม่มียอด) · ยอดรวมไม่ตรง · ไม่เจอโพย · โพยยาวที่ไม่มียอดรวมให้เทียบ
  *   คนสั่งอ่านใหม่ด้วย AI จากหน้าโพย → ใช้รุ่นแม่นเลย (strong)
+ *   แม่หวยเลือกรุ่นเองได้ที่หน้าแม่หวย (ดู ai-models.ts) — ไม่เลือก = ใช้ค่าจาก env
  */
 import Anthropic from "@anthropic-ai/sdk";
 
+import { AI_MODEL, AI_STRONG_MODEL, type OcrModels } from "./ai-models";
 import { parseTicket } from "./parser";
+
+export { AI_MODEL, AI_STRONG_MODEL };
 
 /**
  * ผลอ่านรูปของ Claude — เก็บใน ticket_images.ocr แทนผลดิบของบริการ OCR
@@ -34,10 +38,6 @@ export type AiRead = {
   escalated?: { model: string; reason: string; text: string };
 };
 
-/** รุ่นที่อ่านทุกรูปก่อน */
-export const AI_MODEL = process.env.CLAUDE_OCR_MODEL || "claude-sonnet-5-5";
-/** รุ่นที่อ่านซ้ำเมื่อรุ่นแรกอ่านไม่ผ่าน — ตั้งเป็นค่าว่าง (หรือรุ่นเดียวกับ AI_MODEL) = ไม่อ่านซ้ำ */
-export const AI_STRONG_MODEL = process.env.CLAUDE_OCR_STRONG_MODEL ?? "claude-opus-5-5";
 /** โพยที่ยาวเท่านี้ขึ้นไปและไม่มียอดรวมให้เทียบ → ให้รุ่นแม่นอ่านซ้ำ (ผิดตัวเดียวก็ไม่มีอะไรจับได้) */
 const LONG_SLIP_LINES = 30;
 /** ใบใหญ่หลายคอลัมน์มีเกือบร้อยบรรทัด + เวลาคิดของโมเดล — เผื่อไว้ */
@@ -156,29 +156,35 @@ function mediaTypeOf(mimeType: string): MediaType {
  * อ่านรูปโพย — รุ่นถูกก่อน ไม่ผ่านจึงให้รุ่นแม่นอ่านซ้ำ · strong = ใช้รุ่นแม่นเลย
  * onModel = เรียกก่อนเริ่มอ่านด้วยแต่ละรุ่น (บอทบันทึกไว้ให้หน้าโพยขึ้นว่ากำลังอ่านด้วยรุ่นไหน)
  * รุ่นแม่นติดต่อไม่ได้ชั่วคราว → ใช้ผลของรุ่นแรก (โพยรอคนตรวจตามเดิม) ดีกว่าทิ้งไปอ่านด้วยบริการ OCR
+ * models = รุ่นที่แม่หวยเลือก (resolveOcrModels) — ไม่ส่ง = ค่าเริ่มต้นจาก env
  */
 export async function readSlipImage(
   client: Anthropic,
   data: Uint8Array,
   mimeType: string,
-  { strong = false, onModel }: { strong?: boolean; onModel?: (model: string) => unknown } = {},
+  {
+    strong = false,
+    onModel,
+    models = { model: AI_MODEL, strongModel: AI_STRONG_MODEL },
+  }: { strong?: boolean; onModel?: (model: string) => unknown; models?: OcrModels } = {},
 ): Promise<AiRead> {
   const image = { mediaType: mediaTypeOf(mimeType), data: Buffer.from(data).toString("base64") };
   const read = async (model: string) => {
     await onModel?.(model);
     return readWith(client, model, image);
   };
-  const strongModel = AI_STRONG_MODEL && AI_STRONG_MODEL !== AI_MODEL ? AI_STRONG_MODEL : null;
-  if (!strongModel) return read(AI_MODEL);
+  const { model } = models;
+  const strongModel = models.strongModel && models.strongModel !== model ? models.strongModel : null;
+  if (!strongModel) return read(model);
   if (strong) return read(strongModel);
 
   let first: AiRead;
   try {
-    first = await read(AI_MODEL);
+    first = await read(model);
   } catch (error) {
     // ปฏิเสธ / ข้อความยาวเกิน → รุ่นแม่นลองอีกที
     if (!(error instanceof AiImageError)) throw error;
-    return { ...(await read(strongModel)), escalated: { model: AI_MODEL, reason: error.message, text: "" } };
+    return { ...(await read(strongModel)), escalated: { model, reason: error.message, text: "" } };
   }
 
   const reason = escalationReason(first.text);

@@ -6,6 +6,7 @@
  *
  * อ่านรูปด้วย AI (Claude) อย่างเดียว — ต้องตั้ง ANTHROPIC_API_KEY ไว้ (ไม่ได้ตั้ง = รูปที่เข้าคิวอ่านไม่ได้ ให้คนดูรูปเอง)
  *   รุ่นถูก (CLAUDE_OCR_MODEL) อ่านก่อน อ่านไม่ผ่านจึงให้รุ่นแม่น (CLAUDE_OCR_STRONG_MODEL) อ่านซ้ำ
+ *   แม่หวยเลือกเองได้ที่หน้าแม่หวย (dealers.ocrModel): อัตโนมัติ (ตามข้างบน) หรือรุ่นเดียว — อ่านทุกรูปใหม่ ไม่ต้องรีสตาร์ตบอท
  *   อ่านพร้อมกันได้หลายรูป (OCR_CONCURRENCY ค่าเริ่มต้น 4) เพราะรอเครือข่าย ไม่ได้ใช้ CPU เครื่องนี้
  *   Claude อ่านรูปไหนไม่ได้ (ปฏิเสธ/รูปเสีย) → รูปนั้นอ่านไม่ได้ ให้คนดูรูปแล้วพิมพ์เองในโพยรอตรวจ
  *   Claude ใช้ไม่ได้ทั้งระบบ (เครดิตหมด / key ผิด) → พักไว้ (ดู PAUSE_MS) รูปค้างเป็น PENDING รอในคิว
@@ -21,6 +22,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import { prisma } from "@/lib/prisma";
+import { resolveOcrModels, type OcrModels } from "@/lottery/ai-models";
 import { AI_MODEL, AI_STRONG_MODEL, claudeFailure, readSlipImage, type AiRead, type ClaudeFailure } from "@/lottery/image-ai";
 import { readTicketImage } from "@/lottery/image-store";
 import { applyOcr } from "@/lottery/ingest";
@@ -72,17 +74,18 @@ function pauseClaude(failure: Exclude<ClaudeFailure, "image">, message: string) 
   console.warn(`[OCR] ! ${CLAUDE} ${why} (${message}) — รูปรอในคิว ลอง Claude ใหม่ใน ${PAUSE_MS[failure] / 60_000} นาที`);
 }
 
-/** อ่านรูปด้วย Claude — strong = คนสั่งอ่านใหม่จากหน้าโพย (ใช้รุ่นแม่นเลย) · onModel = เรียกก่อนเริ่มอ่านด้วยแต่ละรุ่น */
+/** อ่านรูปด้วย Claude — strong = คนสั่งอ่านใหม่จากหน้าโพย (ใช้รุ่นแม่นเลย) · models = รุ่นที่แม่หวยเลือก · onModel = เรียกก่อนเริ่มอ่านด้วยแต่ละรุ่น */
 async function readWithClaude(
   data: Uint8Array,
   mimeType: string,
   strong: boolean,
+  models: OcrModels,
   onModel: (model: string) => Promise<void>,
 ): Promise<AiRead> {
   if (!claude) throw new BadImageError("ANTHROPIC_API_KEY is not set");
   if (Date.now() < claudePausedUntil) throw new PausedError(`${CLAUDE} paused`);
   try {
-    return await readSlipImage(claude, data, mimeType, { strong, onModel });
+    return await readSlipImage(claude, data, mimeType, { strong, onModel, models });
   } catch (error) {
     const failure = claudeFailure(error);
     if (failure === "image") throw new BadImageError(`${CLAUDE}: ${messageOf(error)}`);
@@ -115,7 +118,13 @@ function retryLater(ticketId: string, delayMs: number) {
 async function ocrTicketImage(ticketId: string) {
   const image = await prisma.ticketImage.findUnique({
     where: { ticketId },
-    select: { path: true, mimeType: true, ocrStatus: true, ocrEngine: true },
+    select: {
+      path: true,
+      mimeType: true,
+      ocrStatus: true,
+      ocrEngine: true,
+      ticket: { select: { draw: { select: { dealer: { select: { ocrModel: true } } } } } },
+    },
   });
   if (!image || image.ocrStatus !== "PENDING") return;
 
@@ -124,7 +133,8 @@ async function ocrTicketImage(ticketId: string) {
     const data = image.path ? await readTicketImage(image.path) : null;
     if (!data) throw new BadImageError(`image file missing: ${image.path ?? "(no path)"}`);
     // คนสั่งอ่านใหม่จากหน้าโพย (ocrEngine ตั้งไว้) = รุ่นแม่นเลย
-    const read = await readWithClaude(data, image.mimeType, image.ocrEngine !== null, (model) =>
+    const models = resolveOcrModels(image.ticket.draw.dealer);
+    const read = await readWithClaude(data, image.mimeType, image.ocrEngine !== null, models, (model) =>
       markReader(ticketId, model),
     );
     const result = await applyOcr(prisma, ticketId, { text: read.text, ocr: read });
