@@ -29,7 +29,8 @@ import {
  *  - ข้อความที่มีแต่ยอดรวม (ລວມ150) ต่อท้ายโพยล่าสุดของคนเดิม เพื่อใช้ตรวจยอด
  *  - ข้อความที่ WhatsApp ถอดรหัสไม่ได้ = โพยรอตรวจที่ข้อความว่าง ให้คนดูแชตแล้ววางข้อความเอง
  *    (ไม่ปล่อยให้โพยหายเงียบ ๆ) — ถ้าข้อความจริงตามมาทีหลัง ระบบเติมให้เอง
- *  - รูปโพย: เก็บรูปเข้าระบบก่อน (โพยรอตรวจ ข้อความ = คำบรรยายรูป) แล้วบอทค่อยอ่านรูปด้วย OCR ตามคิว
+ *  - รูปโพย: เก็บรูปเข้าระบบก่อน (โพยรอตรวจ ข้อความ = คำบรรยายรูป) แล้วบอทค่อยอ่านรูปด้วย AI ตามคิว
+ *    กลุ่มตั้งไม่ให้อ่านรูป (readImages = false) → เก็บรูปไว้เป็นโพยรอตรวจเฉย ๆ (ocrStatus = SKIPPED) ให้คนดูรูปเอง
  *    ได้ข้อความแล้วอ่านเหมือนข้อความในแชตทั่วไป: อ่านได้ครบ = นับยอดเลย · มีบรรทัดที่อ่านไม่ออก = รอตรวจกับรูป
  *  - audit log บันทึกในนาม "ระบบ" (ไม่มี user)
  */
@@ -55,6 +56,8 @@ type MessageMeta = MessageSender & {
   sentAt?: Date;
   /** ข้อความที่ส่งมาระหว่างบอทไม่ได้ออนไลน์ (WhatsApp ส่งตามมาตอนต่อใหม่) */
   offline?: boolean;
+  /** กลุ่มให้อ่านรูปโพยด้วย AI ไหม (whatsapp_groups.readImages) — false = เก็บรูปไว้รอคนตรวจ · ไม่ระบุ = อ่าน */
+  readImages?: boolean;
 };
 
 export type IncomingMessage = MessageMeta & { text: string };
@@ -315,7 +318,11 @@ export async function ingestUndecryptable(db: PrismaClient, message: MessageMeta
 export async function ingestImage(db: PrismaClient, message: IncomingImage): Promise<IngestResult> {
   return db.$transaction(async (tx) => {
     const rules = await rulesOf(tx, message.dealerId);
-    const imageData = { mimeType: message.image.mimeType, path: message.image.path };
+    const imageData = {
+      mimeType: message.image.mimeType,
+      path: message.image.path,
+      ...(message.readImages === false ? { ocrStatus: "SKIPPED" as const } : {}),
+    };
     const existing = await tx.ticket.findUnique({
       where: { waMessageId: message.id },
       include: { draw: { select: { status: true, closesAt: true } }, image: { select: { id: true } } },
@@ -478,15 +485,13 @@ export async function reapplyOcr(db: PrismaClient, ticketId: string): Promise<In
   });
 }
 
-/** ตัวอ่านรูปที่คนเลือกตอนสั่งอ่านใหม่ — AI = Claude (มีค่าใช้จ่ายต่อรูป) · OCR = บริการ OCR ในเครื่อง */
-export type ImageEngine = "AI" | "OCR";
-
 /** เหตุที่สั่งอ่านรูปใหม่ไม่ได้ */
 export type RereadSkip = "not-found" | "no-image" | "not-review" | "reading" | "draw-closed";
 
 /**
- * คนสั่งอ่านรูปของโพยรอตรวจใหม่ (หน้าโพย) → โพยกลับเป็น "รอรูป" แล้วรูปเข้าคิวของบอทอีกครั้ง ด้วยตัวอ่านที่เลือก
- * บอท (worker/ocr.ts) เห็นรูปที่ ocrStatus = PENDING แล้วอ่านตาม ocrEngine → applyOcr ตามเส้นทางเดิมทุกอย่าง
+ * คนสั่งอ่านรูปของโพยรอตรวจใหม่ (หน้าโพย) → โพยกลับเป็น "รอรูป" แล้วรูปเข้าคิวของบอทอีกครั้ง อ่านด้วย AI (รุ่นแม่น)
+ * บอท (worker/ocr.ts) เห็นรูปที่ ocrStatus = PENDING (ocrEngine = AI = คนสั่ง) → applyOcr ตามเส้นทางเดิมทุกอย่าง
+ * รูปจากกลุ่มที่ไม่ให้อ่าน (SKIPPED) สั่งอ่านจากที่นี่ได้เช่นกัน
  *
  * ข้อความจากรูปครั้งก่อนถูกตัดออก ส่วนท้าย (คำบรรยายใต้รูป / ยอดรวมที่ส่งตามมา) คงไว้ให้ applyOcr ต่อท้ายข้อความใหม่
  * คนแก้ข้อความไปแล้ว (ข้อความไม่ได้ขึ้นต้นด้วยข้อความจากรูป) = คนสั่งอ่านใหม่ทั้งที่รู้ ข้อความเดิมจึงถูกแทนทั้งหมด
@@ -497,10 +502,9 @@ export async function requestImageReread(
   db: PrismaClient,
   ticketId: string,
   dealerId: string,
-  engine: ImageEngine,
   user: AuditActor,
 ): Promise<RereadSkip | null> {
-  const result = await db.$transaction((tx) => queueImageReread(tx, ticketId, dealerId, engine, user, null));
+  const result = await db.$transaction((tx) => queueImageReread(tx, ticketId, dealerId, user, null));
   return typeof result === "string" ? result : null;
 }
 
@@ -516,11 +520,10 @@ export async function replaceImageAndReread(
   db: PrismaClient,
   ticketId: string,
   dealerId: string,
-  engine: ImageEngine,
   user: AuditActor,
   edited: EditedImage,
 ): Promise<{ skip: RereadSkip } | { stalePath: string | null }> {
-  const result = await db.$transaction((tx) => queueImageReread(tx, ticketId, dealerId, engine, user, edited));
+  const result = await db.$transaction((tx) => queueImageReread(tx, ticketId, dealerId, user, edited));
   return typeof result === "string" ? { skip: result } : result;
 }
 
@@ -528,7 +531,6 @@ async function queueImageReread(
   tx: Prisma.TransactionClient,
   ticketId: string,
   dealerId: string,
-  engine: ImageEngine,
   user: AuditActor,
   edited: EditedImage | null,
 ): Promise<RereadSkip | { stalePath: string | null }> {
@@ -558,7 +560,7 @@ async function queueImageReread(
     where: { ticketId },
     data: {
       ocrStatus: "PENDING",
-      ocrEngine: engine,
+      ocrEngine: "AI",
       ocrReader: null,
       ocrError: null,
       ocrText: null,

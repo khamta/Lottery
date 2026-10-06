@@ -77,7 +77,7 @@ export default async function WhatsappAccountPage({ params, searchParams }: Page
       ...(list.q ? { name: { contains: list.q, mode: "insensitive" as const } } : {}),
     },
     orderBy: buildOrderBy(list) ?? { name: "asc" },
-    select: { id: true, name: true, jid: true, size: true, active: true, dealerId: true, lottery: true, imageReader: true },
+    select: { id: true, name: true, jid: true, size: true, active: true, dealerId: true, lottery: true, readImages: true },
     map: (row) => row,
   });
 

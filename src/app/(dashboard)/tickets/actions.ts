@@ -242,16 +242,16 @@ const rereadErrorKey: Record<RereadSkip, string> = {
 };
 
 /**
- * อ่านรูปของโพยรอตรวจใบเดียวใหม่ (ผู้ใช้ทุกคน) — รูปกลับเข้าคิวของบอทด้วยตัวอ่านที่เลือก แล้วข้อความขึ้นเองเมื่ออ่านเสร็จ
+ * อ่านรูปของโพยรอตรวจใบเดียวใหม่ด้วย AI (ผู้ใช้ทุกคน) — รูปกลับเข้าคิวของบอท แล้วข้อความขึ้นเองเมื่ออ่านเสร็จ
  * AI มีค่าใช้จ่าย — หน้าโพยถามยืนยันก่อนส่งมาที่นี่
  */
 export const rereadTicketImage = createAction(
   rereadTicketImageSchema,
-  async ({ id, engine }) => {
+  async ({ id }) => {
     const user = await requireUser();
     const dealerId = await requireDealerId(user.id);
 
-    const skip = await requestImageReread(prisma, id, dealerId, engine, user);
+    const skip = await requestImageReread(prisma, id, dealerId, user);
     if (skip) throw new Error(rereadErrorKey[skip]);
 
     revalidateTickets();
@@ -267,13 +267,13 @@ const IMAGE_SIGNATURES: Record<EditedImageMime, number[]> = {
 };
 
 /**
- * แก้รูปโพยรอตรวจ (ครอป / ยางลบ / หมุน ในหน้าแก้รูป) แล้วอ่านใหม่ด้วยตัวอ่านที่เลือก (ผู้ใช้ทุกคน)
+ * แก้รูปโพยรอตรวจ (ครอป / ยางลบ / หมุน ในหน้าแก้รูป) แล้วอ่านใหม่ด้วย AI (ผู้ใช้ทุกคน)
  * บันทึกไฟล์ใหม่ก่อน แล้วเปลี่ยนรูป + เข้าคิวอ่านใน transaction เดียว — สั่งไม่ได้ = ลบไฟล์ใหม่ทิ้ง รูปเดิมไม่ถูกแตะ
  * รูปต้นฉบับเก็บไว้เสมอ (ย้อนกลับไปแก้จากต้นฉบับได้) · AI มีค่าใช้จ่าย — หน้าโพยถามยืนยันก่อนส่งมาที่นี่
  */
 export const editTicketImage = createAction(
   editTicketImageSchema,
-  async ({ id, engine, mimeType, data }) => {
+  async ({ id, mimeType, data }) => {
     const user = await requireUser();
     const dealerId = await requireDealerId(user.id);
 
@@ -285,7 +285,7 @@ export const editTicketImage = createAction(
     const path = await saveTicketImage(bytes, mimeType);
     let result: Awaited<ReturnType<typeof replaceImageAndReread>>;
     try {
-      result = await replaceImageAndReread(prisma, id, dealerId, engine, user, { path, mimeType });
+      result = await replaceImageAndReread(prisma, id, dealerId, user, { path, mimeType });
     } catch (error) {
       await removeTicketImage(path).catch(() => undefined);
       throw error;
@@ -308,7 +308,7 @@ export const editTicketImage = createAction(
  */
 export const rereadDrawImages = createAction(
   rereadDrawImagesSchema,
-  async ({ drawId, engine }) => {
+  async ({ drawId }) => {
     const user = await requireRole(["ADMIN"]);
     await requireAdminAccess(user.id);
     const dealerId = await requireDealerId(user.id);
@@ -325,7 +325,7 @@ export const rereadDrawImages = createAction(
     });
     let count = 0;
     for (const { id } of tickets) {
-      if (!(await requestImageReread(prisma, id, dealerId, engine, user))) count++;
+      if (!(await requestImageReread(prisma, id, dealerId, user))) count++;
     }
     if (count === 0) throw new Error("tickets.rereadNone");
 

@@ -4,7 +4,7 @@ import { OCR_SERVICE_READER } from "@/lottery/image-text";
 import type { ParseIssueCode } from "@/lottery/parser";
 
 /** รูปแบบข้อมูลที่ส่งจาก server ไป client (Decimal -> number, Date -> string) */
-export type OcrStatusValue = "PENDING" | "DONE" | "FAILED";
+export type OcrStatusValue = "PENDING" | "DONE" | "FAILED" | "SKIPPED";
 
 export type TicketRow = {
   id: string;
@@ -124,6 +124,7 @@ export const ocrStatusKey: Record<OcrStatusValue, string> = {
   PENDING: "tickets.ocrPENDING",
   DONE: "tickets.ocrDONE",
   FAILED: "tickets.ocrFAILED",
+  SKIPPED: "tickets.ocrSKIPPED",
 };
 
 /** ตัวอ่านรูป (ocrReader) → ชื่อที่แสดง: claude-sonnet-5-5 → Sonnet 5.5 · "ocr" → OCR */

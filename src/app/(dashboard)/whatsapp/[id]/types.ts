@@ -7,12 +7,11 @@ export type WhatsappAccountDetail = WhatsappAccountRow & {
   pairingCode: string | null;
 };
 
-import type { ImageEngineValue } from "@/lib/validations/ticket";
 import type { LotteryTypeValue } from "@/lottery/labels";
 
 /**
  * กลุ่มของบัญชี — dealerId = อ่านโพยเข้าแม่หวยไหน (null = ไม่อ่าน) · lottery = ลงงวดของหวยประเภทไหน
- * imageReader = อ่านรูปโพยด้วยตัวไหน (AI = Claude ก่อน · OCR = บริการ OCR เท่านั้น)
+ * readImages = อ่านรูปโพยด้วย AI ไหม (false = เก็บรูปไว้เป็นโพยรอตรวจ ให้คนดูเอง)
  */
 export type WhatsappGroupRow = {
   id: string;
@@ -22,7 +21,7 @@ export type WhatsappGroupRow = {
   active: boolean;
   dealerId: string | null;
   lottery: LotteryTypeValue;
-  imageReader: ImageEngineValue;
+  readImages: boolean;
 };
 
 /** คอลัมน์ที่ยอมให้เรียงได้ — ชื่อต้องตรงกับ field ใน Prisma */

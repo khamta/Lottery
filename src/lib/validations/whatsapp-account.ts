@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import { lotteryTypeEnum } from "./draw";
-import { imageEngineEnum } from "./ticket";
 
 /** ข้อความ error เป็นคีย์ i18n — กฎเฉพาะ module ใช้ whatsapp.validation.* (src/i18n/modules/whatsapp.ts) */
 export const whatsappAccountSchema = z.object({
@@ -23,14 +22,14 @@ export const whatsappCommandSchema = z.object({ id, command: z.enum(["connect", 
 
 /** ผูกกลุ่มกับแม่หวย — null = ไม่อ่านกลุ่มนี้ */
 /**
- * กลุ่มอ่านเข้าแม่หวยไหน (null = ไม่อ่าน) + ลงงวดของหวยประเภทไหน + อ่านรูปโพยด้วยตัวไหน (ไม่ส่ง = คงค่าเดิม)
- * imageReader: AI = Claude ก่อน (มีค่าใช้จ่าย) · OCR = บริการ OCR ในเครื่องเท่านั้น
+ * กลุ่มอ่านเข้าแม่หวยไหน (null = ไม่อ่าน) + ลงงวดของหวยประเภทไหน + อ่านรูปโพยด้วย AI ไหม (ไม่ส่ง = คงค่าเดิม)
+ * readImages: true = อ่านรูปด้วย AI (มีค่าใช้จ่าย) · false = เก็บรูปไว้เป็นโพยรอตรวจ ไม่อ่าน
  */
 export const assignWhatsappGroupSchema = z.object({
   id,
   dealerId: z.string().min(1).nullable(),
   lottery: lotteryTypeEnum.optional(),
-  imageReader: imageEngineEnum.optional(),
+  readImages: z.boolean().optional(),
 });
 
 export type WhatsappAccountInput = z.infer<typeof whatsappAccountSchema>;

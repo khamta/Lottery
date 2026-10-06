@@ -8,7 +8,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable } from "@/components/shared/data-table";
 import { useOptimisticList } from "@/hooks/use-optimistic-list";
 import { useI18n } from "@/i18n/client";
-import type { ImageEngineValue } from "@/lib/validations/ticket";
 import type { DealerOption } from "@/lottery/dealer";
 import { LOTTERY_TYPES, lotteryLabel, type LotteryTypeValue } from "@/lottery/labels";
 import type { Paginated } from "@/types";
@@ -18,10 +17,10 @@ import type { WhatsappGroupRow } from "../types";
 
 /** Radix Select ไม่รับค่าว่าง จึงใช้ค่านี้แทน "ไม่อ่านกลุ่มนี้" */
 const NONE = "none";
-/** ตัวอ่านรูปโพยที่กลุ่มเลือกได้ — AI = Claude ก่อน (มีค่าใช้จ่าย) · OCR = บริการ OCR ในเครื่อง */
-const IMAGE_READERS: ImageEngineValue[] = ["AI", "OCR"];
+/** อ่านรูปโพยของกลุ่ม — Radix Select รับแต่ string · on = อ่านด้วย AI (มีค่าใช้จ่าย) · off = เก็บรูปไว้รอตรวจ */
+const READ_IMAGES = { on: "whatsapp.readImagesOn", off: "whatsapp.readImagesOff" } as const;
 
-type GroupChange = Partial<Pick<WhatsappGroupRow, "dealerId" | "lottery" | "imageReader">>;
+type GroupChange = Partial<Pick<WhatsappGroupRow, "dealerId" | "lottery" | "readImages">>;
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -106,22 +105,22 @@ function getGroupColumns({
       ),
     },
     {
-      id: "imageReader",
-      header: t("whatsapp.imageReader"),
+      id: "readImages",
+      header: t("whatsapp.readImages"),
       enableSorting: false,
       cell: ({ row }) => (
         <Select
-          value={row.original.imageReader}
+          value={row.original.readImages ? "on" : "off"}
           disabled={!row.original.dealerId}
-          onValueChange={(value) => onAssign(row.original, { imageReader: value as ImageEngineValue })}
+          onValueChange={(value) => onAssign(row.original, { readImages: value === "on" })}
         >
-          <SelectTrigger className="w-full min-w-40 sm:w-52" aria-label={t("whatsapp.imageReader")}>
+          <SelectTrigger className="w-full min-w-40 sm:w-52" aria-label={t("whatsapp.readImages")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {IMAGE_READERS.map((reader) => (
-              <SelectItem key={reader} value={reader}>
-                {t(reader === "AI" ? "whatsapp.imageReaderAi" : "whatsapp.imageReaderOcr")}
+            {Object.entries(READ_IMAGES).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {t(label)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -147,11 +146,11 @@ export function GroupsView({ page, dealers }: { page: Paginated<WhatsappGroupRow
         dealers,
         onAssign: (row, change) => {
           const next = { ...row, ...change };
-          if (row.dealerId === next.dealerId && row.lottery === next.lottery && row.imageReader === next.imageReader) return;
+          if (row.dealerId === next.dealerId && row.lottery === next.lottery && row.readImages === next.readImages) return;
           mutate({
             patch: { type: "update", item: next },
             action: () =>
-              assignWhatsappGroup({ id: row.id, dealerId: next.dealerId, lottery: next.lottery, imageReader: next.imageReader }),
+              assignWhatsappGroup({ id: row.id, dealerId: next.dealerId, lottery: next.lottery, readImages: next.readImages }),
           });
         },
       }),

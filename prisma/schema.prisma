@@ -198,13 +198,14 @@ enum TicketSource {
 enum OcrStatus {
   PENDING // เก็บรูปแล้ว รอคิวอ่าน
   DONE // อ่านแล้ว ข้อความที่แปลงได้อยู่ใน tickets.rawText
-  FAILED // อ่านไม่ได้ (บริการ OCR ล่ม/รูปเสีย) — คนต้องดูรูปแล้วพิมพ์เอง
+  FAILED // อ่านไม่ได้ (AI อ่านรูปนี้ไม่ได้/รูปเสีย) — คนต้องดูรูปแล้วพิมพ์เอง
+  SKIPPED // กลุ่มตั้งไม่ให้อ่านรูป (whatsapp_groups.readImages = false) — เก็บรูปไว้รอคนตรวจ (สั่งอ่านด้วย AI จากหน้าโพยได้)
 }
 
-/// ตัวอ่านรูปโพย — ค่าของกลุ่ม (whatsapp_groups.imageReader) และที่คนสั่งให้อ่านโพยรอตรวจใหม่ (ticket_images.ocrEngine)
+/// ตัวอ่านที่คนสั่งให้อ่านโพยรอตรวจใหม่ (ticket_images.ocrEngine) — ตอนนี้อ่านรูปด้วย AI อย่างเดียว
 enum OcrEngine {
   AI // Claude — มีค่าใช้จ่ายต่อรูป
-  OCR // บริการ OCR ในเครื่อง (ocr/server.py) — ไม่มีค่าใช้จ่าย
+  OCR // บริการ OCR ในเครื่อง — เลิกใช้แล้ว (คงไว้ให้ข้อมูลเก่า) บอทอ่านด้วย AI แทน
 }
 
 enum BetPosition {
@@ -523,9 +524,8 @@ model WhatsappGroup {
   dealer   Dealer?     @relation(fields: [dealerId], references: [id], onDelete: SetNull)
   /// โพยจากกลุ่มนี้ลงงวดที่เปิดรับของหวยประเภทนี้
   lottery  LotteryType @default(LAO)
-  /// ตัวอ่านรูปโพยของกลุ่มนี้ — AI = Claude ก่อน (อ่านไม่ได้/เครดิตหมด ใช้บริการ OCR แทน) · OCR = บริการ OCR เท่านั้น (ไม่มีค่าใช้จ่าย)
-  /// คนสั่งอ่านใหม่จากหน้าโพย (ticket_images.ocrEngine) → ใช้ตัวที่คนเลือกแทนค่านี้
-  imageReader OcrEngine @default(AI)
+  /// อ่านรูปโพยของกลุ่มนี้ด้วย AI ไหม — false = เก็บรูปไว้เป็นโพยรอตรวจ (ocrStatus = SKIPPED) ไม่มีค่าใช้จ่าย
+  readImages Boolean @default(true)
 
   tickets Ticket[]
 

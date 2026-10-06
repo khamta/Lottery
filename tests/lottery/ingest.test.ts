@@ -578,6 +578,15 @@ describe("รูปโพย (ingestImage → applyOcr)", () => {
     expect(state.images.get("ticket-1")).toMatchObject({ mimeType: "image/jpeg", path: "tickets/2026-10/wa-img.jpg", ocrStatus: "PENDING" });
   });
 
+  test("กลุ่มตั้งไม่ให้อ่านรูป → เก็บรูปไว้เป็นโพยรอตรวจ (SKIPPED) ไม่เข้าคิวอ่าน", async () => {
+    const result = await ingestImage(db, imageMessage("wa-img", { caption: "ລວມ400", readImages: false }));
+
+    expect(result).toEqual({ action: "image", ticketId: "ticket-1", status: "REVIEW" });
+    expect(onlyTicket()).toMatchObject({ status: "REVIEW", rawText: "ລວມ400", betCount: 0 });
+    expect((onlyTicket().issues as Array<{ code: string }>)[0]!.code).toBe("FROM_IMAGE");
+    expect(state.images.get("ticket-1")).toMatchObject({ path: "tickets/2026-10/wa-img.jpg", ocrStatus: "SKIPPED" });
+  });
+
   test("OCR อ่านได้ครบ → นับยอดเลยเหมือนข้อความในแชต", async () => {
     await ingestImage(db, imageMessage("wa-img"));
     const result = await applyOcr(db, "ticket-1", { text: "32=300\n45=100", ocr });
@@ -862,7 +871,7 @@ describe("เงื่อนไขอ่านโพยที่ผู้ใช�
 });
 
 describe("คนสั่งอ่านรูปโพยรอตรวจใหม่ (requestImageReread → applyOcr)", () => {
-  const imageMessage = (caption = "") => ({
+  const imageMessage = (caption = "", readImages = true) => ({
     id: "wa-img",
     dealerId: "dealer-1",
     senderId: "111@lid",
@@ -870,6 +879,7 @@ describe("คนสั่งอ่านรูปโพยรอตรวจใ�
     senderName: "Noy",
     image: { path: "tickets/2026-10/wa-img.jpg", mimeType: "image/jpeg" },
     caption,
+    readImages,
   });
   const ocr = { paddle: [], tesseract: [] };
   const user = { id: "user-1", name: "Admin" };
@@ -879,7 +889,7 @@ describe("คนสั่งอ่านรูปโพยรอตรวจใ�
     await applyOcr(db, "ticket-1", { text: "32=300\n4?=100", ocr });
     expect(onlyTicket()).toMatchObject({ status: "REVIEW", rawText: "32=300\n4?=100\n\nລວມ400" });
 
-    expect(await requestImageReread(db, "ticket-1", "dealer-1", "AI", user)).toBeNull();
+    expect(await requestImageReread(db, "ticket-1", "dealer-1", user)).toBeNull();
     expect(onlyTicket()).toMatchObject({ status: "REVIEW", rawText: "ລວມ400" });
     expect(state.images.get("ticket-1")).toMatchObject({ ocrStatus: "PENDING", ocrEngine: "AI", ocrText: null });
     expect(state.auditRows.at(-1)).toMatchObject({ action: "UPDATE", userId: "user-1" });
@@ -896,15 +906,23 @@ describe("คนสั่งอ่านรูปโพยรอตรวจใ�
     await ingestImage(db, imageMessage("ລວມ400"));
     await applyOcr(db, "ticket-1", { error: "OCR HTTP 500" });
 
-    expect(await requestImageReread(db, "ticket-1", "dealer-1", "OCR", user)).toBeNull();
-    expect(state.images.get("ticket-1")).toMatchObject({ ocrStatus: "PENDING", ocrEngine: "OCR", ocrError: null });
+    expect(await requestImageReread(db, "ticket-1", "dealer-1", user)).toBeNull();
+    expect(state.images.get("ticket-1")).toMatchObject({ ocrStatus: "PENDING", ocrEngine: "AI", ocrError: null });
+    expect(onlyTicket().rawText).toBe("ລວມ400");
+  });
+
+  test("รูปจากกลุ่มที่ไม่ให้อ่าน (SKIPPED) → คนสั่งอ่านด้วย AI ได้ คำบรรยายใต้รูปยังอยู่", async () => {
+    await ingestImage(db, imageMessage("ລວມ400", false));
+
+    expect(await requestImageReread(db, "ticket-1", "dealer-1", user)).toBeNull();
+    expect(state.images.get("ticket-1")).toMatchObject({ ocrStatus: "PENDING", ocrEngine: "AI" });
     expect(onlyTicket().rawText).toBe("ລວມ400");
   });
 
   test("อ่านไม่ได้อีก → ล้างตัวอ่านที่สั่งไว้ รูปถัดไปให้บอทเลือกเอง", async () => {
     await ingestImage(db, imageMessage());
     await applyOcr(db, "ticket-1", { text: "4?=100", ocr });
-    await requestImageReread(db, "ticket-1", "dealer-1", "AI", user);
+    await requestImageReread(db, "ticket-1", "dealer-1", user);
 
     await applyOcr(db, "ticket-1", { error: "model refused" });
 
@@ -913,22 +931,22 @@ describe("คนสั่งอ่านรูปโพยรอตรวจใ�
 
   test("รูปยังอยู่ในคิว / นับยอดแล้ว / แม่หวยอื่น / งวดปิด → ไม่สั่ง", async () => {
     await ingestImage(db, imageMessage());
-    expect(await requestImageReread(db, "ticket-1", "dealer-1", "OCR", user)).toBe("reading");
+    expect(await requestImageReread(db, "ticket-1", "dealer-1", user)).toBe("reading");
 
     await applyOcr(db, "ticket-1", { text: "32=300", ocr });
     expect(onlyTicket().status).toBe("CONFIRMED");
-    expect(await requestImageReread(db, "ticket-1", "dealer-1", "OCR", user)).toBe("not-review");
+    expect(await requestImageReread(db, "ticket-1", "dealer-1", user)).toBe("not-review");
 
     state.tickets.set("ticket-1", { ...onlyTicket(), status: "REVIEW" });
-    expect(await requestImageReread(db, "ticket-1", "dealer-2", "OCR", user)).toBe("not-found");
+    expect(await requestImageReread(db, "ticket-1", "dealer-2", user)).toBe("not-found");
 
     state.draws[0]!.status = "CLOSED";
-    expect(await requestImageReread(db, "ticket-1", "dealer-1", "OCR", user)).toBe("draw-closed");
+    expect(await requestImageReread(db, "ticket-1", "dealer-1", user)).toBe("draw-closed");
   });
 
   test("โพยข้อความ (ไม่มีรูป) → no-image", async () => {
     await ingestMessage(db, message("wa-1", "32=300\n43240"));
 
-    expect(await requestImageReread(db, "ticket-1", "dealer-1", "OCR", user)).toBe("no-image");
+    expect(await requestImageReread(db, "ticket-1", "dealer-1", user)).toBe("no-image");
   });
 });

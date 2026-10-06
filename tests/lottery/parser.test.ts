@@ -47,6 +47,17 @@ describe("parseTicket — ข้อความตัวอย่างจาก
     ]);
   });
 
+  test("20;25-5 = ; คั่นเลข ขีดคั่นยอด", () => {
+    expect(brief(parseTicket("20;25-5").bets)).toEqual(["20 TOP LAK 5000", "25 TOP LAK 5000"]);
+    expect(brief(parseTicket("20;25;325-10ລ່າງ").bets)).toEqual([]);
+    expect(brief(parseTicket("20 ; 25 - 5ບລ").bets)).toEqual([
+      "20 TOP LAK 5000",
+      "20 BOTTOM LAK 5000",
+      "25 TOP LAK 5000",
+      "25 BOTTOM LAK 5000",
+    ]);
+  });
+
   test("=2ລ່າງ1 = เลข 2 ตัวล่าง เลขละ 1 · จำนวนหลักไม่ตรงกับเลข → รอตรวจ", () => {
     const ticket = parseTicket("31,71,09=2ล่าง1\nແກ້ມ");
     expect(brief(ticket.bets)).toEqual(["31 BOTTOM LAK 1000", "71 BOTTOM LAK 1000", "09 BOTTOM LAK 1000"]);

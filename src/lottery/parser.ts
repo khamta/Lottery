@@ -232,6 +232,8 @@ const DIGITS_SIDE_PREFIX = /^([23])\s*(?:ໂຕ|ຕົວ|ตัว|โต)?\s*(
 const AMOUNT_PART = new RegExp(String.raw`^(${AMOUNT})(?:\s*[*x×]\s*(${AMOUNT}))?(.*)$`, "i");
 /** ขีดคั่นเลข 3 ตัวขึ้นไป (มียอดหลัง = ได้): 605-645-685 · 406-446-486=1 */
 const DASH_NUMBERS_LINE = /^\d{2,3}(?:\s*-\s*\d{2,3}){2,}\s*(?:[=;:].*)?$/;
+/** ; คั่นเลข (2 ตัวขึ้นไป) แล้วขีดตัวเดียวคั่นยอด: 20;25-5 */
+const SEMICOLON_DASH_LINE = /^\s*(\d{2,3}(?:\s*;\s*\d{2,3})+)\s*-\s*(\d[^-=;:]*)$/;
 /** ขีดตัวเดียวคั่นเลขกับยอด: 762-5 · 570 57 70-30,000 */
 const DASH_LINE = /^([^-]+?)\s*-\s*([^-]+)$/;
 /** ตัวคั่นระหว่างเลข — รวมวงเล็บ: "826)866=10" */
@@ -496,12 +498,16 @@ function parseLine(raw: string, fallback: Currency = "LAK", dashNumbers = false)
   // ต้องมี ໂຕ / ຮູ / ປ່ອງ หน้ายอด หรือเลข 3 ตัวขึ้นไป — "32=100=200" ยังกำกวม (100 อาจเป็นยอด)
   const equalsParts = raw.split("=");
   const equalsNumbers = equalsParts.slice(0, -1);
+  // ; คั่นเลข + ขีดตัวเดียวคั่นยอด: "20;25-5" = "20,25=5" (ขีดคั่นเลขในโพยนี้ + หลังขีดเป็นเลข 2-3 ตัว = ไม่ใช่ยอด)
+  const semicolonDash = raw.match(SEMICOLON_DASH_LINE);
   const line =
     equalsNumbers.length >= 2 &&
     equalsNumbers.every((part) => /^\s*\d{2,3}\s*$/.test(part)) &&
     (equalsNumbers.length >= 3 || AMOUNT_EACH_PREFIX.test(equalsParts.at(-1)!.trim()))
       ? `${equalsParts.slice(0, -1).join(",")}=${equalsParts.at(-1)}`
-      : raw;
+      : semicolonDash && !(dashNumbers && /^\d{2,3}$/.test(semicolonDash[2]!.trim()))
+        ? `${semicolonDash[1]!.replace(/;/g, ",")}=${semicolonDash[2]}`
+        : raw;
   // มี ໂຕ / ຮູ / hu คั่นยอดแล้ว (ไม่มี =) → ; : ที่เหลือคั่นระหว่างเลข: "06;46;506 hu 20" = "06,46,506=20"
   const each = !line.includes("=") && EACH_WORD.test(line);
   // เลขเดียว + ขีดล่างตัวเดียว + ยอด: "22_10" = "22=10" (หลายขีด "04_44_84_=20" ยังเป็นตัวคั่นเลข)

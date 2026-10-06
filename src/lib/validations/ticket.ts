@@ -29,26 +29,21 @@ export const deleteTicketsSchema = z.object({
 /** คืนสถานะโพยที่นับยอดแล้วกลับเป็นรอตรวจ (ใบเดียวหรือหลายใบที่เลือก) — จำกัดเท่ากับลบหลายรายการ */
 export const resetTicketsSchema = deleteTicketsSchema;
 
-/** ตัวอ่านรูปตอนสั่งอ่านโพยรอตรวจใหม่ — AI = Claude (มีค่าใช้จ่าย) · OCR = ตัวอ่านปกติในเครื่อง */
-export const imageEngineEnum = z.enum(["AI", "OCR"]);
-/** อ่านรูปของโพยรอตรวจใบเดียวใหม่ — ผู้ใช้ทุกคน */
+/** อ่านรูปของโพยรอตรวจใบเดียวใหม่ด้วย AI — ผู้ใช้ทุกคน */
 export const rereadTicketImageSchema = z.object({
   id: z.string().min(1, "validation.required"),
-  engine: imageEngineEnum,
 });
-/** อ่านรูปของโพยรอตรวจทั้งงวดใหม่ — ผู้ดูแลระบบเท่านั้น */
+/** อ่านรูปของโพยรอตรวจทั้งงวดใหม่ด้วย AI — ผู้ดูแลระบบเท่านั้น */
 export const rereadDrawImagesSchema = z.object({
   drawId: z.string().min(1, "tickets.validation.drawRequired"),
-  engine: imageEngineEnum,
 });
 
 /** รูปที่แก้แล้วส่งเป็น base64 — ไม่เกิน ~5MB ต่อรูป (หน้าแก้รูปย่อด้านยาวเหลือ 2,400px ก่อนส่ง) */
 export const EDITED_IMAGE_MAX_BASE64 = 7_000_000;
 export const editedImageMimeEnum = z.enum(["image/jpeg", "image/png"]);
-/** แก้รูปโพยรอตรวจ (ครอป / ยางลบ / หมุน) แล้วอ่านใหม่ด้วยตัวอ่านที่เลือก — ผู้ใช้ทุกคน */
+/** แก้รูปโพยรอตรวจ (ครอป / ยางลบ / หมุน) แล้วอ่านใหม่ด้วย AI — ผู้ใช้ทุกคน */
 export const editTicketImageSchema = z.object({
   id: z.string().min(1, "validation.required"),
-  engine: imageEngineEnum,
   mimeType: editedImageMimeEnum,
   data: z
     .string()
@@ -77,6 +72,5 @@ export const markTicketReadSchema = z.object({ id: z.string().min(1, "validation
 export type TicketInput = z.infer<typeof ticketSchema>;
 export type EditTicketImageInput = z.infer<typeof editTicketImageSchema>;
 export type EditedImageMime = z.infer<typeof editedImageMimeEnum>;
-export type ImageEngineValue = z.infer<typeof imageEngineEnum>;
 export type TicketStatusValue = z.infer<typeof ticketStatusEnum>;
 export type TicketSourceValue = z.infer<typeof ticketSourceEnum>;

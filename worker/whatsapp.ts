@@ -21,7 +21,8 @@
  *
  * รูปโพย
  *   ลูกค้าส่งรูป (ลายมือ/แคปหน้าจอ) แทนข้อความ → บอทดาวน์โหลดรูปเป็นไฟล์ใน uploads/ (ฐานข้อมูลเก็บแค่ path) เป็นโพยรอตรวจทันที
- *   แล้วส่งเข้าคิวอ่านด้วย OCR (worker/ocr.ts · บริการ ocr ใน docker-compose) — อ่านเสร็จข้อความโพยขึ้นในโพยนั้นเอง
+ *   แล้วส่งเข้าคิวอ่านด้วย AI (worker/ocr.ts) — อ่านเสร็จข้อความโพยขึ้นในโพยนั้นเอง
+ *   กลุ่มที่ตั้งไม่ให้อ่านรูป (readImages = false) → เก็บรูปไว้เป็นโพยรอตรวจเฉย ๆ ไม่เข้าคิว ให้คนดูรูปเอง
  *
  * ข้อความที่ถอดรหัสไม่ได้
  *   ข้อความในกลุ่มเข้ารหัสด้วยกุญแจของคนส่งแต่ละคน ข้อความแรก ๆ ของแต่ละคนหลังบอทเพิ่งเชื่อมต่อจึงมัก
@@ -113,8 +114,11 @@ function makeLogger(label: string) {
 
 // ------------------------------------------------------------------ สถานะในหน่วยความจำ
 
-/** กลุ่มที่อ่าน: แม่หวยที่ผูกไว้ + id ของกลุ่ม (โพยจำว่ามาจากกลุ่มไหน) + ประเภทหวย (ลงงวดของประเภทนี้) */
-type GroupTarget = { dealerId: string; groupId: string; lottery: LotteryType };
+/**
+ * กลุ่มที่อ่าน: แม่หวยที่ผูกไว้ + id ของกลุ่ม (โพยจำว่ามาจากกลุ่มไหน) + ประเภทหวย (ลงงวดของประเภทนี้)
+ * + อ่านรูปโพยด้วย AI ไหม (false = เก็บรูปไว้รอคนตรวจ)
+ */
+type GroupTarget = { dealerId: string; groupId: string; lottery: LotteryType; readImages: boolean };
 
 type Session = {
   id: string;
@@ -285,7 +289,7 @@ async function handle(session: Session, target: GroupTarget, message: WAMessage,
   reportIngest(label, sender, await ingestMessage(prisma, { id, ...target, text, ...sender, sentAt: sentAtOf(message), offline }));
 }
 
-/** รูปโพย → เก็บรูปเข้าระบบก่อน (โพยรอตรวจ) แล้วส่งเข้าคิว OCR */
+/** รูปโพย → เก็บรูปเข้าระบบก่อน (โพยรอตรวจ) แล้วส่งเข้าคิวอ่านด้วย AI — กลุ่มที่ไม่ให้อ่านรูป เก็บไว้รอคนตรวจเฉย ๆ */
 async function handleImage(
   session: Session,
   target: GroupTarget,
@@ -324,7 +328,7 @@ async function handleImage(
     reportIngest(label, sender, result);
     if (result.action === "image" || result.action === "recovered") {
       used = true;
-      enqueueOcr(result.ticketId);
+      if (target.readImages) enqueueOcr(result.ticketId);
     }
   } finally {
     if (!used) await removeTicketImage(path).catch(() => undefined);
@@ -359,12 +363,17 @@ async function upsertGroup(accountId: string, group: Pick<GroupMetadata, "id" | 
 async function loadGroupMap(accountIds: string[]) {
   const rows = await prisma.whatsappGroup.findMany({
     where: { accountId: { in: accountIds }, dealerId: { not: null } },
-    select: { id: true, accountId: true, jid: true, dealerId: true, lottery: true },
+    select: { id: true, accountId: true, jid: true, dealerId: true, lottery: true, readImages: true },
   });
   const map = new Map<string, Map<string, GroupTarget>>();
   for (const row of rows) {
     if (!map.has(row.accountId)) map.set(row.accountId, new Map());
-    map.get(row.accountId)!.set(row.jid, { dealerId: row.dealerId!, groupId: row.id, lottery: row.lottery });
+    map.get(row.accountId)!.set(row.jid, {
+      dealerId: row.dealerId!,
+      groupId: row.id,
+      lottery: row.lottery,
+      readImages: row.readImages,
+    });
   }
   return map;
 }

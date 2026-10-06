@@ -293,19 +293,19 @@ describe("assignWhatsappGroup", () => {
     expect(db.groups.get("group-1")).toMatchObject({ dealerId: null });
   });
 
-  test("เลือกตัวอ่านรูปของกลุ่มได้ (AI / OCR) พร้อม audit log — ไม่ส่งมา = คงค่าเดิม", async () => {
-    db.groups.set("group-1", { ...db.groups.get("group-1")!, dealerId: "dealer-1", imageReader: "AI" });
+  test("ตั้งให้กลุ่มอ่านรูปด้วย AI หรือไม่อ่านได้ พร้อม audit log — ไม่ส่งมา = คงค่าเดิม", async () => {
+    db.groups.set("group-1", { ...db.groups.get("group-1")!, dealerId: "dealer-1", readImages: true });
 
-    expect((await assignWhatsappGroup({ id: "group-1", dealerId: "dealer-1", imageReader: "OCR" })).ok).toBe(true);
-    expect(db.groups.get("group-1")).toMatchObject({ dealerId: "dealer-1", imageReader: "OCR" });
-    expect(db.auditRows[0]).toMatchObject({ changes: { imageReader: { from: "AI", to: "OCR" } } });
+    expect((await assignWhatsappGroup({ id: "group-1", dealerId: "dealer-1", readImages: false })).ok).toBe(true);
+    expect(db.groups.get("group-1")).toMatchObject({ dealerId: "dealer-1", readImages: false });
+    expect(db.auditRows[0]).toMatchObject({ changes: { readImages: { from: true, to: false } } });
 
     expect((await assignWhatsappGroup({ id: "group-1", dealerId: "dealer-1" })).ok).toBe(true);
-    expect(db.groups.get("group-1")).toMatchObject({ imageReader: "OCR" });
+    expect(db.groups.get("group-1")).toMatchObject({ readImages: false });
   });
 
-  test("ตัวอ่านรูปที่ไม่รู้จัก → VALIDATION", async () => {
-    const result = await assignWhatsappGroup({ id: "group-1", dealerId: null, imageReader: "GPT" as never });
+  test("ค่าอ่านรูปที่ไม่ใช่ true/false → VALIDATION", async () => {
+    const result = await assignWhatsappGroup({ id: "group-1", dealerId: null, readImages: "AI" as never });
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("VALIDATION");

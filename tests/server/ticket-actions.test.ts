@@ -514,32 +514,25 @@ describe("อ่านรูปโพยรอตรวจใหม่", () => {
   }
 
   describe("ใบเดียว (ผู้ใช้ทุกคน)", () => {
-    test("ตัวอ่านปกติ → รูปกลับเข้าคิว ตัดข้อความจากรูปครั้งก่อน คงคำบรรยายใต้รูป และ audit ในชื่อคนสั่ง", async () => {
+    test("รูปกลับเข้าคิวอ่านด้วย AI ตัดข้อความจากรูปครั้งก่อน คงคำบรรยายใต้รูป และ audit ในชื่อคนสั่ง", async () => {
       seedImageTicket("t1");
 
-      const result = await rereadTicketImage({ id: "t1", engine: "OCR" });
+      const result = await rereadTicketImage({ id: "t1" });
 
       expect(result.ok).toBe(true);
-      expect(db.images.get("t1")).toMatchObject({ ocrStatus: "PENDING", ocrEngine: "OCR", ocrText: null });
+      expect(db.images.get("t1")).toMatchObject({ ocrStatus: "PENDING", ocrEngine: "AI", ocrText: null });
       expect(db.tickets.get("t1")).toMatchObject({ status: "REVIEW", rawText: "ລວມ400", betCount: 0 });
       expect((db.tickets.get("t1")!.issues as Array<{ code: string }>)[0]!.code).toBe("FROM_IMAGE");
       expect(db.auditRows.at(-1)).toMatchObject({ action: "UPDATE", entityId: "t1", userId: "user-1" });
       expect(revalidated).toContain("/tickets");
     });
 
-    test("AI → จำตัวอ่านที่เลือกไว้ให้บอท", async () => {
-      seedImageTicket("t1");
-
-      await rereadTicketImage({ id: "t1", engine: "AI" });
-
-      expect(db.images.get("t1")).toMatchObject({ ocrStatus: "PENDING", ocrEngine: "AI" });
-    });
 
     test("คนแก้ข้อความไปแล้ว → แทนข้อความทั้งหมดด้วยผลอ่านใหม่", async () => {
       seedImageTicket("t1");
       db.tickets.set("t1", { ...db.tickets.get("t1")!, rawText: "32=500\n43=240" });
 
-      await rereadTicketImage({ id: "t1", engine: "OCR" });
+      await rereadTicketImage({ id: "t1" });
 
       expect(db.tickets.get("t1")).toMatchObject({ rawText: "" });
     });
@@ -554,7 +547,7 @@ describe("อ่านรูปโพยรอตรวจใหม่", () => {
 
       const messages = [];
       for (const id of ["confirmed", "reading", "closed", "other", "no-file", "manual"]) {
-        const result = await rereadTicketImage({ id, engine: "OCR" });
+        const result = await rereadTicketImage({ id });
         messages.push(result.ok ? "ok" : result.message);
       }
 
@@ -570,20 +563,13 @@ describe("อ่านรูปโพยรอตรวจใหม่", () => {
       expect(db.auditRows).toHaveLength(0);
     });
 
-    test("ตัวอ่านที่ไม่รู้จัก → VALIDATION", async () => {
-      seedImageTicket("t1");
-      const result = await rereadTicketImage({ id: "t1", engine: "GPT" as "AI" });
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.code).toBe("VALIDATION");
-    });
   });
 
   describe("ทั้งงวด (ผู้ดูแลระบบเท่านั้น)", () => {
     test("ผู้ใช้ทั่วไป → FORBIDDEN ไม่แตะรูป", async () => {
       seedImageTicket("t1");
 
-      const result = await rereadDrawImages({ drawId: "draw-open", engine: "OCR" });
+      const result = await rereadDrawImages({ drawId: "draw-open" });
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.code).toBe("FORBIDDEN");
@@ -599,7 +585,7 @@ describe("อ่านรูปโพยรอตรวจใหม่", () => {
       db.draws.set("draw-next", { dealerId: "dealer-1", status: "OPEN" });
       seedImageTicket("next-draw", { drawId: "draw-next" });
 
-      const result = await rereadDrawImages({ drawId: "draw-open", engine: "AI" });
+      const result = await rereadDrawImages({ drawId: "draw-open" });
 
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.data.count).toBe(2);
@@ -616,7 +602,7 @@ describe("อ่านรูปโพยรอตรวจใหม่", () => {
       seedImageTicket("closed", { drawId: "draw-closed" });
 
       const results = await Promise.all(
-        ["draw-open", "draw-closed", "draw-other"].map((drawId) => rereadDrawImages({ drawId, engine: "OCR" })),
+        ["draw-open", "draw-closed", "draw-other"].map((drawId) => rereadDrawImages({ drawId })),
       );
 
       expect(results.map((result) => (result.ok ? "ok" : result.message))).toEqual([
@@ -630,16 +616,16 @@ describe("อ่านรูปโพยรอตรวจใหม่", () => {
     /** JPEG ปลอมที่ขึ้นต้นด้วยไบต์ของ JPEG จริง */
     const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]).toString("base64");
 
-    test("บันทึกรูปใหม่ เก็บต้นฉบับไว้ แล้วเข้าคิวอ่านด้วยตัวอ่านที่เลือก", async () => {
+    test("บันทึกรูปใหม่ เก็บต้นฉบับไว้ แล้วเข้าคิวอ่านด้วย AI", async () => {
       seedImageTicket("t1");
 
-      const result = await editTicketImage({ id: "t1", engine: "OCR", mimeType: "image/jpeg", data: jpeg });
+      const result = await editTicketImage({ id: "t1", mimeType: "image/jpeg", data: jpeg });
 
       expect(result.ok).toBe(true);
       const image = db.images.get("t1")!;
       expect(image).toMatchObject({
         ocrStatus: "PENDING",
-        ocrEngine: "OCR",
+        ocrEngine: "AI",
         mimeType: "image/jpeg",
         originalPath: "tickets/2026-10/t1.jpg",
       });
@@ -653,11 +639,11 @@ describe("อ่านรูปโพยรอตรวจใหม่", () => {
 
     test("แก้ซ้ำ → ต้นฉบับยังเป็นรูปแรกที่ลูกค้าส่งมา ไฟล์ที่แก้รอบก่อนถูกลบ", async () => {
       seedImageTicket("t1");
-      await editTicketImage({ id: "t1", engine: "OCR", mimeType: "image/jpeg", data: jpeg });
+      await editTicketImage({ id: "t1", mimeType: "image/jpeg", data: jpeg });
       const firstEdit = db.images.get("t1")!.path as string;
       db.images.set("t1", { ...db.images.get("t1")!, ocrStatus: "DONE" });
 
-      const result = await editTicketImage({ id: "t1", engine: "AI", mimeType: "image/jpeg", data: jpeg });
+      const result = await editTicketImage({ id: "t1", mimeType: "image/jpeg", data: jpeg });
 
       expect(result.ok).toBe(true);
       expect(db.images.get("t1")).toMatchObject({ originalPath: "tickets/2026-10/t1.jpg", ocrEngine: "AI" });
@@ -669,8 +655,8 @@ describe("อ่านรูปโพยรอตรวจใหม่", () => {
       seedImageTicket("confirmed", { status: "CONFIRMED" });
       seedImageTicket("reading", { ocrStatus: "PENDING" });
 
-      const confirmed = await editTicketImage({ id: "confirmed", engine: "OCR", mimeType: "image/jpeg", data: jpeg });
-      const reading = await editTicketImage({ id: "reading", engine: "OCR", mimeType: "image/jpeg", data: jpeg });
+      const confirmed = await editTicketImage({ id: "confirmed", mimeType: "image/jpeg", data: jpeg });
+      const reading = await editTicketImage({ id: "reading", mimeType: "image/jpeg", data: jpeg });
 
       expect(confirmed.ok ? "ok" : confirmed.message).toBe("tickets.rereadNotReview");
       expect(reading.ok ? "ok" : reading.message).toBe("tickets.rereadReading");
@@ -684,7 +670,6 @@ describe("อ่านรูปโพยรอตรวจใหม่", () => {
 
       const result = await editTicketImage({
         id: "t1",
-        engine: "OCR",
         mimeType: "image/png",
         data: jpeg,
       });
@@ -695,7 +680,7 @@ describe("อ่านรูปโพยรอตรวจใหม่", () => {
 
     test("ข้อมูลไม่ใช่ base64 → VALIDATION", async () => {
       seedImageTicket("t1");
-      const result = await editTicketImage({ id: "t1", engine: "OCR", mimeType: "image/jpeg", data: "<svg>" });
+      const result = await editTicketImage({ id: "t1", mimeType: "image/jpeg", data: "<svg>" });
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.code).toBe("VALIDATION");

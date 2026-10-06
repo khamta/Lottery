@@ -8,7 +8,7 @@ import { DataTable } from "@/components/shared/data-table";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { useOptimisticList } from "@/hooks/use-optimistic-list";
 import { useI18n } from "@/i18n/client";
-import type { ImageEngineValue, TicketInput } from "@/lib/validations/ticket";
+import type { TicketInput } from "@/lib/validations/ticket";
 import { DEFAULT_LAK_MULTIPLIER, parseTicket } from "@/lottery/parser";
 import type { ReadRuleSpec } from "@/lottery/read-rules";
 import { summarizeTicket } from "@/lottery/ticket";
@@ -36,7 +36,6 @@ import {
 } from "../types";
 import { getTicketColumns } from "./columns";
 import { TicketDialog } from "./ticket-dialog";
-import { RereadImageDialog } from "./reread-image-dialog";
 import { ImageEditorDialog, type EditedImageData } from "./image-editor-dialog";
 import { TicketFilters } from "./ticket-filters";
 import { TicketGroups } from "./ticket-groups";
@@ -138,10 +137,9 @@ export function TicketsView({
   // คืนสถานะเป็นรอตรวจ: ใบเดียวจากเมนูแถว หรือหลายใบที่เลือกด้วย checkbox (clear = ล้าง checkbox หลังยืนยัน)
   const [resetting, setResetting] = React.useState<{ rows: TicketRow[]; clear?: () => void } | null>(null);
 
-  // อ่านรูปใหม่: เลือกตัวอ่าน (rereading) → เลือก AI ต้องยืนยันค่าใช้จ่ายอีกขั้น (aiConfirm) → สั่งจริง
+  // อ่านรูปใหม่ด้วย AI: ยืนยันค่าใช้จ่ายก่อนทุกครั้ง (rereading) → สั่งจริง
   const [rereading, setRereading] = React.useState<RereadTarget | null>(null);
-  const [aiConfirm, setAiConfirm] = React.useState<RereadTarget | null>(null);
-  // แก้รูป (ครอป / ยางลบ) → เลือกตัวอ่าน (rereading kind "edited") → สั่งบันทึกรูป + อ่านใหม่
+  // แก้รูป (ครอป / ยางลบ) → ยืนยันอ่านใหม่ (rereading kind "edited") → สั่งบันทึกรูป + อ่านใหม่
   const [editingImage, setEditingImage] = React.useState<TicketRow | null>(null);
 
   const openReview = React.useCallback(
@@ -192,19 +190,11 @@ export function TicketsView({
   const imageCount = (target: RereadTarget) =>
     target.kind === "draw" ? Math.min(target.draw.count, target.draw.limit) : 1;
 
-  function handleRereadEngine(engine: ImageEngineValue) {
-    const target = rereading;
-    setRereading(null);
-    if (!target) return;
-    if (engine === "AI") setAiConfirm(target);
-    else runReread(target, engine);
-  }
-
-  function runReread(target: RereadTarget, engine: ImageEngineValue) {
+  function runReread(target: RereadTarget) {
     if (target.kind === "ticket") {
       mutate({
         patch: { type: "update", item: { ...target.row, ocrStatus: "PENDING", ocrReader: null } },
-        action: () => rereadTicketImage({ id: target.row.id, engine }),
+        action: () => rereadTicketImage({ id: target.row.id }),
       });
       return;
     }
@@ -212,7 +202,7 @@ export function TicketsView({
       const { row, image } = target;
       mutate({
         patch: { type: "update", item: { ...row, ocrStatus: "PENDING", ocrReader: null } },
-        action: () => editTicketImage({ id: row.id, engine, ...image }),
+        action: () => editTicketImage({ id: row.id, ...image }),
       });
       return;
     }
@@ -220,7 +210,7 @@ export function TicketsView({
     const first = rows.find(canRereadImage);
     mutate({
       patch: first ? { type: "update", item: { ...first, ocrStatus: "PENDING", ocrReader: null } } : { type: "delete-many", ids: [] },
-      action: () => rereadDrawImages({ drawId: target.draw.drawId, engine }),
+      action: () => rereadDrawImages({ drawId: target.draw.drawId }),
     });
   }
 
@@ -422,23 +412,21 @@ export function TicketsView({
         }}
       />
 
-      <RereadImageDialog
-        description={rereading ? describeReread(rereading) : null}
-        onOpenChange={(open) => !open && setRereading(null)}
-        onSubmit={handleRereadEngine}
-      />
-
-      {/* AI มีค่าใช้จ่ายต่อรูป — ยืนยันอีกขั้นทุกครั้ง ทั้งใบเดียวและทั้งงวด */}
+      {/* อ่านรูปด้วย AI มีค่าใช้จ่ายต่อรูป — ยืนยันทุกครั้ง ทั้งใบเดียว รูปที่แก้ และทั้งงวด */}
       <ConfirmDialog
-        open={!!aiConfirm}
-        onOpenChange={(open) => !open && setAiConfirm(null)}
+        open={!!rereading}
+        onOpenChange={(open) => !open && setRereading(null)}
         variant="default"
-        title={t("tickets.aiConfirmTitle")}
-        description={aiConfirm ? t("tickets.aiConfirmDesc", { count: imageCount(aiConfirm) }) : undefined}
+        title={t("tickets.rereadTitle")}
+        description={
+          rereading
+            ? `${describeReread(rereading)} ${t("tickets.aiConfirmDesc", { count: imageCount(rereading) })}`
+            : undefined
+        }
         confirmText={t("tickets.aiConfirm")}
         onConfirm={() => {
-          if (aiConfirm) runReread(aiConfirm, "AI");
-          setAiConfirm(null);
+          if (rereading) runReread(rereading);
+          setRereading(null);
         }}
       />
 
