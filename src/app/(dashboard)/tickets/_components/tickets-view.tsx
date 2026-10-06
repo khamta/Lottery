@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Plus, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/shared/data-table";
@@ -20,6 +20,7 @@ import {
   editTicketImage,
   rereadDrawImages,
   rereadTicketImage,
+  resetTickets,
   updateTicket,
 } from "../actions";
 import { markTicketRead, markTicketsSeen } from "../seen/actions";
@@ -134,6 +135,9 @@ export function TicketsView({
     clear: () => void;
   } | null>(null);
 
+  // คืนสถานะเป็นรอตรวจ: ใบเดียวจากเมนูแถว หรือหลายใบที่เลือกด้วย checkbox (clear = ล้าง checkbox หลังยืนยัน)
+  const [resetting, setResetting] = React.useState<{ rows: TicketRow[]; clear?: () => void } | null>(null);
+
   // อ่านรูปใหม่: เลือกตัวอ่าน (rereading) → เลือก AI ต้องยืนยันค่าใช้จ่ายอีกขั้น (aiConfirm) → สั่งจริง
   const [rereading, setRereading] = React.useState<RereadTarget | null>(null);
   const [aiConfirm, setAiConfirm] = React.useState<RereadTarget | null>(null);
@@ -157,6 +161,7 @@ export function TicketsView({
         onEdit: openReview,
         onReread: (row) => setRereading({ kind: "ticket", row }),
         onEditImage: setEditingImage,
+        onReset: (row) => setResetting({ rows: [row] }),
         onDelete: (row) => setDeleting(row),
       }),
     [t, intl, openReview],
@@ -294,6 +299,22 @@ export function TicketsView({
     setBulkDeleting(null);
   }
 
+  /** คืนสถานะโพยที่นับยอดแล้วกลับเป็นรอตรวจ — แถวขึ้นรอตรวจ ยอดเป็น 0 ทันที (ใบที่รอตรวจอยู่แล้วไม่เปลี่ยน) */
+  function handleReset({ rows: selected, clear }: { rows: TicketRow[]; clear?: () => void }) {
+    const targets = selected.filter((row) => row.status === "CONFIRMED");
+    const [first] = targets;
+    if (first) {
+      // patch ได้ทีละแถว — หลายใบ: แถวอื่นเปลี่ยนตามเมื่อ server render ใหม่
+      mutate({
+        patch: { type: "update", item: { ...first, status: "REVIEW", betCount: 0, totalLak: 0, totalThb: 0 } },
+        action: () => resetTickets({ ids: targets.map((row) => row.id) }),
+        successMessage: t("tickets.resetMany", { count: targets.length }),
+      });
+    }
+    clear?.();
+    setResetting(null);
+  }
+
   /** ดูทั้งหมดแล้ว — แถวไม่หายไปไหน จึงไม่มีอะไรต้องเปลี่ยนบนจอก่อน (patch ว่าง) ม่านโหลดปิดเมื่อ refresh ได้ป้ายใหม่ */
   function handleMarkSeen(groupKeys: string[]) {
     mutate({
@@ -330,9 +351,16 @@ export function TicketsView({
           emptyDescriptionKey={filtered ? "tickets.emptyFilteredDesc" : "tickets.emptyDesc"}
           selectable
           bulkActions={(ctx) => (
-            <Button variant="destructive" size="sm" onClick={() => setBulkDeleting(ctx)}>
-              <Trash2 /> {t("common.deleteSelected")}
-            </Button>
+            <>
+              {ctx.rows.some((row) => row.status === "CONFIRMED") ? (
+                <Button variant="outline" size="sm" onClick={() => setResetting(ctx)}>
+                  <RotateCcw /> {t("tickets.resetSelected")}
+                </Button>
+              ) : null}
+              <Button variant="destructive" size="sm" onClick={() => setBulkDeleting(ctx)}>
+                <Trash2 /> {t("common.deleteSelected")}
+              </Button>
+            </>
           )}
           toolbar={
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -411,6 +439,20 @@ export function TicketsView({
         onConfirm={() => {
           if (aiConfirm) runReread(aiConfirm, "AI");
           setAiConfirm(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!resetting}
+        onOpenChange={(open) => !open && setResetting(null)}
+        variant="default"
+        title={t("tickets.resetTitle")}
+        description={t("tickets.resetDesc", {
+          count: resetting?.rows.filter((row) => row.status === "CONFIRMED").length ?? 0,
+        })}
+        confirmText={t("tickets.resetConfirm")}
+        onConfirm={() => {
+          if (resetting) handleReset(resetting);
         }}
       />
 

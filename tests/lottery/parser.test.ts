@@ -47,6 +47,19 @@ describe("parseTicket — ข้อความตัวอย่างจาก
     ]);
   });
 
+  test("=2ລ່າງ1 = เลข 2 ตัวล่าง เลขละ 1 · จำนวนหลักไม่ตรงกับเลข → รอตรวจ", () => {
+    const ticket = parseTicket("31,71,09=2ล่าง1\nແກ້ມ");
+    expect(brief(ticket.bets)).toEqual(["31 BOTTOM LAK 1000", "71 BOTTOM LAK 1000", "09 BOTTOM LAK 1000"]);
+    expect(ticket.issues).toEqual([]);
+    expect(brief(parseTicket("31.71=2ລ່າງ5").bets)).toEqual(["31 BOTTOM LAK 5000", "71 BOTTOM LAK 5000"]);
+    // ไม้เอกวางหลังสระอา (ລາ່ງ) หน้าจอดูเหมือนกัน
+    expect(brief(parseTicket("31=2ລາ່ງ1").bets)).toEqual(["31 BOTTOM LAK 1000"]);
+    expect(brief(parseTicket("123=3ໂຕບົນ5").bets)).toEqual(["123 TOP LAK 5000"]);
+    expect(parseTicket("123.31=2ລ່າງ1").issues.map((i) => i.code)).toEqual(["UNREADABLE"]);
+    // ไม่มียอดตามหลัง = ยอด 2 ล่างตามเดิม
+    expect(brief(parseTicket("31=2ລ່າງ").bets)).toEqual(["31 BOTTOM LAK 2000"]);
+  });
+
   test("฿ = บาท ไม่คูณ และคั่นเลขด้วยขีดได้", () => {
     expect(brief(parseTicket("788-778-678=300฿").bets)).toEqual([
       "788 TOP THB 300",

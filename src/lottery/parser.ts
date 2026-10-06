@@ -224,6 +224,11 @@ const TOP_BOTTOM_WORDS = new RegExp(
   String.raw`^(${AMOUNT})\s*(ບົນ|บน|ລ່າງ|ລາງ|ລຸ່ມ|ล่าง)\s*[/,\-\s]?\s*(${AMOUNT})\s*(ບົນ|บน|ລ່າງ|ລາງ|ລຸ່ມ|ล่าง)(.*)$`,
   "u",
 );
+/**
+ * จำนวนหลัก + ฝั่ง หน้ายอด: "2ລ່າງ1" = เลข 2 ตัวล่าง เลขละ 1 · "3ໂຕບົນ5" = เลข 3 ตัวบน เลขละ 5
+ * ต้องมียอดตามหลัง — "=2ລ່າງ" เปล่า ๆ ยังเป็นยอด 2 ล่าง
+ */
+const DIGITS_SIDE_PREFIX = /^([23])\s*(?:ໂຕ|ຕົວ|ตัว|โต)?\s*(ບົນລ່າງ|ບລ|บนล่าง|บล|ລ່າງ|ລາງ|ລຸ່ມ|ล่าง|ບົນ|บน)\s*(?=\d)/u;
 const AMOUNT_PART = new RegExp(String.raw`^(${AMOUNT})(?:\s*[*x×]\s*(${AMOUNT}))?(.*)$`, "i");
 /** ขีดคั่นเลข 3 ตัวขึ้นไป (มียอดหลัง = ได้): 605-645-685 · 406-446-486=1 */
 const DASH_NUMBERS_LINE = /^\d{2,3}(?:\s*-\s*\d{2,3}){2,}\s*(?:[=;:].*)?$/;
@@ -352,6 +357,9 @@ function normalize(text: string) {
     .replace(/[๐-๙]/g, (d) => String(d.charCodeAt(0) - 0x0e50))
     // ປອ່ງ = ປ່ອງ ที่วางไม้เอกผิดที่ (หน้าจอดูเหมือนกัน)
     .replace(/ປອ່ງ/g, "ປ່ອງ")
+    // ລາ່ງ / ลา่ง = ລ່າງ / ล่าง ที่วางไม้เอกหลังสระอา
+    .replace(/ລາ່ງ/g, "ລ່າງ")
+    .replace(/ลา่ง/g, "ล่าง")
     // ' ’ ‘ ` ´ ระหว่างตัวเลข = ตัวคั่นเลข: "19'59'99" = "19.59.99"
     .replace(/(?<=\d)['’‘`´]+(?=\d)/g, ".")
     .trim();
@@ -388,7 +396,8 @@ function readSuffix(text: string) {
 type Stake = Omit<ParsedBet, "line" | "amount"> & { typed: number };
 /** amount = ยอดของบรรทัด (เฉพาะบรรทัดรายการปกติ) ให้เลขที่รออยู่ด้านบนใช้ซ้ำ */
 type LineResult = { stakes: Stake[]; amount?: Amount } | { issue: ParseIssueCode };
-type Amount = { first: number; second?: number; position?: PositionMark; currency: Currency };
+/** digits = ยอดบอกจำนวนหลักของเลขไว้ ("2ລ່າງ1" = เลข 2 ตัว) */
+type Amount = { first: number; second?: number; position?: PositionMark; currency: Currency; digits?: 2 | 3 };
 
 /**
  * คำกำกับท้ายยอดที่มีชื่อลูกค้าต่อท้าย: "ກີບ ອ້າຍຊານ" → คำกำกับ "ກີບ" (ชื่อไม่นับ)
@@ -420,6 +429,9 @@ function readSuffixWithoutName(text: string) {
 function parseAmount(text: string, fallback: Currency = "LAK"): Amount | { issue: ParseIssueCode } {
   // =ໂຕ5ພັນ / =ຮູລະ10 — คำว่า "เลขละ" หลัง = ไม่มีผลกับยอด
   let body = text.trim().replace(AMOUNT_EACH_PREFIX, "");
+  // =2ລ່າງ1 = เลข 2 ตัวล่าง เลขละ 1 → "1ລ່າງ" (parseLine ตรวจว่าเลขทุกตัวมีจำนวนหลักตรงกับที่บอก)
+  const digitsSide = body.match(DIGITS_SIDE_PREFIX);
+  if (digitsSide) body = `${body.slice(digitsSide[0].length)}${digitsSide[2]}`;
   // 20ບາດ×20ບາດ / 20ບາດ×20 — สกุลเงินที่คั่นกลาง บน×ล่าง ย้ายไปท้าย: "20×20ບາດ"
   const between = body.match(CURRENCY_BEFORE_TIMES);
   if (between) {
@@ -447,7 +459,13 @@ function parseAmount(text: string, fallback: Currency = "LAK"): Amount | { issue
 
   // "1000*1000" = บน × ล่าง อยู่แล้ว จึงห้ามมีคำกำกับฝั่งซ้ำ
   if (second !== undefined && suffix.position) return { issue: "UNREADABLE" };
-  return { first, second, position: second !== undefined ? "BOTH" : suffix.position, currency: suffix.currency ?? fallback };
+  return {
+    first,
+    second,
+    position: second !== undefined ? "BOTH" : suffix.position,
+    currency: suffix.currency ?? fallback,
+    ...(digitsSide ? { digits: Number(digitsSide[1]) as 2 | 3 } : {}),
+  };
 }
 
 function stakesFor(numbers: readonly string[], { first, second, position = "TOP", currency }: Amount): LineResult {
@@ -529,6 +547,8 @@ function parseLine(raw: string, fallback: Currency = "LAK", dashNumbers = false)
 
   const amount = parseAmount(amountPart, fallback);
   if ("issue" in amount) return amount;
+  // "2ລ່າງ1" กับเลข 3 ตัว = บอกจำนวนหลักขัดกับเลขที่พิมพ์ → ให้คนตรวจ
+  if (amount.digits && numbers.some((n) => n.length !== amount.digits)) return { issue: "UNREADABLE" };
   const result = stakesFor(numbers, amount);
   return "issue" in result ? result : { ...result, amount };
 }

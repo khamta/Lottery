@@ -22,6 +22,7 @@ import {
   editTicketImageSchema,
   rereadDrawImagesSchema,
   rereadTicketImageSchema,
+  resetTicketsSchema,
   updateTicketSchema,
   type EditedImageMime,
   type TicketInput,
@@ -182,6 +183,53 @@ export const deleteTicket = createAction(
     return { id };
   },
   { successMessage: "tickets.deleted" },
+);
+
+/**
+ * คืนสถานะโพยที่นับยอดแล้วกลับเป็นรอตรวจ (ใบเดียว / หลายใบที่เลือก) — ลบรายการแทง ยอดกลับเป็น 0 ไม่นับในรายงาน
+ * ข้อความเดิมเก็บไว้: ตรวจ/แก้แล้วกดบันทึก = นับยอดใหม่ · โพยจากรูปสั่งอ่านรูปใหม่ได้อีกครั้ง
+ * ใบที่รอตรวจอยู่แล้วข้ามไป · มีโพยของงวดที่ปิดแล้วปนอยู่ → ไม่คืนเลยสักใบ
+ */
+export const resetTickets = createAction(
+  resetTicketsSchema,
+  async ({ ids }) => {
+    const user = await requireUser();
+    const dealerId = await requireDealerId(user.id);
+
+    const count = await prisma.$transaction(async (tx) => {
+      const tickets = await tx.ticket.findMany({
+        where: { id: { in: ids }, draw: { dealerId }, status: "CONFIRMED" },
+        include: { draw: { select: { status: true, closesAt: true } } },
+      });
+      if (tickets.length === 0) throw new Error("tickets.resetNone");
+
+      const entries = [];
+      for (const { draw, ...before } of tickets) {
+        if (!acceptsTickets(draw)) throw new Error("tickets.drawNotOpen");
+        await tx.bet.deleteMany({ where: { ticketId: before.id } });
+        const after = await tx.ticket.update({
+          where: { id: before.id },
+          data: { status: "REVIEW", totalLak: 0, totalThb: 0, betCount: 0 },
+        });
+        entries.push({
+          action: "UPDATE" as const,
+          entity: "Ticket",
+          entityId: before.id,
+          summary: summaryOf(before),
+          before,
+          after,
+          user,
+        });
+      }
+      await logAuditMany(tx, entries);
+
+      return tickets.length;
+    });
+
+    revalidateTickets();
+    return { count };
+  },
+  { successMessage: "tickets.resetMany" },
 );
 
 /** เหตุที่อ่านรูปใหม่ไม่ได้ → คีย์ i18n */

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { ClipboardCheck, Crop, EllipsisVertical, ImageIcon, RefreshCw, Trash2 } from "lucide-react";
+import { ClipboardCheck, Crop, EllipsisVertical, ImageIcon, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,10 +25,12 @@ type ColumnOptions = {
   onReread: (row: TicketRow) => void;
   /** แก้รูปโพย (ครอป / ยางลบ) แล้วอ่านใหม่ */
   onEditImage: (row: TicketRow) => void;
+  /** คืนสถานะโพยที่นับยอดแล้วกลับเป็นรอตรวจ (นับยอดใหม่) */
+  onReset: (row: TicketRow) => void;
   onDelete: (row: TicketRow) => void;
 };
 
-export function getTicketColumns({ t, intl, onEdit, onReread, onEditImage, onDelete }: ColumnOptions): ColumnDef<TicketRow>[] {
+export function getTicketColumns({ t, intl, onEdit, onReread, onEditImage, onReset, onDelete }: ColumnOptions): ColumnDef<TicketRow>[] {
   const money = (value: number) =>
     value ? <span className="font-medium tabular-nums">{formatNumber(value, intl)}</span> : <span className="text-muted-foreground">–</span>;
 
@@ -180,6 +182,11 @@ export function getTicketColumns({ t, intl, onEdit, onReread, onEditImage, onDel
                     <Crop /> {t("tickets.editImage")}
                   </DropdownMenuItem>
                 </>
+              ) : null}
+              {row.original.status === "CONFIRMED" ? (
+                <DropdownMenuItem onClick={() => onReset(row.original)}>
+                  <RotateCcw /> {t("tickets.reset")}
+                </DropdownMenuItem>
               ) : null}
               <DropdownMenuItem variant="destructive" onClick={() => onDelete(row.original)}>
                 <Trash2 /> {t("common.delete")}

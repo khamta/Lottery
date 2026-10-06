@@ -26,6 +26,9 @@ export const deleteTicketsSchema = z.object({
     .max(100, "validation.required"),
 });
 
+/** คืนสถานะโพยที่นับยอดแล้วกลับเป็นรอตรวจ (ใบเดียวหรือหลายใบที่เลือก) — จำกัดเท่ากับลบหลายรายการ */
+export const resetTicketsSchema = deleteTicketsSchema;
+
 /** ตัวอ่านรูปตอนสั่งอ่านโพยรอตรวจใหม่ — AI = Claude (มีค่าใช้จ่าย) · OCR = ตัวอ่านปกติในเครื่อง */
 export const imageEngineEnum = z.enum(["AI", "OCR"]);
 /** อ่านรูปของโพยรอตรวจใบเดียวใหม่ — ผู้ใช้ทุกคน */
