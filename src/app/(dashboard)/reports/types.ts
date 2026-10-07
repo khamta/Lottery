@@ -41,6 +41,19 @@ export function toPercent(value: unknown, fallback: number): number {
   return Math.min(100, Math.max(0, Math.round(parsed * 100) / 100));
 }
 
+/**
+ * เงินรางวัลหวยลาวต่อการแทงถูก 1,000 กีบ ในใบสรุปส่งแม่ (?lao2= ?lao3=) — แต่ละเจ้าจ่ายไม่เท่ากัน ผู้ใช้ตั้งเองตอนส่งออก
+ * เช่น 2 ตัวถูก 1,000 กีบ ได้ 80,000 · 3 ตัวถูก 1,000 กีบ ได้ 800,000 → ยอดถูก = ยอดแทง × (เงินรางวัล ÷ 1,000)
+ */
+export const LAO_PAYOUT_UNIT = 1000;
+export const DEFAULT_LAO_PAYOUT = { two: 80_000, three: 800_000 } as const;
+
+/** อ่านเงินรางวัลต่อ 1,000 กีบจาก URL — อ่านไม่ได้ / ติดลบ = fallback */
+export function toPayout(value: unknown, fallback: number): number {
+  const parsed = typeof value === "string" && value.trim() !== "" ? Number(value.replace(/,/g, "")) : Number.NaN;
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed * 100) / 100 : fallback;
+}
+
 /** อ่านยอดเงินจาก URL (ยอดค้าง) — ติดลบได้ · อ่านไม่ได้ = 0 */
 export function toAmount(value: unknown): number {
   const parsed = typeof value === "string" ? Number(value.replace(/,/g, "")) : Number.NaN;

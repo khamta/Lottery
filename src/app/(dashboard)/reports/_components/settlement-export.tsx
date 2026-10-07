@@ -17,20 +17,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useI18n } from "@/i18n/client";
 import { buildQueryString } from "@/lib/query";
-import { DEFAULT_PERCENTS, toAmount, toPercent } from "../types";
+import { DEFAULT_LAO_PAYOUT, DEFAULT_PERCENTS, toAmount, toPayout, toPercent } from "../types";
 
 /** จำเปอร์เซ็นต์ล่าสุดไว้ในเครื่องผู้ใช้ — ใช้สะดวกอย่างเดียว ไม่มีก็ใช้ค่าเริ่มต้น */
 const STORAGE_KEY = "reports.settlementPercents";
+/** จำเงินรางวัลหวยลาวแยกตามแม่หวย (แต่ละเจ้าจ่ายไม่เท่ากัน) */
+const payoutStorageKey = (dealerId: string) => `reports.laoPayout.${dealerId}`;
 
 /**
  * ส่งออกแบบ "ใบสรุปส่งแม่" ของทั้งวัน — ตั้งวันที่ เปอร์เซ็นต์ของสองกล่อง และยอดค้าง
  * แล้วดาวน์โหลด Excel / PDF (reports/export/route.ts?layout=sheet) · เลือกกลุ่มอยู่ = ใบนี้คิดเฉพาะโพยของกลุ่มนั้น
+ * เงินรางวัลหวยลาวต่อ 1,000 กีบ (2 ตัว / 3 ตัว) ใช้คิดยอดถูกของงวดหวยลาว — จำไว้ต่อแม่หวย
  */
 export function SettlementExport({
+  dealerId,
   drawId,
   drawDate,
   group,
 }: {
+  dealerId: string;
   drawId: string;
   drawDate: string;
   /** กลุ่มที่เลือกในหน้ารายงาน (label แปลแล้ว) — null = ทุกกลุ่ม */
@@ -42,6 +47,8 @@ export function SettlementExport({
   const [right, setRight] = React.useState(String(DEFAULT_PERCENTS.right));
   const [owLak, setOwLak] = React.useState("");
   const [owThb, setOwThb] = React.useState("");
+  const [lao2, setLao2] = React.useState(String(DEFAULT_LAO_PAYOUT.two));
+  const [lao3, setLao3] = React.useState(String(DEFAULT_LAO_PAYOUT.three));
 
   React.useEffect(() => setDate(drawDate), [drawDate]);
   React.useEffect(() => {
@@ -51,8 +58,17 @@ export function SettlementExport({
       if (typeof saved?.right === "number") setRight(String(saved.right));
     } catch {}
   }, []);
+  React.useEffect(() => {
+    let saved: { two?: number; three?: number } | null = null;
+    try {
+      saved = JSON.parse(window.localStorage.getItem(payoutStorageKey(dealerId)) ?? "null");
+    } catch {}
+    setLao2(String(typeof saved?.two === "number" ? saved.two : DEFAULT_LAO_PAYOUT.two));
+    setLao3(String(typeof saved?.three === "number" ? saved.three : DEFAULT_LAO_PAYOUT.three));
+  }, [dealerId]);
 
   const percents = { left: toPercent(left, DEFAULT_PERCENTS.left), right: toPercent(right, DEFAULT_PERCENTS.right) };
+  const payout = { two: toPayout(lao2, DEFAULT_LAO_PAYOUT.two), three: toPayout(lao3, DEFAULT_LAO_PAYOUT.three) };
   const href = (format: "xlsx" | "pdf") =>
     `/reports/export?${buildQueryString(
       {},
@@ -66,11 +82,14 @@ export function SettlementExport({
         pr: percents.right,
         owLak: toAmount(owLak) || undefined,
         owThb: toAmount(owThb) || undefined,
+        lao2: payout.two,
+        lao3: payout.three,
       },
     )}`;
   const remember = () => {
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(percents));
+      window.localStorage.setItem(payoutStorageKey(dealerId), JSON.stringify(payout));
     } catch {}
   };
 
@@ -125,6 +144,14 @@ export function SettlementExport({
             {field("settlement-ow-lak", `${t("reports.sheetOutstanding")} (${t("lottery.currencyLAK")})`, owLak, setOwLak)}
             {field("settlement-ow-thb", `${t("reports.sheetOutstanding")} (${t("lottery.currencyTHB")})`, owThb, setOwThb)}
           </div>
+          <fieldset className="grid gap-2">
+            <legend className="text-sm font-medium">{t("reports.sheetLaoPayout")}</legend>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {field("settlement-lao-2", t("reports.sheetLaoPayout2"), lao2, setLao2)}
+              {field("settlement-lao-3", t("reports.sheetLaoPayout3"), lao3, setLao3)}
+            </div>
+            <p className="text-muted-foreground text-sm">{t("reports.sheetLaoPayoutHint")}</p>
+          </fieldset>
         </div>
         <DialogFooter className="gap-2 sm:gap-2">
           <Button asChild variant="outline" className="w-full sm:w-auto">

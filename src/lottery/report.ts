@@ -151,6 +151,14 @@ export function totalWinningStake(groups: StakeGroup[], keys: WinningKey[]): Mon
 /** อัตราจ่ายต่อ 1 หน่วยของงวด — 0 = ยังไม่ตั้ง (คิดตามยอดแทงจริงของเลขที่ถูก) */
 export type PayoutRates = { rate2Top: number; rate2Bottom: number; rate3Top: number };
 
+/**
+ * เงินรางวัลต่อการแทงถูก unit (เช่น 1,000 กีบ) → อัตราจ่ายต่อ 1 หน่วย
+ * 2 ตัวถูก 1,000 ได้ 80,000 · 3 ตัวถูก 1,000 ได้ 800,000 → ×80 / ×800 (2 ตัวบนและล่างจ่ายเท่ากัน)
+ */
+export function payoutRates(payout: { two: number; three: number }, unit: number): PayoutRates {
+  return { rate2Top: payout.two / unit, rate2Bottom: payout.two / unit, rate3Top: payout.three / unit };
+}
+
 export type LotteryCode = "LAO" | "THAI" | "V3" | "V4" | "V5" | "V6" | "V7" | "V8" | "V9";
 
 /**

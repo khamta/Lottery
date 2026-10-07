@@ -20,12 +20,15 @@ import { SettlementExport } from "./settlement-export";
  * ส่งงวด / กลุ่ม / มุมมอง / จำนวนอันดับที่ server เลือกแล้วไปเสมอ ไฟล์จึงตรงกับที่เห็นบนจอแม้ URL ไม่ได้ระบุ
  */
 export async function ReportExport({
+  dealerId,
   drawId,
   drawDate,
   group,
   view,
   top,
 }: {
+  /** แม่หวยที่เลือกอยู่ — ใบสรุปจำเงินรางวัลหวยลาวแยกตามแม่หวย */
+  dealerId: string;
   drawId: string;
   /** YYYY-MM-DD — วันตั้งต้นของใบสรุปส่งแม่ */
   drawDate: string;
@@ -65,6 +68,7 @@ export async function ReportExport({
         </DropdownMenuContent>
       </DropdownMenu>
       <SettlementExport
+        dealerId={dealerId}
         drawId={drawId}
         drawDate={drawDate}
         group={group ? { key: group.key, label: reportGroupName(group, t) } : null}

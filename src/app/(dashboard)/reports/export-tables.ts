@@ -28,11 +28,12 @@ import {
 } from "@/lottery/report";
 import type { ExportCell, ExportColumn, ExportTable, SheetExport, SheetLine } from "@/lottery/table-export";
 import { statusKey } from "../draws/types";
-import { billGroupName, viewKey, type ReportView, type TopOption } from "./types";
+import { LAO_PAYOUT_UNIT, billGroupName, viewKey, type ReportView, type TopOption } from "./types";
 
 /**
  * ตารางของแต่ละมุมมองรายงาน → ExportTable (src/lottery/table-export.ts) สำหรับไฟล์ Excel / PDF
  * คิดจากข้อมูลและฟังก์ชันชุดเดียวกับหน้ารายงาน ไฟล์จึงตรงกับที่เห็นบนจอ (รวมจำนวนอันดับ ?top= ที่เลือก)
+ * ยกเว้นเลข 2 ตัว / 3 ตัว: ส่งออกคู่กันในตารางเดียว (หน้าเดียวกัน) ไม่ว่าเปิดมุมมองไหนอยู่
  * ฟังก์ชันล้วน — route ดึงข้อมูลมาให้ (export/route.ts)
  */
 export type ReportExportInput = {
@@ -86,21 +87,19 @@ export function buildReportTable(input: ReportExportInput): ExportTable {
     `${t(digitsKey[bet.digits] ?? "lottery.digits2")} ${t(positionKey[bet.position])}`;
 
   switch (view) {
-    case "two": {
-      const all = pivotTwoDigit(input.stakes);
-      const totals = sumTwoDigit(all);
-      const winning = keys ? { top: keys[1]!.number, bottom: keys[2]!.number } : null;
-      return {
-        ...base,
-        columns: [
-          { header: t("lottery.rank"), weight: 7, align: "right" },
-          { header: t("lottery.number"), weight: 16 },
-          money(t("lottery.topLak")),
-          money(t("lottery.bottomLak")),
-          money(t("lottery.topThb")),
-          money(t("lottery.bottomThb")),
-        ],
-        rows: (top ? all.slice(0, top) : all).map((row, index) => [
+    // เลข 2 ตัวกับ 3 ตัวอยู่ในตารางเดียวกัน วางคู่กันซ้าย/ขวา — ส่งออกจากมุมมองไหนก็ได้ทั้งสองแบบในหน้าเดียว
+    case "two":
+    case "three": {
+      const two = pivotTwoDigit(input.stakes);
+      const three = pivotThreeDigit(input.stakes);
+      const twoTotals = sumTwoDigit(two);
+      const twoRows = top ? two.slice(0, top) : two;
+      const threeRows = top ? three.slice(0, top) : three;
+      const winning = keys ? { top3: keys[0]!.number, top: keys[1]!.number, bottom: keys[2]!.number } : null;
+      const twoCells = (index: number): ExportCell[] => {
+        const row = twoRows[index];
+        if (!row) return [null, null, null, null, null, null];
+        return [
           index + 1,
           numberCell(row.number, [
             ...(winning?.top === row.number ? [t("lottery.winTop")] : []),
@@ -110,38 +109,57 @@ export function buildReportTable(input: ReportExportInput): ExportTable {
           stake(row.bottomLak, { number: row.number, digits: 2, position: "BOTTOM", currency: "LAK" }),
           stake(row.topThb, { number: row.number, digits: 2, position: "TOP", currency: "THB" }),
           stake(row.bottomThb, { number: row.number, digits: 2, position: "BOTTOM", currency: "THB" }),
-        ]),
-        // ยอดรวมของทุกเลข ไม่ใช่เฉพาะแถวที่แสดง (เหมือนบนจอ)
-        totals: all.length ? [null, t("lottery.totalAll"), totals.topLak, totals.bottomLak, totals.topThb, totals.bottomThb] : undefined,
-        empty: t("reports.emptyBets"),
+        ];
       };
-    }
-
-    case "three": {
-      const all = pivotThreeDigit(input.stakes);
-      const winning = keys ? keys[0]!.number : null;
+      const threeCells = (index: number): ExportCell[] => {
+        const row = threeRows[index];
+        if (!row) return [null, null, null, null];
+        return [
+          index + 1,
+          numberCell(row.number, winning?.top3 === row.number ? [t("lottery.winTop")] : []),
+          stake(row.lak, { number: row.number, digits: 3, position: "TOP", currency: "LAK" }),
+          stake(row.thb, { number: row.number, digits: 3, position: "TOP", currency: "THB" }),
+        ];
+      };
       return {
         ...base,
+        title: `${t("reports.title")} — ${t(viewKey.two)} · ${t(viewKey.three)}`,
         columns: [
-          { header: t("lottery.rank"), weight: 7, align: "right" },
-          { header: t("lottery.number"), weight: 18 },
+          { header: t("lottery.rank"), weight: 5, align: "right" },
+          { header: t(viewKey.two), weight: 11 },
+          money(t("lottery.topLak")),
+          money(t("lottery.bottomLak")),
+          money(t("lottery.topThb")),
+          money(t("lottery.bottomThb")),
+          // ช่องว่างคั่นสองตาราง
+          { header: "", weight: 2 },
+          { header: t("lottery.rank"), weight: 5, align: "right" },
+          { header: t(viewKey.three), weight: 11 },
           money(t("lottery.currencyLAK")),
           money(t("lottery.currencyTHB")),
         ],
-        rows: (top ? all.slice(0, top) : all).map((row, index) => [
-          index + 1,
-          numberCell(row.number, winning === row.number ? [t("lottery.winTop")] : []),
-          stake(row.lak, { number: row.number, digits: 3, position: "TOP", currency: "LAK" }),
-          stake(row.thb, { number: row.number, digits: 3, position: "TOP", currency: "THB" }),
+        rows: Array.from({ length: Math.max(twoRows.length, threeRows.length) }, (_, index) => [
+          ...twoCells(index),
+          null,
+          ...threeCells(index),
         ]),
-        totals: all.length
-          ? [
-              null,
-              t("lottery.totalAll"),
-              all.reduce((sum, row) => sum + row.lak, 0),
-              all.reduce((sum, row) => sum + row.thb, 0),
-            ]
-          : undefined,
+        // ยอดรวมของทุกเลข ไม่ใช่เฉพาะแถวที่แสดง (เหมือนบนจอ)
+        totals:
+          two.length || three.length
+            ? [
+                null,
+                t("lottery.totalAll"),
+                twoTotals.topLak,
+                twoTotals.bottomLak,
+                twoTotals.topThb,
+                twoTotals.bottomThb,
+                null,
+                null,
+                t("lottery.totalAll"),
+                three.reduce((sum, row) => sum + row.lak, 0),
+                three.reduce((sum, row) => sum + row.thb, 0),
+              ]
+            : undefined,
         empty: t("reports.emptyBets"),
       };
     }
@@ -288,6 +306,8 @@ export type SettlementExportInput = {
   percents: { left: number; right: number };
   /** ยอดค้าง (ผู้ใช้กรอกเองตอนส่งออก) */
   outstanding: MoneyPair;
+  /** เงินรางวัลหวยลาวต่อการแทงถูก 1,000 กีบ ที่ใช้คิดยอดถูก — แสดงในหัวใบเมื่อมีงวดหวยลาว */
+  laoPayout?: { two: number; three: number };
   /** ยอดของแต่ละบิล (ที่นับยอดแล้ว) ของทุกงวดในวันนั้น เรียงตามเวลา — ตารางล่าง */
   bills: MoneyPair[];
 };
@@ -313,6 +333,15 @@ export function buildSettlementSheet(input: SettlementExportInput): SheetExport 
         ? `${t("reports.sheetDraws")}: ${input.draws.map((draw) => draw.name).join(" · ")}`
         : t("reports.sheetNoDraws"),
       ...(input.group ? [`${t("reports.group")}: ${input.group}`] : []),
+      ...(input.laoPayout && input.draws.some((draw) => draw.lottery === "LAO")
+        ? [
+            t("reports.sheetLaoPayoutMeta", {
+              unit: formatNumber(LAO_PAYOUT_UNIT, intl),
+              two: formatNumber(input.laoPayout.two, intl),
+              three: formatNumber(input.laoPayout.three, intl),
+            }),
+          ]
+        : []),
       `${t("reports.exportedAt")}: ${formatDate(input.exportedAt, intl)}`,
     ],
     header: ["", t("lottery.currencyLAK"), t("lottery.currencyTHB")],

@@ -5,16 +5,19 @@ import { getTranslations } from "@/i18n/server";
 import { translateWith } from "@/i18n/translate";
 import { getDealerContext } from "@/lottery/dealer";
 import { getCustomerSummary, getDrawBills, getDrawStakes, getLimitRules, getWinningBets } from "@/lottery/queries";
-import { winningKeys } from "@/lottery/report";
+import { payoutRates, winningKeys } from "@/lottery/report";
 import { dateToIso, isoToDate } from "@/lottery/date";
 import { exportFileName, sheetToPdf, sheetToXlsx, tableToPdf, tableToXlsx } from "@/lottery/table-export";
 import { buildReportTable, buildSettlementSheet } from "../export-tables";
 import { findReportGroup, reportGroupWhere } from "../groups";
 import {
+  DEFAULT_LAO_PAYOUT,
   DEFAULT_PERCENTS,
+  LAO_PAYOUT_UNIT,
   isReportView,
   reportGroupName,
   toAmount,
+  toPayout,
   toPercent,
   toTopOption,
   viewKey,
@@ -33,8 +36,8 @@ const CONTENT_TYPE = {
 
 /** ชื่อมุมมองในชื่อไฟล์ (ASCII ล้วน ใช้ได้ทุกระบบ) */
 const FILE_VIEW: Record<ReportView, string> = {
-  two: "2-digit",
-  three: "3-digit",
+  two: "2-3-digit",
+  three: "2-3-digit",
   customers: "customers",
   bills: "bills",
   limits: "over-limit",
@@ -43,7 +46,9 @@ const FILE_VIEW: Record<ReportView, string> = {
 
 /**
  * ส่งออกรายงานของมุมมองที่เปิดอยู่เป็น Excel / PDF — /reports/export?format=xlsx|pdf&draw=&view=&top=
- * แบบใบสรุปส่งแม่: &layout=sheet&date=YYYY-MM-DD&pl=15&pr=30&owLak=&owThb= (ไม่สนมุมมอง)
+ * มุมมองเลข 2 ตัว / 3 ตัว: ส่งออกทั้งสองตารางคู่กันในหน้าเดียว (export-tables.ts)
+ * แบบใบสรุปส่งแม่: &layout=sheet&date=YYYY-MM-DD&pl=15&pr=30&owLak=&owThb=&lao2=80000&lao3=800000 (ไม่สนมุมมอง)
+ *   lao2 / lao3 = เงินรางวัลหวยลาวต่อการแทงถูก 1,000 กีบ — ใช้แทนอัตราจ่ายของงวดหวยลาว (แต่ละเจ้าจ่ายไม่เท่ากัน)
  *   ใบเดียวรวมทุกงวดของวันนั้น — หวยเวียดนามหลายรอบ + ลาว + ไทย · ไม่ระบุวันที่ = วันของงวดที่เลือก
  * งวดเลือกแบบเดียวกับหน้ารายงาน (ไม่ระบุ = งวดที่เปิดรับล่าสุด ไม่มี = งวดล่าสุด)
  * &group=<id|none> = เฉพาะโพยของกลุ่มนั้น (ทั้งแบบเดิมและใบสรุป) · ไม่ระบุ = ทุกกลุ่ม · มุมมองเกินอั้นนับทั้งงวดเสมอ
@@ -123,12 +128,19 @@ export async function GET(request: Request) {
       take: SHEET_DRAWS_MAX,
       select,
     });
+    const laoPayout = {
+      two: toPayout(url.searchParams.get("lao2"), DEFAULT_LAO_PAYOUT.two),
+      three: toPayout(url.searchParams.get("lao3"), DEFAULT_LAO_PAYOUT.three),
+    };
     const draws = await Promise.all(
       dayDraws.map(async (item) => ({
         name: item.name,
         lottery: item.lottery,
         keys: winningKeys(item),
-        rates: { rate2Top: Number(item.rate2Top), rate2Bottom: Number(item.rate2Bottom), rate3Top: Number(item.rate3Top) },
+        rates:
+          item.lottery === "LAO"
+            ? payoutRates(laoPayout, LAO_PAYOUT_UNIT)
+            : { rate2Top: Number(item.rate2Top), rate2Bottom: Number(item.rate2Bottom), rate3Top: Number(item.rate3Top) },
         stakes: await getDrawStakes(item.id, ticket),
       })),
     );
@@ -151,6 +163,7 @@ export async function GET(request: Request) {
         right: toPercent(url.searchParams.get("pr"), DEFAULT_PERCENTS.right),
       },
       outstanding: { lak: toAmount(url.searchParams.get("owLak")), thb: toAmount(url.searchParams.get("owThb")) },
+      laoPayout,
       bills: bills.map((bill) => ({ lak: Number(bill.totalLak), thb: Number(bill.totalThb) })),
     });
     const options = { intl, exportedAt, sheetName: t("reports.sheetTitle"), pageLabel };
@@ -159,7 +172,9 @@ export async function GET(request: Request) {
     fileName = date;
   } else {
     const table = buildReportTable({ t, intl, view, top, draw, group: groupName, keys, exportedAt, stakes, limits, customers, winners, bills });
-    const options = { intl, exportedAt, sheetName: t(viewKey[view]), pageLabel };
+    const numbers = view === "two" || view === "three";
+    const sheetName = numbers ? `${t(viewKey.two)} · ${t(viewKey.three)}` : t(viewKey[view]);
+    const options = { intl, exportedAt, sheetName, pageLabel };
     file = format === "xlsx" ? await tableToXlsx(table, options) : await tableToPdf(table, options);
     fileView = FILE_VIEW[view];
   }

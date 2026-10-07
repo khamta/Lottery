@@ -8,10 +8,17 @@ import {
   type SettlementExportInput,
 } from "@/app/(dashboard)/reports/export-tables";
 import { pickReportGroup, reportGroupWhere } from "@/app/(dashboard)/reports/groups";
-import { reportGroupName, toAmount, toPercent } from "@/app/(dashboard)/reports/types";
+import {
+  DEFAULT_LAO_PAYOUT,
+  LAO_PAYOUT_UNIT,
+  reportGroupName,
+  toAmount,
+  toPayout,
+  toPercent,
+} from "@/app/(dashboard)/reports/types";
 import { dictionaries } from "@/i18n/dictionaries";
 import { translateWith } from "@/i18n/translate";
-import type { StakeGroup } from "@/lottery/report";
+import { payoutRates, type StakeGroup } from "@/lottery/report";
 import {
   exportFileName,
   sheetToPdf,
@@ -71,7 +78,7 @@ async function readSheet(table: ExportTable) {
 }
 
 describe("buildReportTable", () => {
-  test("เลข 2 ตัว: เรียงตามยอดกีบ · เลขที่ออกมีป้าย · เกินอั้นเป็นสีแดง · แถวรวมนับทุกเลข แม้ตัดตาม Top", () => {
+  test("เลข 2 ตัว (ซ้าย): เรียงตามยอดกีบ · เลขที่ออกมีป้าย · เกินอั้นเป็นสีแดง · แถวรวมนับทุกเลข แม้ตัดตาม Top", () => {
     const table = buildReportTable(
       input({
         top: 40,
@@ -84,21 +91,35 @@ describe("buildReportTable", () => {
       }),
     );
 
-    expect(table.title).toBe("รายงานสรุป — เลข 2 ตัว");
+    expect(table.title).toBe("รายงานสรุป — เลข 2 ตัว · เลข 3 ตัวบน");
     expect(table.meta[0]).toBe("งวด 01/10 · เปิดรับ · ผล: 3 ตัวบน 243 · 2 ตัวบน 43 · 2 ตัวล่าง 32");
     expect(table.rows.map((row) => row[0])).toEqual([1, 2]);
     expect(table.rows[0]![1]).toEqual({ value: "72", bold: true });
     expect(table.rows[0]![2]).toEqual({ value: 500_000, tone: "danger", bold: true });
     expect(table.rows[1]![1]).toEqual({ value: "32 · ออกล่าง", tone: "success", bold: true });
-    expect(table.totals).toEqual([null, "รวมทุกเลข", 800_000, 100_000, 200, 0]);
+    expect(table.totals!.slice(0, 6)).toEqual([null, "รวมทุกเลข", 800_000, 100_000, 200, 0]);
 
     const top1 = buildReportTable(input({ top: 0 }));
     expect(top1.meta[1]).toContain("ทั้งหมด");
   });
 
-  test("เลข 3 ตัวบนแยกจากเลข 2 ตัว", () => {
+  test("เลข 2 ตัวกับ 3 ตัวอยู่ตารางเดียวกัน (หน้าเดียว) คู่กันซ้าย/ขวา — ส่งออกจากมุมมองไหนก็ได้เหมือนกัน", () => {
     const table = buildReportTable(input({ view: "three" }));
-    expect(table.rows).toEqual([[1, { value: "243", bold: true }, 150_000, 0]]);
+    expect(buildReportTable(input({ view: "two" }))).toEqual(table);
+    expect(table.columns.map((column) => column.header)).toEqual([
+      "อันดับ",
+      "เลข 2 ตัว",
+      ...table.columns.slice(2, 6).map((column) => column.header),
+      "",
+      "อันดับ",
+      "เลข 3 ตัวบน",
+      "กีบ",
+      "บาท",
+    ]);
+    // 2 ตัวมี 2 เลข 3 ตัวมี 1 เลข → แถวที่สองฝั่ง 3 ตัวว่าง
+    expect(table.rows[0]!.slice(7)).toEqual([1, { value: "243", bold: true }, 150_000, 0]);
+    expect(table.rows[1]!.slice(7)).toEqual([null, null, null, null]);
+    expect(table.totals!.slice(7)).toEqual([null, "รวมทุกเลข", 150_000, 0]);
   });
 
   test("ตามลูกค้า: ไม่มีชื่อ = ไม่ระบุลูกค้า (สีจาง) · คอลัมน์ยอดถูกมีเฉพาะงวดที่กรอกผลแล้ว", () => {
@@ -138,9 +159,9 @@ describe("tableToXlsx", () => {
     const table = buildReportTable(input({ stakes: [stake("05", "TOP", "LAK", 300_000)] }));
     const sheet = await readSheet(table);
 
-    expect(sheet.getCell("A1").value).toBe("รายงานสรุป — เลข 2 ตัว");
+    expect(sheet.getCell("A1").value).toBe("รายงานสรุป — เลข 2 ตัว · เลข 3 ตัวบน");
     const header = table.meta.length + 3;
-    expect(sheet.getRow(header).getCell(2).value).toBe("เลข");
+    expect(sheet.getRow(header).getCell(2).value).toBe("เลข 2 ตัว");
     expect(sheet.getRow(header + 1).getCell(2).value).toBe("05");
     expect(sheet.getRow(header + 1).getCell(3).value).toBe(300_000);
     expect(sheet.getRow(header + 2).getCell(2).value).toBe("รวมทุกเลข");
@@ -280,6 +301,29 @@ describe("ใบสรุปส่งแม่ (layout=sheet)", () => {
   test("อัตราจ่ายของงวด (ถ้าตั้งไว้) คูณยอดถูก", () => {
     const sheet = buildSettlementSheet(sheetInput({ draws: [{ ...lao, rates: { rate2Top: 2, rate2Bottom: 0, rate3Top: 0 } }] }));
     expect(sheet.result[0]).toMatchObject({ lak: 609_560, thb: 355_600 });
+  });
+
+  test("เงินรางวัลหวยลาวต่อ 1,000 กีบ: 2 ตัว 80,000 / 3 ตัว 800,000 → ยอดถูก = ยอดแทง × 80 / × 800 · หัวใบบอกเงินรางวัลที่ใช้", () => {
+    const rates = payoutRates({ two: 80_000, three: 800_000 }, LAO_PAYOUT_UNIT);
+    expect(rates).toEqual({ rate2Top: 80, rate2Bottom: 80, rate3Top: 800 });
+
+    const laoPayout = { two: 80_000, three: 800_000 };
+    const sheet = buildSettlementSheet(sheetInput({ draws: [{ ...lao, rates }], laoPayout }));
+    // 43 บน ถูก: 304,780 กีบ × 80 · 177,800 บาท × 80 · 243 ถูก: 3,500 × 800
+    expect(sheet.result[0]).toMatchObject({ lak: 24_382_400, thb: 14_224_000 });
+    expect(sheet.result[1]).toMatchObject({ lak: 2_800_000, thb: 0 });
+    expect(sheet.meta).toContain("ຫວຍລາວ ຖືກ 1.000 ກີບ: 2ໂຕ ໄດ້ 80.000 · 3ໂຕ ໄດ້ 800.000");
+
+    // ไม่มีงวดหวยลาวในวันนั้น → ไม่ต้องบอกเงินรางวัล
+    const v3 = { name: "V3", lottery: "V3" as const, keys: null, rates: noRates, stakes: [] };
+    expect(buildSettlementSheet(sheetInput({ draws: [v3], laoPayout })).meta.join(" ")).not.toContain("ຫວຍລາວ");
+  });
+
+  test("เงินรางวัลจาก URL: อ่านไม่ได้ / ติดลบ = ค่าเริ่มต้น · มีจุลภาคได้", () => {
+    expect(toPayout(null, DEFAULT_LAO_PAYOUT.two)).toBe(80_000);
+    expect(toPayout("abc", DEFAULT_LAO_PAYOUT.three)).toBe(800_000);
+    expect(toPayout("-1", DEFAULT_LAO_PAYOUT.two)).toBe(80_000);
+    expect(toPayout("90,000", DEFAULT_LAO_PAYOUT.two)).toBe(90_000);
   });
 
   test("ค่าจาก URL: เปอร์เซ็นต์ตัดให้อยู่ใน 0–100 (อ่านไม่ได้ = ค่าเริ่มต้น) · ยอดค้างอ่านไม่ได้ = 0", () => {

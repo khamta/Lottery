@@ -197,7 +197,14 @@ export default async function ReportsPage({ searchParams }: PageProps) {
             </Button>
           ))}
         </nav>
-        <ReportExport drawId={draw.id} drawDate={dateToIso(draw.drawDate)} group={group} view={view} top={top} />
+        <ReportExport
+          dealerId={current.id}
+          drawId={draw.id}
+          drawDate={dateToIso(draw.drawDate)}
+          group={group}
+          view={view}
+          top={top}
+        />
       </div>
 
       {view === "two" ? (
