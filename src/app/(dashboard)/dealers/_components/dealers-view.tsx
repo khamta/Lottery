@@ -13,7 +13,7 @@ import type { OcrModels } from "@/lottery/ai-models";
 import type { OllamaAccess } from "@/lottery/ollama";
 import { useSwitchDealer } from "@/lottery/components/dealer-switcher";
 import type { Paginated } from "@/types";
-import { createDealer, deleteDealer, updateDealer } from "../actions";
+import { createDealer, deleteDealer, setDealerReadImages, updateDealer } from "../actions";
 import type { DealerRow } from "../types";
 import { getDealerColumns } from "./columns";
 import { DealerDialog } from "./dealer-dialog";
@@ -58,8 +58,13 @@ export function DealersView({
           setFormOpen(true);
         },
         onDelete: (row) => setDeleting(row),
+        onToggleReadImages: (row) =>
+          mutate({
+            patch: { type: "update", item: { ...row, readImages: !row.readImages } },
+            action: () => setDealerReadImages({ id: row.id, readImages: !row.readImages }),
+          }),
       }),
-    [t, intl, currentId, showOwner, switchTo],
+    [t, intl, currentId, showOwner, switchTo, mutate],
   );
 
   function handleSave(values: DealerInput) {
@@ -80,7 +85,7 @@ export function DealersView({
       mutate({
         patch: {
           type: "create",
-          item: { id: tempId(), ownerName: null, drawCount: 0, customerCount: 0, groupCount: 0, ...shared },
+          item: { id: tempId(), ownerName: null, readImages: true, drawCount: 0, customerCount: 0, groupCount: 0, ...shared },
         },
         action: () => createDealer(values),
       });

@@ -50,6 +50,7 @@ export default async function DealersPage({ searchParams }: PageProps) {
       note: string | null;
       ocrModel: string | null;
       ocrStrongModel: string | null;
+      readImages: boolean;
       ownerId: string;
       owner: { name: string | null; email: string };
       updatedAt: Date;
@@ -65,6 +66,7 @@ export default async function DealersPage({ searchParams }: PageProps) {
       note: true,
       ocrModel: true,
       ocrStrongModel: true,
+      readImages: true,
       ownerId: true,
       owner: { select: { name: true, email: true } },
       updatedAt: true,

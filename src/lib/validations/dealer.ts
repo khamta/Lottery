@@ -19,6 +19,8 @@ export const dealerSchema = z.object({
 export const createDealerSchema = dealerSchema;
 export const updateDealerSchema = dealerSchema.extend({ id: z.string().min(1, "validation.required") });
 export const deleteDealerSchema = z.object({ id: z.string().min(1, "validation.required") });
+/** เปิด/ปิดการอ่านรูปด้วย AI ของทั้งแม่หวย (สวิตช์ในตารางแม่หวย) */
+export const setDealerReadImagesSchema = z.object({ id: z.string().min(1, "validation.required"), readImages: z.boolean() });
 /** เลือกแม่หวยที่จะทำงานด้วย (เก็บใน cookie) */
 export const selectDealerSchema = z.object({ id: z.string().min(1, "validation.required") });
 

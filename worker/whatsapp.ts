@@ -363,7 +363,15 @@ async function upsertGroup(accountId: string, group: Pick<GroupMetadata, "id" | 
 async function loadGroupMap(accountIds: string[]) {
   const rows = await prisma.whatsappGroup.findMany({
     where: { accountId: { in: accountIds }, dealerId: { not: null } },
-    select: { id: true, accountId: true, jid: true, dealerId: true, lottery: true, readImages: true },
+    select: {
+      id: true,
+      accountId: true,
+      jid: true,
+      dealerId: true,
+      lottery: true,
+      readImages: true,
+      dealer: { select: { readImages: true } },
+    },
   });
   const map = new Map<string, Map<string, GroupTarget>>();
   for (const row of rows) {
@@ -372,7 +380,8 @@ async function loadGroupMap(accountIds: string[]) {
       dealerId: row.dealerId!,
       groupId: row.id,
       lottery: row.lottery,
-      readImages: row.readImages,
+      // แม่หวยปิด AI (สวิตช์หลักในหน้าแม่หวย) = ไม่อ่านทุกกลุ่ม ไม่ว่ากลุ่มจะตั้งไว้อย่างไร
+      readImages: row.readImages && row.dealer?.readImages !== false,
     });
   }
   return map;

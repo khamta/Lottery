@@ -14,6 +14,7 @@ import {
   createDealerSchema,
   deleteDealerSchema,
   selectDealerSchema,
+  setDealerReadImagesSchema,
   updateDealerSchema,
   type DealerInput,
 } from "@/lib/validations/dealer";
@@ -93,6 +94,41 @@ export const updateDealer = createAction(
     return { id: dealer.id };
   },
   { successMessage: "dealers.updated" },
+);
+
+/**
+ * สวิตช์หลักอ่านรูปด้วย AI ของทั้งแม่หวย — ปิด = บอทเก็บรูปของทุกกลุ่มไว้รอตรวจ ไม่อ่าน (มีผลรอบถัดไปของบอท)
+ * ไม่แตะค่าของแต่ละกลุ่ม (whatsapp_groups.readImages) — เปิดกลับแล้วแต่ละกลุ่มใช้ค่าเดิม
+ */
+export const setDealerReadImages = createAction(
+  setDealerReadImagesSchema,
+  async ({ id, readImages }) => {
+    const user = await requireUser();
+    const scope = ownerScope(await requireAccess(user.id));
+
+    const dealer = await prisma.$transaction(async (tx) => {
+      const before = await tx.dealer.findFirst({ where: { id, ...scope } });
+      if (!before) throw new Error("dealers.notFound");
+
+      const dealer = await tx.dealer.update({ where: { id }, data: { readImages } });
+
+      await logAudit(tx, {
+        action: "UPDATE",
+        entity: "Dealer",
+        entityId: dealer.id,
+        summary: dealer.name,
+        before: { readImages: before.readImages },
+        after: { readImages: dealer.readImages },
+        user,
+      });
+
+      return dealer;
+    });
+
+    revalidateDealers();
+    return { id: dealer.id, readImages: dealer.readImages };
+  },
+  { successMessage: "dealers.readImagesSaved" },
 );
 
 /** ลบได้เฉพาะแม่หวยที่ยังไม่มีงวด — ลูกค้า/เลขอั้นถูกลบตาม กลุ่ม WhatsApp ที่ผูกไว้กลับเป็น "ไม่อ่าน" */

@@ -80,6 +80,7 @@ describe("<DealerDialog />", () => {
           note: null,
           ocrModel: "gemma4:31b",
           ocrStrongModel: "claude-opus-5-5",
+          readImages: true,
           ownerName: null,
           drawCount: 0,
           customerCount: 0,

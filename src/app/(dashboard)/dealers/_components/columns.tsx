@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { formatNumber } from "@/lottery/format";
 import type { DealerRow } from "../types";
 
@@ -26,7 +26,42 @@ type ColumnOptions = {
   onSelect: (row: DealerRow) => void;
   onEdit: (row: DealerRow) => void;
   onDelete: (row: DealerRow) => void;
+  /** สวิตช์หลักอ่านรูปด้วย AI ของทั้งแม่หวย */
+  onToggleReadImages: (row: DealerRow) => void;
 };
+
+/** สวิตช์เปิด/ปิด — components/ui ไม่มี Switch (เป็นไฟล์ core ของ template) จึงทำจาก button + role="switch" */
+function ReadImagesSwitch({ row, t, onToggle }: { row: DealerRow; t: ColumnOptions["t"]; onToggle: () => void }) {
+  const on = row.readImages;
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={t("dealers.readImages")}
+      title={t("dealers.readImagesHint")}
+      onClick={onToggle}
+      className="group inline-flex items-center gap-2 rounded-md text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <span
+        className={cn(
+          "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 border-transparent transition-colors",
+          on ? "bg-primary" : "bg-input",
+        )}
+      >
+        <span
+          className={cn(
+            "pointer-events-none block size-4 rounded-full bg-background shadow-sm transition-transform",
+            on ? "translate-x-4" : "translate-x-0",
+          )}
+        />
+      </span>
+      <span className={on ? "font-medium" : "text-muted-foreground"}>
+        {t(on ? "dealers.readImagesOn" : "dealers.readImagesOff")}
+      </span>
+    </button>
+  );
+}
 
 export function getDealerColumns({
   t,
@@ -36,6 +71,7 @@ export function getDealerColumns({
   onSelect,
   onEdit,
   onDelete,
+  onToggleReadImages,
 }: ColumnOptions): ColumnDef<DealerRow>[] {
   const count = (value: number) => <span className="tabular-nums">{formatNumber(value, intl)}</span>;
 
@@ -89,6 +125,14 @@ export function getDealerColumns({
       header: t("dealers.groups"),
       enableSorting: false,
       cell: ({ row }) => count(row.original.groupCount),
+    },
+    {
+      id: "readImages",
+      header: t("dealers.readImages"),
+      enableSorting: false,
+      cell: ({ row }) => (
+        <ReadImagesSwitch row={row.original} t={t} onToggle={() => onToggleReadImages(row.original)} />
+      ),
     },
     {
       id: "updatedAt",

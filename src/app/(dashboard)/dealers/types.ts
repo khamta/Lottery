@@ -9,6 +9,8 @@ export type DealerRow = {
   ocrModel: OcrModelField;
   /** รุ่นที่อ่านซ้ำ ("none" / ชื่อรุ่น) — ใช้เมื่อเลือกรุ่นหลักเอง */
   ocrStrongModel: OcrStrongModelField;
+  /** สวิตช์หลัก: อ่านรูปโพยด้วย AI ไหม — false = ทุกกลุ่มของแม่หวยนี้ไม่อ่าน (เก็บรูปไว้รอตรวจ) */
+  readImages: boolean;
   /** ชื่อเจ้าของ — มีค่าเฉพาะแม่หวยของบัญชีอื่น (ผู้ดูแลระบบเห็น) */
   ownerName: string | null;
   drawCount: number;

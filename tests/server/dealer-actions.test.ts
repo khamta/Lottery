@@ -94,7 +94,9 @@ mock.module("next/cache", () => ({
   },
 }));
 
-const { createDealer, updateDealer, deleteDealer, selectDealer } = await import("@/app/(dashboard)/dealers/actions");
+const { createDealer, updateDealer, deleteDealer, selectDealer, setDealerReadImages } = await import(
+  "@/app/(dashboard)/dealers/actions"
+);
 
 const valid = { name: "แม่หวยเวียงจันทน์", note: "", ocrModel: "auto", ocrStrongModel: "none" } as const;
 
@@ -285,5 +287,28 @@ describe("selectDealer", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.message).toBe("dealers.notFound");
     expect(cookieJar.has("dealer")).toBe(false);
+  });
+});
+
+describe("setDealerReadImages (สวิตช์หลักอ่านรูปด้วย AI)", () => {
+  test("เจ้าของปิด/เปิดได้ · บันทึก audit log เฉพาะค่าที่เปลี่ยน", async () => {
+    const id = await created();
+
+    const off = await setDealerReadImages({ id, readImages: false });
+    expect(off).toMatchObject({ ok: true, data: { id, readImages: false } });
+    expect(db.dealers.get(id)!.readImages).toBe(false);
+    expect(db.auditRows).toHaveLength(1);
+    expect(db.auditRows[0]).toMatchObject({ action: "UPDATE", entity: "Dealer", entityId: id });
+
+    expect(await setDealerReadImages({ id, readImages: true })).toMatchObject({ ok: true });
+    expect(db.dealers.get(id)!.readImages).toBe(true);
+  });
+
+  test("บัญชีอื่นแก้ไม่ได้ แม้รู้ id", async () => {
+    const id = await created("user-1");
+    currentUser = { id: "user-2", role: "USER" };
+
+    expect(await setDealerReadImages({ id, readImages: false })).toMatchObject({ ok: false });
+    expect(db.dealers.get(id)!.readImages).toBeUndefined();
   });
 });

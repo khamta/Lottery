@@ -237,6 +237,9 @@ model Dealer {
   ocrModel       String?
   /// รุ่นที่อ่านซ้ำเมื่อรุ่นหลักอ่านไม่ผ่าน (ใช้เมื่อเลือกรุ่นหลักเอง) — null = ไม่อ่านซ้ำ
   ocrStrongModel String?
+  /// สวิตช์หลัก: อ่านรูปโพยด้วย AI ไหม — false = ทุกกลุ่มของแม่หวยนี้เก็บรูปไว้รอตรวจ (SKIPPED) ไม่ว่ากลุ่มจะตั้งไว้อย่างไร
+  /// (whatsapp_groups.readImages ไม่ถูกแก้ — เปิดกลับแล้วแต่ละกลุ่มใช้ค่าเดิม) · สั่งอ่านเองจากหน้าโพยยังทำได้
+  readImages     Boolean @default(true)
 
   draws     Draw[]
   customers Customer[]
