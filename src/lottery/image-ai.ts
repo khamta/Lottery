@@ -24,6 +24,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import { AI_MODEL, AI_STRONG_MODEL, providerOf, type AiProvider, type OcrModels } from "./ai-models";
+import { enhanceSlipImage } from "./image-enhance";
 import { OllamaError, type OllamaClient } from "./ollama";
 import { parseTicket } from "./parser";
 
@@ -191,6 +192,7 @@ function mediaTypeOf(mimeType: string): MediaType {
  * onModel = เรียกก่อนเริ่มอ่านด้วยแต่ละรุ่น (บอทบันทึกไว้ให้หน้าโพยขึ้นว่ากำลังอ่านด้วยรุ่นไหน)
  * รุ่นแม่นติดต่อไม่ได้ชั่วคราว → ใช้ผลของรุ่นแรก (โพยรอคนตรวจตามเดิม) ดีกว่าทิ้งไปอ่านด้วยบริการ OCR
  * models = รุ่นที่แม่หวยเลือก (resolveOcrModels) — ไม่ส่ง = ค่าเริ่มต้นจาก env · สองรุ่นเป็นคนละผู้ให้บริการได้
+ * ก่อนส่ง ปรับแสง / คอนทราสต์ / ความคมของรูปให้อ่านง่ายขึ้น (image-enhance.ts) — ทั้งสองรุ่นอ่านรูปที่ปรับแล้วรูปเดียวกัน
  */
 export async function readSlipImage(
   clients: AiClients,
@@ -202,7 +204,9 @@ export async function readSlipImage(
     models = { model: AI_MODEL, strongModel: AI_STRONG_MODEL },
   }: { strong?: boolean; onModel?: (model: string) => unknown; models?: OcrModels } = {},
 ): Promise<AiRead> {
-  const image = { mediaType: mediaTypeOf(mimeType), data: Buffer.from(data).toString("base64") };
+  mediaTypeOf(mimeType);
+  const enhanced = await enhanceSlipImage(data, mimeType);
+  const image = { mediaType: mediaTypeOf(enhanced.mimeType), data: Buffer.from(enhanced.data).toString("base64") };
   const read = async (model: string) => {
     await onModel?.(model);
     return readWith(clients, model, image);

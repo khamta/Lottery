@@ -69,6 +69,12 @@ const emptyValues: DealerInput = { name: "", note: "", ocrModel: OCR_MODEL_AUTO,
 
 const CLAUDE_MODELS = OCR_MODELS.filter((model) => model.provider === "claude").map((model) => model.id);
 
+/**
+ * รายการรุ่นยาวเกินจอ — จำกัดความสูงให้เลื่อนได้ (SelectContent ของ template ใช้ max-h-[--var] ซึ่ง Tailwind v4 ไม่รู้จัก
+ * จึงไม่มีความสูงสูงสุด · แก้ไฟล์ core ไม่ได้ ใส่ที่นี่แทน)
+ */
+const MODEL_MENU = "max-h-[min(22rem,var(--radix-select-content-available-height))]";
+
 /** ป้ายบอกว่ารุ่น Ollama ใช้กับแผนตอนนี้ได้ไหม */
 const accessBadge: Record<OllamaAccess, { key: string; variant: "success" | "warning" | "secondary" }> = {
   ok: { key: "dealers.ocrAccessOk", variant: "success" },
@@ -87,7 +93,11 @@ function ModelGroups({ models, access }: { models: Record<AiProvider, string[]>;
         return (
           <SelectItem key={id} value={id}>
             {ocrModelLabel(id)}
-            {badge && <Badge variant={badge.variant}>{t(badge.key)}</Badge>}
+            {badge && (
+              <Badge variant={badge.variant} className="ms-2 align-middle">
+                {t(badge.key)}
+              </Badge>
+            )}
           </SelectItem>
         );
       })}
@@ -180,7 +190,7 @@ export function DealerDialog({
                         <SelectValue />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent>
+                    <SelectContent className={MODEL_MENU}>
                       <SelectItem value={OCR_MODEL_AUTO}>
                         {ocrDefaults.strongModel && ocrDefaults.strongModel !== ocrDefaults.model
                           ? t("dealers.ocrAuto", {
@@ -214,7 +224,7 @@ export function DealerDialog({
                           <SelectValue />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
+                      <SelectContent className={MODEL_MENU}>
                         <SelectItem value={OCR_REREAD_NONE}>{t("dealers.ocrNoReread")}</SelectItem>
                         <ModelGroups models={models} access={ollamaAccess} />
                       </SelectContent>
