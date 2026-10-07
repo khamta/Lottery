@@ -1,5 +1,6 @@
 import type { DrawStatusValue } from "@/lib/validations/draw";
 import type { TicketSourceValue, TicketStatusValue } from "@/lib/validations/ticket";
+import { ocrModelLabel } from "@/lottery/ai-models";
 import { OCR_SERVICE_READER } from "@/lottery/image-text";
 import type { ParseIssueCode } from "@/lottery/parser";
 
@@ -127,9 +128,10 @@ export const ocrStatusKey: Record<OcrStatusValue, string> = {
   SKIPPED: "tickets.ocrSKIPPED",
 };
 
-/** ตัวอ่านรูป (ocrReader) → ชื่อที่แสดง: claude-sonnet-5-5 → Sonnet 5.5 · "ocr" → OCR */
+/** ตัวอ่านรูป (ocrReader) → ชื่อที่แสดง: claude-sonnet-5-5 → Sonnet 5.5 · gemma4:31b → Gemma 4 31B · "ocr" → OCR */
 export function readerName(reader: string) {
   if (reader === OCR_SERVICE_READER) return "OCR";
+  if (!reader.startsWith("claude-")) return ocrModelLabel(reader);
   const [family, ...version] = reader.replace(/^claude-/, "").split("-");
   if (!family || version.length === 0) return reader;
   return `${family[0]!.toUpperCase()}${family.slice(1)} ${version.join(".")}`;

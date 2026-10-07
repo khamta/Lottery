@@ -22,6 +22,7 @@ export function DealersView({
   currentId,
   showOwner,
   ocrDefaults,
+  ollamaModels,
 }: {
   page: Paginated<DealerRow>;
   currentId: string | null;
@@ -29,6 +30,8 @@ export function DealersView({
   showOwner: boolean;
   /** รุ่นที่โหมดอัตโนมัติใช้ (env) — แสดงในตัวเลือก "อัตโนมัติ" */
   ocrDefaults: OcrModels;
+  /** รุ่นของ Ollama Cloud ที่อ่านรูปได้ (ดึงที่ server) */
+  ollamaModels: string[];
 }) {
   const { t, intl } = useI18n();
   const { rows, isPending, mutate, tempId } = useOptimisticList(page.rows);
@@ -60,6 +63,7 @@ export function DealersView({
       name: values.name,
       note: values.note || null,
       ocrModel: values.ocrModel,
+      ocrStrongModel: values.ocrStrongModel,
       updatedAt: new Date().toISOString(),
     };
 
@@ -115,6 +119,7 @@ export function DealersView({
         onOpenChange={setFormOpen}
         dealer={editing}
         ocrDefaults={ocrDefaults}
+        ollamaModels={ollamaModels}
         onSubmit={handleSave}
       />
 

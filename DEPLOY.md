@@ -94,6 +94,26 @@ runner (service) ──ออก──► github.com
 
 ข้อมูลอยู่ที่: volume `lottery-pgdata` (ฐานข้อมูล), `lottery-wa-auth` (session WhatsApp), โฟลเดอร์ `/opt/lottery/uploads` (รูปโพย)
 
+## อ่านรูปโพยด้วย Ollama Cloud (ไม่บังคับ)
+
+ใช้แทนหรือใช้คู่กับ Claude ได้ — แม่หวยแต่ละรายเลือก "AI หลัก" และ "AI ที่อ่านซ้ำ" เองที่หน้าแม่หวย (เช่น Gemma 4 อ่านก่อน Claude Opus อ่านซ้ำ)
+ไม่ต้อง deploy ใหม่เพื่อใส่ key: key อยู่ใน `.env` ของเซิร์ฟเวอร์ (คอลัมน์ `dealers.ocrStrongModel` ถูกเพิ่มโดย migrate ตอน deploy โค้ดชุดนี้)
+
+1. สร้าง key ที่ <https://ollama.com/settings/keys> และเลือกแผน/เติมเครดิตที่ <https://ollama.com/pricing>
+2. บนเซิร์ฟเวอร์:
+
+   ```bash
+   cd /opt/lottery
+   sudo nano .env        # เพิ่มบรรทัด OLLAMA_API_KEY="..."  (OCR_MODEL="gemma4:31b" ถ้าอยากให้โหมดอัตโนมัติใช้ Ollama)
+   sudo -u lottery docker compose -f docker-compose.prod.yml up -d worker
+   sudo -u lottery docker compose -f docker-compose.prod.yml logs -f worker
+   # ต้องเห็น: [OCR] อ่านรูปด้วย Claude (Anthropic) + Ollama Cloud (ค่าเริ่มต้น ...) พร้อมกัน 4 รูป
+   ```
+
+3. เซิร์ฟเวอร์ต้องออกเน็ตไปที่ `ollama.com:443` ได้ (ทดสอบ: `curl -sI https://ollama.com/api/tags | head -1`)
+
+เครดิต Ollama หมด / key ผิด → พักเฉพาะ Ollama 30 นาที ระหว่างนั้นรุ่นอ่านซ้ำของ Claude (ถ้าเลือกไว้) อ่านแทน · แผน Free ควรตั้ง `OCR_CONCURRENCY=1` หรือ `2`
+
 ## อ่านรูปโพยด้วย Claude (ไม่บังคับ)
 
 ตั้ง key แล้วบอทส่งรูปโพยให้ Claude อ่านเป็นข้อความโพยก่อน (แม่นกว่า ocr มากกับลายมือ/ตัวลาว) — ไม่ตั้ง = ใช้ ocr อย่างเดียวเหมือนเดิม

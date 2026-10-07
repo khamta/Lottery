@@ -5,8 +5,9 @@ import { buildOrderBy, paginate, parseListParams } from "@/lib/query";
 import { PageHeader } from "@/components/shared/page-header";
 import { getTranslations } from "@/i18n/server";
 import { ownerScope } from "@/lottery/access";
-import { AI_MODEL, AI_STRONG_MODEL, ocrModelField } from "@/lottery/ai-models";
+import { AI_MODEL, AI_STRONG_MODEL, OLLAMA_FALLBACK_MODELS, ocrModelField, ocrStrongModelField } from "@/lottery/ai-models";
 import { getDealerContext } from "@/lottery/dealer";
+import { listOllamaVisionModels } from "@/lottery/ollama";
 import type { PageProps } from "@/types";
 import { DealersView } from "./_components/dealers-view";
 import { DEALER_SORTABLE, type DealerRow } from "./types";
@@ -48,6 +49,7 @@ export default async function DealersPage({ searchParams }: PageProps) {
       name: string;
       note: string | null;
       ocrModel: string | null;
+      ocrStrongModel: string | null;
       ownerId: string;
       owner: { name: string | null; email: string };
       updatedAt: Date;
@@ -62,6 +64,7 @@ export default async function DealersPage({ searchParams }: PageProps) {
       name: true,
       note: true,
       ocrModel: true,
+      ocrStrongModel: true,
       ownerId: true,
       owner: { select: { name: true, email: true } },
       updatedAt: true,
@@ -70,12 +73,18 @@ export default async function DealersPage({ searchParams }: PageProps) {
     map: ({ _count, ownerId, owner, ...row }) => ({
       ...row,
       ocrModel: ocrModelField(row.ocrModel),
+      ocrStrongModel: ocrStrongModelField(row.ocrStrongModel),
       ownerName: ownerId === user.id ? null : (owner.name ?? owner.email),
       drawCount: _count.draws,
       customerCount: _count.customers,
       groupCount: _count.groups,
       updatedAt: row.updatedAt.toISOString(),
     }),
+  });
+
+  // รุ่นของ Ollama Cloud ที่อ่านรูปได้ (ดึงสด เก็บไว้ 1 ชั่วโมง · ดึงไม่ได้ = รายการที่รู้จัก)
+  const ollamaModels = await listOllamaVisionModels(OLLAMA_FALLBACK_MODELS, {
+    host: process.env.OLLAMA_HOST || undefined,
   });
 
   return (
@@ -86,6 +95,7 @@ export default async function DealersPage({ searchParams }: PageProps) {
         currentId={current?.id ?? null}
         showOwner={access.isAdmin}
         ocrDefaults={{ model: AI_MODEL, strongModel: AI_STRONG_MODEL }}
+        ollamaModels={ollamaModels}
       />
     </>
   );

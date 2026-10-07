@@ -84,6 +84,10 @@ services:
       # ว่าง = ใช้ ocr อย่างเดียวตามเดิม · ดู DEPLOY.md หัวข้อ "อ่านรูปโพยด้วย Claude"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CLAUDE_OCR_MODEL: ${CLAUDE_OCR_MODEL:-}
+      # Ollama Cloud (ผสมกับ Claude ได้ — แม่หวยเลือกรุ่นที่หน้าแม่หวย) · OCR_MODEL = รุ่นหลักของโหมดอัตโนมัติ
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      OLLAMA_HOST: ${OLLAMA_HOST:-}
+      OCR_MODEL: ${OCR_MODEL:-}
       OCR_CONCURRENCY: ${OCR_CONCURRENCY:-}
     volumes:
       - wa-auth:/data/wa-auth

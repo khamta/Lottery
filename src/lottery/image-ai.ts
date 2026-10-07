@@ -1,6 +1,6 @@
 /**
- * อ่านรูปโพยด้วย Claude (vision) → ข้อความโพยรูปแบบเดียวกับที่ลูกค้าพิมพ์ในแชต แล้วให้ตัวแยกข้อความ (parser.ts) อ่านต่อ
- * ใช้แทนบริการ OCR (ocr/server.py + image-text.ts) เมื่อตั้ง ANTHROPIC_API_KEY ไว้ — ดู worker/ocr.ts
+ * อ่านรูปโพยด้วย AI (vision) → ข้อความโพยรูปแบบเดียวกับที่ลูกค้าพิมพ์ในแชต แล้วให้ตัวแยกข้อความ (parser.ts) อ่านต่อ
+ * ผู้ให้บริการ: Claude (ANTHROPIC_API_KEY) หรือ Ollama Cloud (OLLAMA_API_KEY · ollama.ts) — เลือกตามรุ่น (ai-models.ts) · ดู worker/ocr.ts
  *
  *   ลายมือ                         →  ข้อความโพย
  *   612=5 แล้วเส้นโยงลงถึง 11=5     →  612=5 / 652=5 / … / 11=5   (กระจายยอดของเส้นโยงลงทุกบรรทัด)
@@ -10,6 +10,7 @@
  *   คอลัมน์หัว B                    →  732=80฿
  *   ໓໒:15 (เลขลาว)                 →  32=15
  *   45.000 ใต้เส้นท้ายโพย           →  ລວມ45000
+ *   ລາວ ใต้วันที่ / หัวชุด            →  ไม่มีคำกำกับ (ชื่อหวย ไม่ใช่ ບລ)
  *   ตัวเลขที่อ่านไม่ชัด               →  2?=3*3                      (parser ติดเป็นบรรทัดที่อ่านไม่ออก ให้คนตรวจกับรูป)
  *
  * ตัวอ่านไม่เดา: ตัวไหนไม่แน่ใจเขียน ? แทน — โพยที่อ่านครบและยอดรวมตรงจึงนับยอดได้เลย นอกนั้นรอตรวจตามเดิม
@@ -22,17 +23,18 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 
-import { AI_MODEL, AI_STRONG_MODEL, type OcrModels } from "./ai-models";
+import { AI_MODEL, AI_STRONG_MODEL, providerOf, type AiProvider, type OcrModels } from "./ai-models";
+import { OllamaError, type OllamaClient } from "./ollama";
 import { parseTicket } from "./parser";
 
 export { AI_MODEL, AI_STRONG_MODEL };
 
 /**
- * ผลอ่านรูปของ Claude — เก็บใน ticket_images.ocr แทนผลดิบของบริการ OCR
+ * ผลอ่านรูปของ AI — เก็บใน ticket_images.ocr แทนผลดิบของบริการ OCR · engine = ผู้ให้บริการของรุ่นที่อ่านจริง
  * escalated = รุ่นแรกอ่านไม่ผ่านจึงให้รุ่นแม่นอ่านซ้ำ (เก็บผลของรุ่นแรกไว้เทียบว่ารุ่นถูกพอไหม)
  */
 export type AiRead = {
-  engine: "claude";
+  engine: AiProvider;
   model: string;
   text: string;
   escalated?: { model: string; reason: string; text: string };
@@ -40,6 +42,9 @@ export type AiRead = {
 
 /** โพยที่ยาวเท่านี้ขึ้นไปและไม่มียอดรวมให้เทียบ → ให้รุ่นแม่นอ่านซ้ำ (ผิดตัวเดียวก็ไม่มีอะไรจับได้) */
 const LONG_SLIP_LINES = 30;
+/** client ของแต่ละผู้ให้บริการ — ไม่ได้ตั้ง key = null (รุ่นของผู้ให้บริการนั้นอ่านไม่ได้) */
+export type AiClients = { claude?: Anthropic | null; ollama?: OllamaClient | null };
+
 /** ใบใหญ่หลายคอลัมน์มีเกือบร้อยบรรทัด + เวลาคิดของโมเดล — เผื่อไว้ */
 const MAX_TOKENS = 32_000;
 /** ชนิดรูปที่ API รับ */
@@ -50,15 +55,22 @@ type MediaType = (typeof MEDIA_TYPES)[number];
 export class AiImageError extends Error {}
 
 /**
- * Claude อ่านรูปไม่ได้เพราะอะไร — ทุกกรณีรูปนั้นไปอ่านด้วยบริการ OCR แทน ต่างกันที่รูปถัดไป (worker/ocr.ts)
- *   "image"   รูปนี้รูปเดียว (ชนิดไฟล์ไม่รองรับ / รูปเสีย / ใหญ่เกิน / โมเดลปฏิเสธ) — รูปถัดไปยังใช้ Claude
- *   "account" เครดิตหมด / key ผิดหรือถูกปิด / ชื่อรุ่นผิด — พัก Claude นาน จนกว่าจะเติมเครดิตหรือแก้ค่า
- *   "outage"  ล่ม / ติด rate limit / ต่อเครือข่ายไม่ได้ — พัก Claude สั้น ๆ
+ * AI อ่านรูปไม่ได้เพราะอะไร — ต่างกันที่รูปถัดไป (worker/ocr.ts)
+ *   "image"   รูปนี้รูปเดียว (ชนิดไฟล์ไม่รองรับ / รูปเสีย / ใหญ่เกิน / โมเดลปฏิเสธ / ไม่ได้ตั้ง key) — รูปถัดไปยังใช้ผู้ให้บริการนี้
+ *   "account" เครดิตหมด / key ผิดหรือถูกปิด / ชื่อรุ่นผิด — พักผู้ให้บริการนั้นนาน จนกว่าจะเติมเครดิตหรือแก้ค่า
+ *   "outage"  ล่ม / ติด rate limit / ต่อเครือข่ายไม่ได้ — พักสั้น ๆ
  */
-export type ClaudeFailure = "image" | "account" | "outage";
+export type AiFailure = "image" | "account" | "outage";
 
-export function claudeFailure(error: unknown): ClaudeFailure {
+/** ความผิดพลาดนี้มาจากผู้ให้บริการไหน (worker พักเฉพาะผู้ให้บริการนั้น) — null = ไม่เกี่ยวกับผู้ให้บริการ (รูปเสีย) */
+export function failureProvider(error: unknown): AiProvider | null {
+  if (error instanceof AiImageError) return null;
+  return error instanceof OllamaError ? "ollama" : "claude";
+}
+
+export function aiFailure(error: unknown): AiFailure {
   if (error instanceof AiImageError) return "image";
+  if (error instanceof OllamaError) return ollamaFailure(error);
   if (!(error instanceof Anthropic.APIError) || error.status === undefined) return "outage";
   const body = error.error as { error?: { type?: string } } | undefined;
   const billing = body?.error?.type === "billing_error" || /credit balance/i.test(error.message);
@@ -67,8 +79,18 @@ export function claudeFailure(error: unknown): ClaudeFailure {
   return "outage";
 }
 
-export const isAiRead = (ocr: unknown): ocr is AiRead =>
-  typeof ocr === "object" && ocr !== null && (ocr as { engine?: unknown }).engine === "claude";
+function ollamaFailure(error: OllamaError): AiFailure {
+  if (error.status === undefined) return "outage";
+  const billing = /credit|quota|balance|usage limit|subscription/i.test(error.message);
+  if (billing || [401, 402, 403, 404].includes(error.status)) return "account";
+  if ([400, 413, 422].includes(error.status)) return "image";
+  return "outage";
+}
+
+export const isAiRead = (ocr: unknown): ocr is AiRead => {
+  const engine = typeof ocr === "object" && ocr !== null ? (ocr as { engine?: unknown }).engine : undefined;
+  return engine === "claude" || engine === "ollama";
+};
 
 export const SLIP_PROMPT = `You transcribe photos of handwritten Lao lottery betting slips (ໂພຍ) into plain text lines for a downstream parser. Output only the lines.
 
@@ -93,6 +115,7 @@ READING RULES
    Such a note is often written sideways along the edge of a block of columns (e.g. ປ່ອງລະພັນ beside the leftmost column). It applies to every column of that block that has no amounts of its own, up to a long dividing line drawn between blocks or a column with its own amounts.
    A row that still has no amount after rules 3 and 5: write the number alone (no =), so a person fills it in.
 6. B or ฿ written as a column header, or written below the column / at the bottom of the slip, = baht for every row in that column (on a single-column slip, for every row). Header K or no B anywhere = kip. Header ບົນ+ລ່າງ or ບລ = top and bottom. With several columns, transcribe column by column, left to right, each top to bottom.
+   ລາວ (Lao lottery) is NOT ບລ. Writers often put ລາວ under the date or above a block to name the lottery; it adds no mark — write the rows with no suffix. In handwriting ລາວ is a whole word of three letters (ລ, a tall loop າ, then ວ), often wider than the numbers; ບລ is two short letters, usually right after an amount on the same row. Write ບລ only when ບລ / ບົນລ່າງ / ບົນ+ລ່າງ is clearly written. If you cannot tell ລາວ from ບລ, add no mark and keep the total as written — a person checks it against the total.
 7. Write amounts exactly as written (5 stays 5, 80 stays 80). Do not multiply, do not add thousands separators.
 8. Keep duplicate rows — each one is a separate bet. Keep the slip's order.
 9. Skip dates (2.10.26), names, signatures, notes and anything that is not a bet or the total. Text printed on the table or background is not part of the slip.
@@ -156,10 +179,10 @@ function mediaTypeOf(mimeType: string): MediaType {
  * อ่านรูปโพย — รุ่นถูกก่อน ไม่ผ่านจึงให้รุ่นแม่นอ่านซ้ำ · strong = ใช้รุ่นแม่นเลย
  * onModel = เรียกก่อนเริ่มอ่านด้วยแต่ละรุ่น (บอทบันทึกไว้ให้หน้าโพยขึ้นว่ากำลังอ่านด้วยรุ่นไหน)
  * รุ่นแม่นติดต่อไม่ได้ชั่วคราว → ใช้ผลของรุ่นแรก (โพยรอคนตรวจตามเดิม) ดีกว่าทิ้งไปอ่านด้วยบริการ OCR
- * models = รุ่นที่แม่หวยเลือก (resolveOcrModels) — ไม่ส่ง = ค่าเริ่มต้นจาก env
+ * models = รุ่นที่แม่หวยเลือก (resolveOcrModels) — ไม่ส่ง = ค่าเริ่มต้นจาก env · สองรุ่นเป็นคนละผู้ให้บริการได้
  */
 export async function readSlipImage(
-  client: Anthropic,
+  clients: AiClients,
   data: Uint8Array,
   mimeType: string,
   {
@@ -171,7 +194,7 @@ export async function readSlipImage(
   const image = { mediaType: mediaTypeOf(mimeType), data: Buffer.from(data).toString("base64") };
   const read = async (model: string) => {
     await onModel?.(model);
-    return readWith(client, model, image);
+    return readWith(clients, model, image);
   };
   const { model } = models;
   const strongModel = models.strongModel && models.strongModel !== model ? models.strongModel : null;
@@ -193,12 +216,23 @@ export async function readSlipImage(
     const second = await read(strongModel);
     return { ...second, escalated: { model: first.model, reason, text: first.text } };
   } catch (error) {
-    if (claudeFailure(error) === "account") throw error;
+    if (aiFailure(error) === "account") throw error;
     return first;
   }
 }
 
-async function readWith(client: Anthropic, model: string, image: { mediaType: MediaType; data: string }): Promise<AiRead> {
+type SlipImage = { mediaType: MediaType; data: string };
+
+async function readWith(clients: AiClients, model: string, image: SlipImage): Promise<AiRead> {
+  if (providerOf(model) === "ollama") {
+    if (!clients.ollama) throw new AiImageError(`OLLAMA_API_KEY is not set (model ${model})`);
+    return readWithOllama(clients.ollama, model, image);
+  }
+  if (!clients.claude) throw new AiImageError(`ANTHROPIC_API_KEY is not set (model ${model})`);
+  return readWithClaude(clients.claude, model, image);
+}
+
+async function readWithClaude(client: Anthropic, model: string, image: SlipImage): Promise<AiRead> {
   const stream = client.beta.messages.stream({
     model,
     max_tokens: MAX_TOKENS,
@@ -229,4 +263,19 @@ async function readWith(client: Anthropic, model: string, image: { mediaType: Me
 
   const raw = message.content.map((block) => (block.type === "text" ? block.text : "")).join("\n");
   return { engine: "claude", model: message.model, text: slipTextOf(raw) };
+}
+
+/** Ollama ไม่มี cache / fallback / effort แบบ Claude — ใช้ prompt ชุดเดียวกัน temperature 0 ให้อ่านตรงที่สุด */
+async function readWithOllama(client: OllamaClient, model: string, image: SlipImage): Promise<AiRead> {
+  const response = await client.chat({
+    model,
+    stream: false,
+    options: { temperature: 0, num_predict: MAX_TOKENS },
+    messages: [
+      { role: "system", content: SLIP_PROMPT },
+      { role: "user", content: "Transcribe this slip.", images: [image.data] },
+    ],
+  });
+  if (response.done_reason === "length") throw new AiImageError("transcript too long");
+  return { engine: "ollama", model: response.model || model, text: slipTextOf(response.message?.content ?? "") };
 }

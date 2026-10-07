@@ -78,7 +78,8 @@ describe("<DealerDialog />", () => {
           id: "dealer-1",
           name: "tar",
           note: null,
-          ocrModel: "claude-opus-5-5",
+          ocrModel: "gemma4:31b",
+          ocrStrongModel: "claude-opus-5-5",
           ownerName: null,
           drawCount: 0,
           customerCount: 0,
@@ -86,6 +87,7 @@ describe("<DealerDialog />", () => {
           updatedAt: "2026-10-01T00:00:00.000Z",
         }}
         ocrDefaults={{ model: "claude-sonnet-5-5", strongModel: "claude-opus-5-5" }}
+        ollamaModels={["gemma4:31b"]}
         onSubmit={onSubmit}
       />,
     );
@@ -98,7 +100,8 @@ describe("<DealerDialog />", () => {
     expect(onSubmit.mock.calls[0]![0]).toEqual({
       name: "ເປບຊີ່",
       note: "",
-      ocrModel: "claude-opus-5-5",
+      ocrModel: "gemma4:31b",
+      ocrStrongModel: "claude-opus-5-5",
     });
   });
 });

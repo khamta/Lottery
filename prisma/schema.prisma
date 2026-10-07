@@ -232,9 +232,11 @@ model Dealer {
   rate2Bottom Decimal @default(0) @db.Decimal(8, 2)
   rate3Top    Decimal @default(0) @db.Decimal(8, 2)
 
-  /// รุ่น Claude ที่อ่านรูปโพย — null = อัตโนมัติ (รุ่นถูกก่อน อ่านไม่ผ่านจึงรุ่นแม่น) · ชื่อรุ่น = ใช้รุ่นนั้นรุ่นเดียว
+  /// รุ่น AI หลักที่อ่านรูปโพย (Claude หรือ Ollama Cloud) — null = อัตโนมัติ (ตาม env) · ชื่อรุ่น = รุ่นนั้นอ่านทุกรูปก่อน
   /// ดู src/lottery/ai-models.ts
-  ocrModel String?
+  ocrModel       String?
+  /// รุ่นที่อ่านซ้ำเมื่อรุ่นหลักอ่านไม่ผ่าน (ใช้เมื่อเลือกรุ่นหลักเอง) — null = ไม่อ่านซ้ำ
+  ocrStrongModel String?
 
   draws     Draw[]
   customers Customer[]

@@ -1,17 +1,25 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import Anthropic from "@anthropic-ai/sdk";
 
 import {
   AI_MODEL,
   AI_STRONG_MODEL,
   AiImageError,
-  claudeFailure,
+  aiFailure,
   escalationReason,
   isAiRead,
+  failureProvider,
   readSlipImage,
   slipTextOf,
 } from "@/lottery/image-ai";
-import { resolveOcrModels } from "@/lottery/ai-models";
+import { isSelectableModel, providerOf, resolveOcrModels } from "@/lottery/ai-models";
+import {
+  listOllamaVisionModels,
+  OllamaError,
+  resetOllamaModelList,
+  type OllamaChatRequest,
+  type OllamaClient,
+} from "@/lottery/ollama";
 import { parseTicket } from "@/lottery/parser";
 
 /**
@@ -62,7 +70,7 @@ describe("readSlipImage", () => {
   test("ส่งรูปเป็น base64 พร้อม prompt ที่ cache ไว้ แล้วคืนข้อความโพย", async () => {
     const { client, requests } = fakeClient({ text: "612=5\n652=5\nລວມ10000" });
 
-    const read = await readSlipImage(client, jpeg, "image/jpeg");
+    const read = await readSlipImage({ claude: client }, jpeg, "image/jpeg");
 
     expect(read).toEqual({ engine: "claude", model: AI_MODEL, text: "612=5\n652=5\nລວມ10000" });
     expect(isAiRead(read)).toBe(true);
@@ -81,7 +89,7 @@ describe("readSlipImage", () => {
   test("ข้อความที่ได้ parser อ่านได้ทันที — ตัวที่ไม่แน่ใจ (?) ติดเป็น issue ให้คนตรวจ", async () => {
     const { client } = fakeClient({ text: "32=3*3\n2?=3*3\nລວມ12" });
 
-    const { text } = await readSlipImage(client, jpeg, "image/jpeg");
+    const { text } = await readSlipImage({ claude: client }, jpeg, "image/jpeg");
     const parsed = parseTicket(text, { lakMultiplier: 1000 });
 
     expect(parsed.bets.map((bet) => `${bet.number} ${bet.position} ${bet.amount}`)).toEqual(["32 TOP 3000", "32 BOTTOM 3000"]);
@@ -91,16 +99,16 @@ describe("readSlipImage", () => {
   test("ชนิดรูปที่ API ไม่รับ → AiImageError (ไม่ต้องลองใหม่)", async () => {
     const { client, requests } = fakeClient({ text: "" });
 
-    await expect(readSlipImage(client, jpeg, "image/heic")).rejects.toBeInstanceOf(AiImageError);
+    await expect(readSlipImage({ claude: client }, jpeg, "image/heic")).rejects.toBeInstanceOf(AiImageError);
     expect(requests).toHaveLength(0);
   });
 
   test("โมเดลปฏิเสธ / ข้อความยาวเกิน → AiImageError", async () => {
-    await expect(readSlipImage(fakeClient({ text: "", stop_reason: "refusal" }).client, jpeg, "image/jpeg")).rejects.toBeInstanceOf(
+    await expect(readSlipImage({ claude: fakeClient({ text: "", stop_reason: "refusal" }).client }, jpeg, "image/jpeg")).rejects.toBeInstanceOf(
       AiImageError,
     );
     await expect(
-      readSlipImage(fakeClient({ text: "612=5", stop_reason: "max_tokens" }).client, jpeg, "image/jpeg"),
+      readSlipImage({ claude: fakeClient({ text: "612=5", stop_reason: "max_tokens" }).client }, jpeg, "image/jpeg"),
     ).rejects.toBeInstanceOf(AiImageError);
   });
 });
@@ -122,7 +130,7 @@ describe.skipIf(!AI_STRONG_MODEL || AI_STRONG_MODEL === AI_MODEL)("readSlipImage
   test("มีตัวที่ไม่แน่ใจ (?) → รุ่นแม่นอ่านซ้ำ ใช้ผลของรุ่นแม่น เก็บผลรุ่นแรกไว้เทียบ", async () => {
     const { client, requests } = fakeClient({ text: "32=3*3\n2?=3*3" }, { text: "32=3*3\n29=3*3" });
 
-    const read = await readSlipImage(client, jpeg, "image/jpeg");
+    const read = await readSlipImage({ claude: client }, jpeg, "image/jpeg");
 
     expect(requests.map((request) => request.model)).toEqual([AI_MODEL, AI_STRONG_MODEL]);
     expect(read).toEqual({
@@ -137,7 +145,7 @@ describe.skipIf(!AI_STRONG_MODEL || AI_STRONG_MODEL === AI_MODEL)("readSlipImage
     const { client } = fakeClient({ text: "2?=3*3" }, { text: "29=3*3" });
     const models: string[] = [];
 
-    await readSlipImage(client, jpeg, "image/jpeg", { onModel: (model) => models.push(model) });
+    await readSlipImage({ claude: client }, jpeg, "image/jpeg", { onModel: (model) => models.push(model) });
 
     expect(models).toEqual([AI_MODEL, AI_STRONG_MODEL]);
   });
@@ -145,7 +153,7 @@ describe.skipIf(!AI_STRONG_MODEL || AI_STRONG_MODEL === AI_MODEL)("readSlipImage
   test("คนสั่งอ่านด้วย AI (strong) → รุ่นแม่นอ่านเลยครั้งเดียว", async () => {
     const { client, requests } = fakeClient({ text: "2?=3*3" });
 
-    await readSlipImage(client, jpeg, "image/jpeg", { strong: true });
+    await readSlipImage({ claude: client }, jpeg, "image/jpeg", { strong: true });
 
     expect(requests.map((request) => request.model)).toEqual([AI_STRONG_MODEL]);
   });
@@ -153,7 +161,7 @@ describe.skipIf(!AI_STRONG_MODEL || AI_STRONG_MODEL === AI_MODEL)("readSlipImage
   test("รุ่นแรกข้อความยาวเกิน → รุ่นแม่นลองอีกที", async () => {
     const { client } = fakeClient({ text: "612=5", stop_reason: "max_tokens" }, { text: "612=5" });
 
-    const read = await readSlipImage(client, jpeg, "image/jpeg");
+    const read = await readSlipImage({ claude: client }, jpeg, "image/jpeg");
 
     expect(read).toMatchObject({ model: AI_STRONG_MODEL, text: "612=5", escalated: { model: AI_MODEL } });
   });
@@ -161,39 +169,39 @@ describe.skipIf(!AI_STRONG_MODEL || AI_STRONG_MODEL === AI_MODEL)("readSlipImage
   test("รุ่นแม่นติดต่อไม่ได้ → ใช้ผลของรุ่นแรก (โพยรอตรวจตามเดิม)", async () => {
     const { client } = fakeClient({ text: "2?=3*3" }, new Anthropic.APIConnectionError({ message: "fetch failed" }));
 
-    expect(await readSlipImage(client, jpeg, "image/jpeg")).toEqual({ engine: "claude", model: AI_MODEL, text: "2?=3*3" });
+    expect(await readSlipImage({ claude: client }, jpeg, "image/jpeg")).toEqual({ engine: "claude", model: AI_MODEL, text: "2?=3*3" });
   });
 
   test("รุ่นแม่นใช้ไม่ได้เพราะบัญชี/ชื่อรุ่นผิด → แจ้ง error ให้ worker พัก Claude", async () => {
     const { client } = fakeClient({ text: "2?=3*3" }, apiError(404, "not_found_error"));
 
-    await expect(readSlipImage(client, jpeg, "image/jpeg")).rejects.toBeInstanceOf(Anthropic.NotFoundError);
+    await expect(readSlipImage({ claude: client }, jpeg, "image/jpeg")).rejects.toBeInstanceOf(Anthropic.NotFoundError);
   });
 });
 
-describe("claudeFailure — Claude อ่านไม่ได้แล้วรูปถัดไปจะใช้ Claude ต่อหรือพักไว้", () => {
+describe("aiFailure — Claude อ่านไม่ได้แล้วรูปถัดไปจะใช้ Claude ต่อหรือพักไว้", () => {
   const apiError = (status: number, type: string, message = type) =>
     Anthropic.APIError.generate(status, { type: "error", error: { type, message } }, message, new Headers());
 
   test("เครดิตหมด / key ผิด / ชื่อรุ่นผิด → account (พักนาน ใช้บริการ OCR แทน)", () => {
-    expect(claudeFailure(apiError(400, "invalid_request_error", "Your credit balance is too low to access the Anthropic API."))).toBe(
+    expect(aiFailure(apiError(400, "invalid_request_error", "Your credit balance is too low to access the Anthropic API."))).toBe(
       "account",
     );
-    expect(claudeFailure(apiError(402, "billing_error"))).toBe("account");
-    expect(claudeFailure(apiError(401, "authentication_error"))).toBe("account");
-    expect(claudeFailure(apiError(404, "not_found_error"))).toBe("account");
+    expect(aiFailure(apiError(402, "billing_error"))).toBe("account");
+    expect(aiFailure(apiError(401, "authentication_error"))).toBe("account");
+    expect(aiFailure(apiError(404, "not_found_error"))).toBe("account");
   });
 
   test("ล่ม / rate limit / ต่อเครือข่ายไม่ได้ → outage (พักสั้น ๆ)", () => {
-    expect(claudeFailure(apiError(429, "rate_limit_error"))).toBe("outage");
-    expect(claudeFailure(apiError(529, "overloaded_error"))).toBe("outage");
-    expect(claudeFailure(new Anthropic.APIConnectionError({ message: "fetch failed" }))).toBe("outage");
-    expect(claudeFailure(new Error("socket hang up"))).toBe("outage");
+    expect(aiFailure(apiError(429, "rate_limit_error"))).toBe("outage");
+    expect(aiFailure(apiError(529, "overloaded_error"))).toBe("outage");
+    expect(aiFailure(new Anthropic.APIConnectionError({ message: "fetch failed" }))).toBe("outage");
+    expect(aiFailure(new Error("socket hang up"))).toBe("outage");
   });
 
   test("รูปนี้รูปเดียวมีปัญหา → image (รูปถัดไปยังใช้ Claude)", () => {
-    expect(claudeFailure(apiError(400, "invalid_request_error", "image exceeds 5 MB maximum"))).toBe("image");
-    expect(claudeFailure(new AiImageError("model refused to read the image"))).toBe("image");
+    expect(aiFailure(apiError(400, "invalid_request_error", "image exceeds 5 MB maximum"))).toBe("image");
+    expect(aiFailure(new AiImageError("model refused to read the image"))).toBe("image");
   });
 });
 
@@ -201,7 +209,7 @@ describe("readSlipImage — รุ่นที่แม่หวยเลือ�
   test("ใช้รุ่นที่เลือกแทนค่าเริ่มต้น ทั้งรุ่นแรกและรุ่นอ่านซ้ำ", async () => {
     const { client, requests } = fakeClient({ text: "2?=3*3" }, { text: "23=3*3" });
 
-    const read = await readSlipImage(client, jpeg, "image/jpeg", {
+    const read = await readSlipImage({ claude: client }, jpeg, "image/jpeg", {
       models: { model: "claude-haiku-4-5-20251001", strongModel: "claude-sonnet-5-5" },
     });
 
@@ -212,7 +220,7 @@ describe("readSlipImage — รุ่นที่แม่หวยเลือ�
   test("ไม่อ่านซ้ำ (strongModel ว่าง) → อ่านรุ่นเดียว แม้คนสั่งอ่านใหม่ (strong)", async () => {
     const { client, requests } = fakeClient({ text: "2?=3*3" });
 
-    await readSlipImage(client, jpeg, "image/jpeg", { strong: true, models: { model: "claude-opus-5-5", strongModel: "" } });
+    await readSlipImage({ claude: client }, jpeg, "image/jpeg", { strong: true, models: { model: "claude-opus-5-5", strongModel: "" } });
 
     expect(requests.map((request) => request.model)).toEqual(["claude-opus-5-5"]);
   });
@@ -234,5 +242,172 @@ describe("resolveOcrModels — ค่าที่แม่หวยเลือ�
       model: AI_MODEL,
       strongModel: AI_STRONG_MODEL,
     });
+  });
+});
+
+/** Ollama ปลอม — ตอบตามลำดับคำขอเหมือน fakeClient · Error = คำขอนั้นล้ม */
+type FakeOllamaReply = { text: string; done_reason?: string } | Error;
+
+function fakeOllama(...replies: FakeOllamaReply[]) {
+  const requests: OllamaChatRequest[] = [];
+  const client: OllamaClient = {
+    async chat(request) {
+      requests.push(request);
+      const reply = replies[Math.min(requests.length, replies.length) - 1]!;
+      if (reply instanceof Error) throw reply;
+      return { model: request.model, message: { role: "assistant", content: reply.text }, done_reason: reply.done_reason ?? "stop" };
+    },
+  };
+  return { client, requests };
+}
+
+describe("readSlipImage — Ollama Cloud", () => {
+  const ollamaOnly = { model: "gemma4:31b", strongModel: "" };
+
+  test("providerOf — รุ่นในรายการตามที่กำหนด · รุ่นนอกรายการดูจากชื่อ", () => {
+    expect(providerOf("claude-opus-5-5")).toBe("claude");
+    expect(providerOf("gemma4:31b")).toBe("ollama");
+    expect(providerOf("claude-new-9")).toBe("claude");
+    expect(providerOf("qwen3-vl:235b")).toBe("ollama");
+  });
+
+  test("ส่ง prompt + รูป base64 ไปที่ Ollama แล้วคืนข้อความโพย (engine = ollama)", async () => {
+    const { client, requests } = fakeOllama({ text: "```\n612=5\nລວມ5000\n```" });
+
+    const read = await readSlipImage({ ollama: client }, jpeg, "image/jpeg", { models: ollamaOnly });
+
+    expect(read).toEqual({ engine: "ollama", model: "gemma4:31b", text: "612=5\nລວມ5000" });
+    expect(isAiRead(read)).toBe(true);
+    expect(requests[0]).toMatchObject({
+      model: "gemma4:31b",
+      stream: false,
+      messages: [{ role: "system" }, { role: "user", images: ["/9j/4A=="] }],
+    });
+  });
+
+  test("ข้อความยาวเกิน (done_reason = length) → AiImageError", async () => {
+    const { client } = fakeOllama({ text: "612=5", done_reason: "length" });
+
+    await expect(readSlipImage({ ollama: client }, jpeg, "image/jpeg", { models: ollamaOnly })).rejects.toBeInstanceOf(AiImageError);
+  });
+
+  test("ไม่ได้ตั้ง OLLAMA_API_KEY → AiImageError (รูปนี้ให้คนดู)", async () => {
+    await expect(readSlipImage({}, jpeg, "image/jpeg", { models: ollamaOnly })).rejects.toBeInstanceOf(AiImageError);
+  });
+
+  test("ผสมผู้ให้บริการ: Ollama อ่านก่อน อ่านไม่ผ่าน → Claude อ่านซ้ำ", async () => {
+    const ollama = fakeOllama({ text: "2?=3*3" });
+    const claude = fakeClient({ text: "29=3*3" });
+
+    const read = await readSlipImage({ claude: claude.client, ollama: ollama.client }, jpeg, "image/jpeg", {
+      models: { model: "gemma4:31b", strongModel: "claude-opus-5-5" },
+    });
+
+    expect(read).toEqual({
+      engine: "claude",
+      model: "claude-opus-5-5",
+      text: "29=3*3",
+      escalated: { model: "gemma4:31b", reason: "BAD_NUMBER", text: "2?=3*3" },
+    });
+  });
+
+  test("ผสมผู้ให้บริการ: Ollama อ่านผ่าน → ไม่เรียก Claude", async () => {
+    const ollama = fakeOllama({ text: "612=5\nລວມ5000" });
+    const claude = fakeClient({ text: "x" });
+
+    await readSlipImage({ claude: claude.client, ollama: ollama.client }, jpeg, "image/jpeg", {
+      models: { model: "gemma4:31b", strongModel: "claude-opus-5-5" },
+    });
+
+    expect(claude.requests).toHaveLength(0);
+  });
+});
+
+describe("aiFailure / failureProvider — Ollama", () => {
+  test("key ผิด / เครดิตหมด / ชื่อรุ่นผิด → account", () => {
+    expect(aiFailure(new OllamaError("unauthorized", 401))).toBe("account");
+    expect(aiFailure(new OllamaError("not found", 404))).toBe("account");
+    expect(aiFailure(new OllamaError("you have run out of usage credits", 429))).toBe("account");
+  });
+
+  test("rate limit / ล่ม / ต่อไม่ได้ → outage · รูปเสีย → image", () => {
+    expect(aiFailure(new OllamaError("too many requests", 429))).toBe("outage");
+    expect(aiFailure(new OllamaError("bad gateway", 502))).toBe("outage");
+    expect(aiFailure(new OllamaError("fetch failed"))).toBe("outage");
+    expect(aiFailure(new OllamaError("invalid image", 400))).toBe("image");
+  });
+
+  test("บอกว่าความผิดพลาดมาจากผู้ให้บริการไหน (worker พักเฉพาะรายนั้น)", () => {
+    expect(failureProvider(new OllamaError("x", 401))).toBe("ollama");
+    expect(failureProvider(new Anthropic.APIConnectionError({ message: "x" }))).toBe("claude");
+    expect(failureProvider(new AiImageError("x"))).toBeNull();
+  });
+});
+
+describe("resolveOcrModels — รุ่นหลัก + รุ่นอ่านซ้ำที่แม่หวยเลือก", () => {
+  test("เลือกรุ่นหลักและรุ่นอ่านซ้ำ (ข้ามผู้ให้บริการได้)", () => {
+    expect(resolveOcrModels({ ocrModel: "gemma4:31b", ocrStrongModel: "claude-opus-5-5" })).toEqual({
+      model: "gemma4:31b",
+      strongModel: "claude-opus-5-5",
+    });
+  });
+
+  test("รุ่นอ่านซ้ำเป็นรุ่นเดียวกับรุ่นหลัก / เลิกให้เลือกแล้ว → ไม่อ่านซ้ำ", () => {
+    expect(resolveOcrModels({ ocrModel: "gemma4:31b", ocrStrongModel: "gemma4:31b" })).toEqual({ model: "gemma4:31b", strongModel: "" });
+    expect(resolveOcrModels({ ocrModel: "gemma4:31b", ocrStrongModel: "claude-old-1" })).toEqual({ model: "gemma4:31b", strongModel: "" });
+  });
+});
+
+describe("isSelectableModel — รุ่นที่แม่หวยเลือกได้", () => {
+  test("Claude ต้องอยู่ในรายการ · Ollama รับทุกชื่อที่ถูกรูปแบบ", () => {
+    expect(isSelectableModel("claude-opus-5-5")).toBe(true);
+    expect(isSelectableModel("claude-old-1")).toBe(false);
+    expect(isSelectableModel("qwen3-vl:235b")).toBe(true);
+    expect(isSelectableModel("kimi-k3")).toBe(true);
+    expect(isSelectableModel("bad name!")).toBe(false);
+    expect(isSelectableModel("")).toBe(false);
+  });
+});
+
+describe("listOllamaVisionModels — รายการรุ่นสดจาก Ollama Cloud", () => {
+  beforeEach(() => resetOllamaModelList());
+
+  /** Ollama ปลอม: /api/tags คืนชื่อรุ่น · /api/show คืนความสามารถตาม map */
+  function fakeFetch(capabilities: Record<string, string[]>, { down = false } = {}) {
+    const calls: string[] = [];
+    const fetchFn = (async (url: string | URL | Request, init?: RequestInit) => {
+      const path = new URL(String(url)).pathname;
+      calls.push(path);
+      if (down) throw new Error("fetch failed");
+      if (path === "/api/tags") return Response.json({ models: Object.keys(capabilities).map((name) => ({ name })) });
+      const { model } = JSON.parse(String(init?.body)) as { model: string };
+      return Response.json({ capabilities: capabilities[model] });
+    }) as typeof fetch;
+    return { fetchFn, calls };
+  }
+
+  test("เลือกเฉพาะรุ่นที่อ่านรูปได้ (vision) เรียงตามชื่อ", async () => {
+    const { fetchFn } = fakeFetch({
+      "kimi-k3": ["completion", "vision"],
+      "gpt-oss:120b": ["completion", "tools"],
+      "gemma4:31b": ["completion", "vision"],
+    });
+
+    expect(await listOllamaVisionModels(["fallback"], { fetchFn })).toEqual(["gemma4:31b", "kimi-k3"]);
+  });
+
+  test("เก็บไว้ใช้ซ้ำ ไม่ดึงใหม่ทุกครั้งที่เปิดหน้า", async () => {
+    const { fetchFn, calls } = fakeFetch({ "gemma4:31b": ["vision"] });
+
+    await listOllamaVisionModels([], { fetchFn, now: 0 });
+    await listOllamaVisionModels([], { fetchFn, now: 1000 });
+
+    expect(calls.filter((path) => path === "/api/tags")).toHaveLength(1);
+  });
+
+  test("ดึงไม่ได้ → ใช้รายการที่รู้จักแทน", async () => {
+    const { fetchFn } = fakeFetch({}, { down: true });
+
+    expect(await listOllamaVisionModels(["gemma4:31b"], { fetchFn })).toEqual(["gemma4:31b"]);
   });
 });

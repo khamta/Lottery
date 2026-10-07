@@ -16,6 +16,11 @@ describe("readerName — ชื่อตัวอ่านที่แสดง"
     expect(readerName("ocr")).toBe("OCR");
     expect(readerName("custom")).toBe("custom");
   });
+
+  test("รุ่นของ Ollama Cloud → ชื่อในรายการ", () => {
+    expect(readerName("gemma4:31b")).toBe("Gemma 4 31B");
+    expect(readerName("glm-5.3-flash")).toBe("GLM 5.3 Flash");
+  });
 });
 
 describe("ocrStatusText", () => {

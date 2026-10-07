@@ -96,7 +96,7 @@ mock.module("next/cache", () => ({
 
 const { createDealer, updateDealer, deleteDealer, selectDealer } = await import("@/app/(dashboard)/dealers/actions");
 
-const valid = { name: "แม่หวยเวียงจันทน์", note: "", ocrModel: "auto" } as const;
+const valid = { name: "แม่หวยเวียงจันทน์", note: "", ocrModel: "auto", ocrStrongModel: "none" } as const;
 
 async function created(owner = "user-1") {
   currentUser = { id: owner, role: "USER" };
@@ -135,8 +135,19 @@ describe("createDealer", () => {
     expect(auto).toMatchObject({ ocrModel: null });
   });
 
+  test("รุ่นอ่านซ้ำ: เก็บเมื่อเลือกรุ่นหลักเอง · อัตโนมัติ / รุ่นเดียวกับรุ่นหลัก = null", async () => {
+    await createDealer({ ...valid, ocrModel: "gemma4:31b", ocrStrongModel: "claude-opus-5-5" });
+    await createDealer({ ...valid, name: "อัตโนมัติ", ocrStrongModel: "claude-opus-5-5" });
+    await createDealer({ ...valid, name: "รุ่นเดียวกัน", ocrModel: "gemma4:31b", ocrStrongModel: "gemma4:31b" });
+
+    const [mixed, auto, same] = [...db.dealers.values()];
+    expect(mixed).toMatchObject({ ocrModel: "gemma4:31b", ocrStrongModel: "claude-opus-5-5" });
+    expect(auto).toMatchObject({ ocrModel: null, ocrStrongModel: null });
+    expect(same).toMatchObject({ ocrModel: "gemma4:31b", ocrStrongModel: null });
+  });
+
   test("รุ่นที่ไม่อยู่ในรายการ → VALIDATION", async () => {
-    const result = await createDealer({ ...valid, ocrModel: "gpt-5" as never });
+    const result = await createDealer({ ...valid, ocrModel: "claude-gpt-5" });
 
     expect(result.ok).toBe(false);
     expect(db.dealers.size).toBe(0);

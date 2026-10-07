@@ -8,7 +8,7 @@ import { requireUser } from "@/lib/auth";
 import { createAction } from "@/lib/action";
 import { logAudit } from "@/lib/audit";
 import { ownerScope, requireAccess } from "@/lottery/access";
-import { ocrModelColumn } from "@/lottery/ai-models";
+import { ocrModelColumn, ocrStrongModelColumn } from "@/lottery/ai-models";
 import { DEALER_COOKIE } from "@/lottery/dealer";
 import {
   createDealerSchema,
@@ -24,7 +24,12 @@ import {
  */
 
 function toData(input: DealerInput) {
-  return { name: input.name, note: input.note || null, ocrModel: ocrModelColumn(input.ocrModel) };
+  return {
+    name: input.name,
+    note: input.note || null,
+    ocrModel: ocrModelColumn(input.ocrModel),
+    ocrStrongModel: ocrStrongModelColumn(input.ocrStrongModel, input.ocrModel),
+  };
 }
 
 /** ชื่อแม่หวยอยู่ในตัวเลือกของทุกหน้าระบบหวย */
