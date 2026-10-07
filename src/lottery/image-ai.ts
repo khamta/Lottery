@@ -68,6 +68,17 @@ export function failureProvider(error: unknown): AiProvider | null {
   return error instanceof OllamaError ? "ollama" : "claude";
 }
 
+/**
+ * ใช้ไม่ได้เฉพาะรุ่นนี้ (ไม่ใช่ทั้งบัญชี) → ชื่อรุ่น ให้ worker พักแค่รุ่นนี้ · null = พักทั้งผู้ให้บริการ
+ * เช่น Ollama แผน Free เรียกรุ่นที่ไม่อยู่ในแผน (402 "this model is not included in your free usage") / ชื่อรุ่นผิด (404)
+ * — รุ่นอื่นของ Ollama ยังใช้ได้ แม่หวยที่เลือกรุ่นอื่นต้องไม่โดนพักไปด้วย
+ */
+export function unusableModel(error: unknown): string | null {
+  if (!(error instanceof OllamaError) || !error.model) return null;
+  if (error.status === 404 || /this model|not included|model .*not found/i.test(error.message)) return error.model;
+  return null;
+}
+
 export function aiFailure(error: unknown): AiFailure {
   if (error instanceof AiImageError) return "image";
   if (error instanceof OllamaError) return ollamaFailure(error);

@@ -22,6 +22,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -47,6 +48,7 @@ import {
   type AiProvider,
   type OcrModels,
 } from "@/lottery/ai-models";
+import type { OllamaAccess } from "@/lottery/ollama";
 import type { DealerRow } from "../types";
 
 /** ฟอร์มล้วน ๆ — ไม่เรียก server action เอง ส่งค่ากลับให้ view ผ่าน onSubmit */
@@ -58,6 +60,8 @@ type DealerDialogProps = {
   ocrDefaults: OcrModels;
   /** รุ่นของ Ollama Cloud ที่อ่านรูปได้ (ดึงสดที่ server · ดู listOllamaVisionModels) */
   ollamaModels: string[];
+  /** รุ่น Ollama ไหนใช้ได้กับแผนของ key ตอนนี้ (ไม่มี = ยังไม่รู้) */
+  ollamaAccess: Record<string, OllamaAccess>;
   onSubmit: (values: DealerInput) => void;
 };
 
@@ -65,21 +69,41 @@ const emptyValues: DealerInput = { name: "", note: "", ocrModel: OCR_MODEL_AUTO,
 
 const CLAUDE_MODELS = OCR_MODELS.filter((model) => model.provider === "claude").map((model) => model.id);
 
+/** ป้ายบอกว่ารุ่น Ollama ใช้กับแผนตอนนี้ได้ไหม */
+const accessBadge: Record<OllamaAccess, { key: string; variant: "success" | "warning" | "secondary" }> = {
+  ok: { key: "dealers.ocrAccessOk", variant: "success" },
+  credits: { key: "dealers.ocrAccessCredits", variant: "warning" },
+  unavailable: { key: "dealers.ocrAccessUnavailable", variant: "secondary" },
+};
+
 /** รุ่นที่ให้เลือก แยกกลุ่มตามผู้ให้บริการ (Claude / Ollama Cloud) — ใช้ทั้งรุ่นหลักและรุ่นอ่านซ้ำ */
-function ModelGroups({ models }: { models: Record<AiProvider, string[]> }) {
+function ModelGroups({ models, access }: { models: Record<AiProvider, string[]>; access: Record<string, OllamaAccess> }) {
+  const { t } = useI18n();
   return AI_PROVIDERS.map((provider) => (
     <SelectGroup key={provider}>
       <SelectLabel>{AI_PROVIDER_LABELS[provider]}</SelectLabel>
-      {models[provider].map((id) => (
-        <SelectItem key={id} value={id}>
-          {ocrModelLabel(id)}
-        </SelectItem>
-      ))}
+      {models[provider].map((id) => {
+        const badge = provider === "ollama" && access[id] ? accessBadge[access[id]] : null;
+        return (
+          <SelectItem key={id} value={id}>
+            {ocrModelLabel(id)}
+            {badge && <Badge variant={badge.variant}>{t(badge.key)}</Badge>}
+          </SelectItem>
+        );
+      })}
     </SelectGroup>
   ));
 }
 
-export function DealerDialog({ open, onOpenChange, dealer, ocrDefaults, ollamaModels, onSubmit }: DealerDialogProps) {
+export function DealerDialog({
+  open,
+  onOpenChange,
+  dealer,
+  ocrDefaults,
+  ollamaModels,
+  ollamaAccess,
+  onSubmit,
+}: DealerDialogProps) {
   const { t } = useI18n();
   const isEdit = !!dealer;
 
@@ -165,10 +189,13 @@ export function DealerDialog({ open, onOpenChange, dealer, ocrDefaults, ollamaMo
                             })
                           : t("dealers.ocrAutoSingle", { model: ocrModelLabel(ocrDefaults.model) })}
                       </SelectItem>
-                      <ModelGroups models={models} />
+                      <ModelGroups models={models} access={ollamaAccess} />
                     </SelectContent>
                   </Select>
-                  <FormDescription>{t("dealers.ocrModelHint")}</FormDescription>
+                  <FormDescription>
+                    {t("dealers.ocrModelHint")}
+                    {Object.keys(ollamaAccess).length > 0 && <> · {t("dealers.ocrAccessHint")}</>}
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -189,7 +216,7 @@ export function DealerDialog({ open, onOpenChange, dealer, ocrDefaults, ollamaMo
                       </FormControl>
                       <SelectContent>
                         <SelectItem value={OCR_REREAD_NONE}>{t("dealers.ocrNoReread")}</SelectItem>
-                        <ModelGroups models={models} />
+                        <ModelGroups models={models} access={ollamaAccess} />
                       </SelectContent>
                     </Select>
                     <FormDescription>{t("dealers.ocrStrongModelHint")}</FormDescription>

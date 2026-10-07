@@ -10,6 +10,7 @@ import { useOptimisticList } from "@/hooks/use-optimistic-list";
 import { useI18n } from "@/i18n/client";
 import type { DealerInput } from "@/lib/validations/dealer";
 import type { OcrModels } from "@/lottery/ai-models";
+import type { OllamaAccess } from "@/lottery/ollama";
 import { useSwitchDealer } from "@/lottery/components/dealer-switcher";
 import type { Paginated } from "@/types";
 import { createDealer, deleteDealer, updateDealer } from "../actions";
@@ -23,6 +24,7 @@ export function DealersView({
   showOwner,
   ocrDefaults,
   ollamaModels,
+  ollamaAccess,
 }: {
   page: Paginated<DealerRow>;
   currentId: string | null;
@@ -32,6 +34,8 @@ export function DealersView({
   ocrDefaults: OcrModels;
   /** รุ่นของ Ollama Cloud ที่อ่านรูปได้ (ดึงที่ server) */
   ollamaModels: string[];
+  /** รุ่น Ollama ไหนใช้ได้กับแผนของ key ตอนนี้ */
+  ollamaAccess: Record<string, OllamaAccess>;
 }) {
   const { t, intl } = useI18n();
   const { rows, isPending, mutate, tempId } = useOptimisticList(page.rows);
@@ -120,6 +124,7 @@ export function DealersView({
         dealer={editing}
         ocrDefaults={ocrDefaults}
         ollamaModels={ollamaModels}
+        ollamaAccess={ollamaAccess}
         onSubmit={handleSave}
       />
 

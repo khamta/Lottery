@@ -7,7 +7,7 @@ import { getTranslations } from "@/i18n/server";
 import { ownerScope } from "@/lottery/access";
 import { AI_MODEL, AI_STRONG_MODEL, OLLAMA_FALLBACK_MODELS, ocrModelField, ocrStrongModelField } from "@/lottery/ai-models";
 import { getDealerContext } from "@/lottery/dealer";
-import { listOllamaVisionModels } from "@/lottery/ollama";
+import { listOllamaVisionModels, ollamaModelAccess } from "@/lottery/ollama";
 import type { PageProps } from "@/types";
 import { DealersView } from "./_components/dealers-view";
 import { DEALER_SORTABLE, type DealerRow } from "./types";
@@ -83,9 +83,10 @@ export default async function DealersPage({ searchParams }: PageProps) {
   });
 
   // รุ่นของ Ollama Cloud ที่อ่านรูปได้ (ดึงสด เก็บไว้ 1 ชั่วโมง · ดึงไม่ได้ = รายการที่รู้จัก)
-  const ollamaModels = await listOllamaVisionModels(OLLAMA_FALLBACK_MODELS, {
-    host: process.env.OLLAMA_HOST || undefined,
-  });
+  const ollamaHost = process.env.OLLAMA_HOST || undefined;
+  const ollamaModels = await listOllamaVisionModels(OLLAMA_FALLBACK_MODELS, { host: ollamaHost });
+  // รุ่นไหนใช้ได้กับแผนของ key (แผน Free = ใช้ฟรี) — ลองเรียกจริง เก็บผลไว้ 1 ชั่วโมง
+  const ollamaAccess = await ollamaModelAccess(process.env.OLLAMA_API_KEY, ollamaModels, { host: ollamaHost });
 
   return (
     <>
@@ -96,6 +97,7 @@ export default async function DealersPage({ searchParams }: PageProps) {
         showOwner={access.isAdmin}
         ocrDefaults={{ model: AI_MODEL, strongModel: AI_STRONG_MODEL }}
         ollamaModels={ollamaModels}
+        ollamaAccess={ollamaAccess}
       />
     </>
   );

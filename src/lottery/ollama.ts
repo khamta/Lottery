@@ -23,10 +23,12 @@ export type OllamaChatResponse = {
 
 export type OllamaClient = { chat(request: OllamaChatRequest): Promise<OllamaChatResponse> };
 
+/** status ว่าง = ต่อไม่ได้ · model = รุ่นที่เรียก (บอกได้ว่าใช้ไม่ได้ทั้งบัญชีหรือแค่รุ่นนี้) */
 export class OllamaError extends Error {
   constructor(
     message: string,
     readonly status?: number,
+    readonly model?: string,
   ) {
     super(message);
     this.name = "OllamaError";
@@ -50,7 +52,7 @@ export function createOllamaClient(apiKey: string, host = OLLAMA_HOST): OllamaCl
           signal: AbortSignal.timeout(TIMEOUT_MS),
         });
       } catch (error) {
-        throw new OllamaError(error instanceof Error ? error.message : String(error));
+        throw new OllamaError(error instanceof Error ? error.message : String(error), undefined, request.model);
       }
       if (!response.ok) {
         const body = await response.text().catch(() => "");
@@ -60,7 +62,7 @@ export function createOllamaClient(apiKey: string, host = OLLAMA_HOST): OllamaCl
         } catch {
           // ตอบเป็นข้อความธรรมดา
         }
-        throw new OllamaError(message || `HTTP ${response.status}`, response.status);
+        throw new OllamaError(message || `HTTP ${response.status}`, response.status, request.model);
       }
       return (await response.json()) as OllamaChatResponse;
     },
@@ -120,4 +122,90 @@ export async function listOllamaVisionModels(
 /** ล้างรายการที่เก็บไว้ (ใช้ในเทสต์) */
 export function resetOllamaModelList() {
   listCache = null;
+}
+
+/**
+ * รุ่นไหนใช้ได้กับแผนของ key นี้ — Ollama ไม่มี API บอก จึงลองเรียกจริงด้วยคำขอเล็กที่สุด (ตอบ 1 token)
+ *   "ok"          ใช้ได้เลย (แผน Free = ใช้ฟรี)
+ *   "credits"     ไม่อยู่ในแผน ต้องเติมเครดิต / อัปเกรด (402)
+ *   "unavailable" ยังไม่เปิดให้บัญชีนี้ใช้ (403)
+ * ไม่รู้ผล (ล่ม / ติด rate limit) = ไม่ใส่ในผล · ลองทีละ ACCESS_CONCURRENCY รุ่น (แผน Free จำกัดคำขอพร้อมกัน)
+ * เก็บผลไว้ LIST_TTL_MS — เปิดหน้าแม่หวยครั้งแรกรอไม่เกิน ACCESS_WAIT_MS ที่เหลือเช็กต่อเบื้องหลัง เปิดครั้งถัดไปจึงเห็นครบ
+ */
+export type OllamaAccess = "ok" | "credits" | "unavailable";
+
+const ACCESS_CONCURRENCY = 2;
+const ACCESS_WAIT_MS = 4_000;
+
+let accessCache: { until: number; models: string; access: Record<string, OllamaAccess> } | null = null;
+let accessRefresh: Promise<void> | null = null;
+
+async function probeModel(
+  apiKey: string,
+  model: string,
+  { host, fetchFn }: { host: string; fetchFn: typeof fetch },
+): Promise<OllamaAccess | null> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await fetchFn(`${host}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, stream: false, messages: [{ role: "user", content: "hi" }], options: { num_predict: 1 } }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      await response.body?.cancel();
+      if (response.ok) return "ok";
+      if (response.status === 402) return "credits";
+      if (response.status === 403) return "unavailable";
+      if (response.status !== 429) return null;
+    } catch {
+      return null;
+    }
+    // คำขอพร้อมกันเกินแผน — รอแล้วลองใหม่
+    await new Promise((resolve) => setTimeout(resolve, 1_000 * (attempt + 1)));
+  }
+  return null;
+}
+
+export async function ollamaModelAccess(
+  apiKey: string | undefined,
+  models: string[],
+  {
+    host = OLLAMA_HOST,
+    fetchFn = fetch,
+    now = Date.now(),
+    waitMs = ACCESS_WAIT_MS,
+  }: { host?: string; fetchFn?: typeof fetch; now?: number; waitMs?: number } = {},
+): Promise<Record<string, OllamaAccess>> {
+  if (!apiKey) return {};
+  const key = models.join(",");
+  if (accessCache && accessCache.models === key && now < accessCache.until) return accessCache.access;
+
+  if (!accessRefresh) {
+    const base = host.replace(/\/+$/, "");
+    const access: Record<string, OllamaAccess> = {};
+    accessRefresh = (async () => {
+      const queue = [...models];
+      await Promise.all(
+        Array.from({ length: ACCESS_CONCURRENCY }, async () => {
+          for (let model = queue.shift(); model; model = queue.shift()) {
+            const result = await probeModel(apiKey, model, { host: base, fetchFn });
+            if (result) access[model] = result;
+          }
+        }),
+      );
+      accessCache = { until: now + LIST_TTL_MS, models: key, access };
+    })().finally(() => {
+      accessRefresh = null;
+    });
+  }
+
+  await Promise.race([accessRefresh, new Promise((resolve) => setTimeout(resolve, waitMs))]);
+  return accessCache?.models === key ? accessCache.access : {};
+}
+
+/** ล้างผลที่เก็บไว้ (ใช้ในเทสต์) */
+export function resetOllamaAccess() {
+  accessCache = null;
+  accessRefresh = null;
 }

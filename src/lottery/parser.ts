@@ -8,6 +8,7 @@
  *   26.590.90=10ບລ         → 26 / 90 บนล่าง แล้วแยก 590 ลงแถวใหม่ (เลข 3 ตัวลงบนอย่างเดียว)
  *   78.87=1000*1000฿       → บน 1000 × ล่าง 1000 บาท
  *   772;5 · 762-5          → เลข 772 / 762 บน 5
+ *   23:63:20ບລ             → : คั่นทั้งเลขและยอดได้เมื่อยอดมีคำกำกับ (23 63 บนล่าง เลขละ 20)
  *   04_44_84_=20           → คั่นเลขด้วยขีดล่างได้
  *   570 57 70-30,000       → หลายเลขคั่นด้วยช่องว่าง ขีดตัวเดียวคั่นยอด
  *   33 73 073 ໂຕ 20         → ໂຕ / ຕົວ / ตัว = เลขละ (เหมือน =)
@@ -241,6 +242,11 @@ const AMOUNT_PART = new RegExp(String.raw`^(${AMOUNT})(?:\s*[*x×]\s*(${AMOUNT})
 const DASH_NUMBERS_LINE = /^\d{2,3}(?:\s*-\s*\d{2,3}){2,}\s*(?:[=;:].*)?$/;
 /** ; คั่นเลข (2 ตัวขึ้นไป) แล้วขีดตัวเดียวคั่นยอด: 20;25-5 */
 const SEMICOLON_DASH_LINE = /^\s*(\d{2,3}(?:\s*;\s*\d{2,3})+)\s*-\s*(\d[^-=;:]*)$/;
+/**
+ * : หรือ ; คั่นทั้งเลขและยอด แล้วยอดมีคำกำกับต่อท้าย: "23:63:20ບລ" = "23,63=20ບລ"
+ * คำกำกับ (ฝั่ง/สกุลเงิน) บอกว่าตัวท้ายเป็นยอด — "23:63:20" เปล่า ๆ ยังกำกวม (20 อาจเป็นเลข)
+ */
+const COLON_SUFFIX_LINE = /^(\d{2,3}(?:\s*[;:]\s*\d{2,3})+)\s*[;:]\s*(\d[\d,.]*)\s*([^\d=;:]+)$/u;
 /** ขีดตัวเดียวคั่นเลขกับยอด: 762-5 · 570 57 70-30,000 */
 const DASH_LINE = /^([^-]+?)\s*-\s*([^-]+)$/;
 /** ตัวคั่นระหว่างเลข — รวมวงเล็บ: "826)866=10" */
@@ -555,7 +561,13 @@ function parseLine(raw: string, fallback: Currency = "LAK", dashNumbers = false)
   const equalsNumbers = equalsParts.slice(0, -1);
   // ; คั่นเลข + ขีดตัวเดียวคั่นยอด: "20;25-5" = "20,25=5" (ขีดคั่นเลขในโพยนี้ + หลังขีดเป็นเลข 2-3 ตัว = ไม่ใช่ยอด)
   const semicolonDash = raw.match(SEMICOLON_DASH_LINE);
+  // : คั่นทั้งเลขและยอด + คำกำกับท้ายยอด: "23:63:20ບລ" = "23,63=20ບລ"
+  const colonSuffix = raw.match(COLON_SUFFIX_LINE);
+  const colonMark = colonSuffix ? readSuffix(colonSuffix[3]!) : null;
   const line =
+    colonSuffix && (colonMark?.position || colonMark?.currency)
+      ? `${colonSuffix[1]!.replace(/[;:]/g, ",")}=${colonSuffix[2]}${colonSuffix[3]}`
+      :
     equalsNumbers.length >= 2 &&
     equalsNumbers.every((part) => /^\s*\d{2,3}\s*$/.test(part)) &&
     (equalsNumbers.length >= 3 || AMOUNT_EACH_PREFIX.test(equalsParts.at(-1)!.trim()))

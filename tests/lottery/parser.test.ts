@@ -521,6 +521,18 @@ describe("parseTicket — กติกา", () => {
     expect(ticket.typedTotal).toBe(1800);
   });
 
+  test("23:63:20บล — : คั่นทั้งเลขและยอด เมื่อยอดมีคำกำกับต่อท้าย", () => {
+    const ticket = parseTicket("23:63:20บล\nลวม 80เล", { lakMultiplier: 1 });
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.map((b) => `${b.number} ${b.position} ${b.amount}`)).toEqual(
+      ["23 TOP 20", "23 BOTTOM 20", "63 TOP 20", "63 BOTTOM 20"],
+    );
+    expect(ticket.typedTotal).toBe(80);
+    expect(ticket.declaredTotal).toBe(80);
+    // ไม่มีคำกำกับ → ตัวท้ายอาจเป็นเลข ยังส่งให้คนตรวจ
+    expect(parseTicket("23:63:20").needsReview).toBe(true);
+  });
+
   test("06;46;506 hu 20 — hu = ຮູ · ; คั่นระหว่างเลขเมื่อมีคำคั่นยอดแล้ว", () => {
     const ticket = parseTicket("06;46;86;506;546;586 hu 20", { lakMultiplier: 1 });
     expect(ticket.issues).toEqual([]);

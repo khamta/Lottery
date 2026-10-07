@@ -9,12 +9,15 @@ import {
   escalationReason,
   isAiRead,
   failureProvider,
+  unusableModel,
   readSlipImage,
   slipTextOf,
 } from "@/lottery/image-ai";
 import { isSelectableModel, providerOf, resolveOcrModels } from "@/lottery/ai-models";
 import {
   listOllamaVisionModels,
+  ollamaModelAccess,
+  resetOllamaAccess,
   OllamaError,
   resetOllamaModelList,
   type OllamaChatRequest,
@@ -337,6 +340,15 @@ describe("aiFailure / failureProvider — Ollama", () => {
     expect(aiFailure(new OllamaError("invalid image", 400))).toBe("image");
   });
 
+  test("รุ่นไม่อยู่ในแผน / ชื่อรุ่นผิด → พักเฉพาะรุ่นนั้น · key ผิด / เครดิตหมด → พักทั้ง Ollama", () => {
+    const notInPlan = new OllamaError("this model is not included in your free usage, add usage credits", 402, "kimi-k3");
+    expect(aiFailure(notInPlan)).toBe("account");
+    expect(unusableModel(notInPlan)).toBe("kimi-k3");
+    expect(unusableModel(new OllamaError("model not found", 404, "nope:1b"))).toBe("nope:1b");
+    expect(unusableModel(new OllamaError("unauthorized", 401, "gemma4:31b"))).toBeNull();
+    expect(unusableModel(new OllamaError("you have run out of usage credits", 429, "gemma4:31b"))).toBeNull();
+  });
+
   test("บอกว่าความผิดพลาดมาจากผู้ให้บริการไหน (worker พักเฉพาะรายนั้น)", () => {
     expect(failureProvider(new OllamaError("x", 401))).toBe("ollama");
     expect(failureProvider(new Anthropic.APIConnectionError({ message: "x" }))).toBe("claude");
@@ -409,5 +421,46 @@ describe("listOllamaVisionModels — รายการรุ่นสดจา�
     const { fetchFn } = fakeFetch({}, { down: true });
 
     expect(await listOllamaVisionModels(["gemma4:31b"], { fetchFn })).toEqual(["gemma4:31b"]);
+  });
+});
+
+describe("ollamaModelAccess — รุ่นไหนใช้ได้กับแผนของ key (ป้ายในหน้าแม่หวย)", () => {
+  beforeEach(() => resetOllamaAccess());
+
+  /** /api/chat ตอบตามสถานะที่กำหนดต่อรุ่น · ตัวเลขในอาร์เรย์ = ตอบตามลำดับครั้งที่เรียก */
+  function chatFetch(statuses: Record<string, number[]>) {
+    const calls: string[] = [];
+    const fetchFn = (async (_url: string | URL | Request, init?: RequestInit) => {
+      const { model } = JSON.parse(String(init?.body)) as { model: string };
+      calls.push(model);
+      const list = statuses[model]!;
+      const status = list[Math.min(calls.filter((name) => name === model).length, list.length) - 1]!;
+      return new Response("{}", { status });
+    }) as typeof fetch;
+    return { fetchFn, calls };
+  }
+
+  test("200 = ใช้ได้ · 402 = ต้องเติมเครดิต · 403 = ยังไม่เปิด · ล่ม = ไม่รู้ (ไม่ใส่)", async () => {
+    const { fetchFn } = chatFetch({ "gemma4:31b": [200], "kimi-k3": [402], "mistral-large-4": [403], "glm-5.3-flash": [500] });
+
+    const access = await ollamaModelAccess("key", ["gemma4:31b", "kimi-k3", "mistral-large-4", "glm-5.3-flash"], { fetchFn });
+
+    expect(access).toEqual({ "gemma4:31b": "ok", "kimi-k3": "credits", "mistral-large-4": "unavailable" });
+  });
+
+  test("คำขอพร้อมกันเกินแผน (429) → รอแล้วลองใหม่", async () => {
+    const { fetchFn, calls } = chatFetch({ "minimax-m3": [429, 200] });
+
+    expect(await ollamaModelAccess("key", ["minimax-m3"], { fetchFn })).toEqual({ "minimax-m3": "ok" });
+    expect(calls).toHaveLength(2);
+  });
+
+  test("ไม่มี key → ไม่เช็ก · เช็กแล้วเก็บผลไว้ ไม่เรียกซ้ำ", async () => {
+    const { fetchFn, calls } = chatFetch({ "gemma4:31b": [200] });
+
+    expect(await ollamaModelAccess(undefined, ["gemma4:31b"], { fetchFn })).toEqual({});
+    await ollamaModelAccess("key", ["gemma4:31b"], { fetchFn, now: 0 });
+    await ollamaModelAccess("key", ["gemma4:31b"], { fetchFn, now: 1000 });
+    expect(calls).toHaveLength(1);
   });
 });

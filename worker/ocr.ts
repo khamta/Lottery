@@ -31,6 +31,7 @@ import {
   aiFailure,
   failureProvider,
   readSlipImage,
+  unusableModel,
   type AiClients,
   type AiFailure,
   type AiRead,
@@ -66,6 +67,8 @@ const attempts = new Map<string, number>();
 const retrying = new Set<string>();
 /** เวลาที่จะกลับไปลองผู้ให้บริการแต่ละราย (0 = ใช้ได้) */
 const pausedUntil: Record<AiProvider, number> = { claude: 0, ollama: 0 };
+/** รุ่นที่ใช้ไม่ได้เฉพาะรุ่น (ไม่อยู่ในแผน / ชื่อผิด) → เวลาที่จะกลับไปลอง — รุ่นอื่นของผู้ให้บริการเดียวกันยังใช้ได้ */
+const modelPausedUntil = new Map<string, number>();
 let log: Log = console.log;
 
 /** ความผิดพลาดที่ลองใหม่ไปก็ไม่หาย (รูปเสีย/AI ปฏิเสธ/ไม่ได้ตั้ง key) — ต่างจากผู้ให้บริการล่มชั่วคราว */
@@ -74,11 +77,19 @@ class BadImageError extends Error {}
 class PausedError extends Error {}
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
-const isPaused = (model: string) => Date.now() < pausedUntil[providerOf(model)];
+const pauseEnd = (model: string) => Math.max(pausedUntil[providerOf(model)], modelPausedUntil.get(model) ?? 0);
+const isPaused = (model: string) => Date.now() < pauseEnd(model);
 
 /** ชื่อตัวอ่านใน log — รุ่นที่อ่านจริง และรุ่นแรกที่อ่านไม่ผ่าน (ถ้ามี) */
 const readerOf = (read: AiRead) =>
   read.escalated ? `AI (${read.escalated.model} อ่านไม่ผ่าน: ${read.escalated.reason} → ${read.model})` : `AI (${read.model})`;
+
+function pauseModel(model: string, message: string) {
+  const wasPaused = Date.now() < (modelPausedUntil.get(model) ?? 0);
+  modelPausedUntil.set(model, Date.now() + PAUSE_MS.account);
+  if (wasPaused) return;
+  console.warn(`[OCR] ! รุ่น ${model} ใช้ไม่ได้ (${message}) — พักรุ่นนี้ ${PAUSE_MS.account / 60_000} นาที (รุ่นอื่นใช้ได้ตามปกติ)`);
+}
 
 function pauseProvider(provider: AiProvider, failure: Exclude<AiFailure, "image">, message: string) {
   const wasPaused = Date.now() < pausedUntil[provider];
@@ -114,7 +125,9 @@ async function readWithAi(
     const provider = failureProvider(error);
     if (failure === "image" || !provider) throw new BadImageError(`AI: ${messageOf(error)}`);
     if (failure === "account") {
-      pauseProvider(provider, failure, messageOf(error));
+      const model = unusableModel(error);
+      if (model) pauseModel(model, messageOf(error));
+      else pauseProvider(provider, failure, messageOf(error));
       throw new PausedError(messageOf(error));
     }
     throw error;
@@ -123,7 +136,7 @@ async function readWithAi(
 
 /** รูปที่ติดพัก — รอจนผู้ให้บริการรายแรกที่ใช้ได้พักเสร็จ */
 function pauseDelay(models: OcrModels) {
-  const ends = [models.model, models.strongModel].filter(Boolean).map((model) => pausedUntil[providerOf(model)]);
+  const ends = [models.model, models.strongModel].filter(Boolean).map(pauseEnd);
   return Math.max(RETRY_MS, Math.min(...ends) - Date.now());
 }
 

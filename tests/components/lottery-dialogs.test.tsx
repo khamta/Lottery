@@ -88,6 +88,7 @@ describe("<DealerDialog />", () => {
         }}
         ocrDefaults={{ model: "claude-sonnet-5-5", strongModel: "claude-opus-5-5" }}
         ollamaModels={["gemma4:31b"]}
+        ollamaAccess={{ "gemma4:31b": "ok" }}
         onSubmit={onSubmit}
       />,
     );

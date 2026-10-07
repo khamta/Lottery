@@ -23,6 +23,9 @@ x-app: &app
   environment: &app-env
     DATABASE_URL: postgresql://postgres:postgres@db:5432/lottery_db?schema=public
     TZ: Asia/Vientiane
+    # Ollama Cloud — เว็บเช็กว่ารุ่นไหนใช้ฟรีได้ (ป้ายในหน้าแม่หวย) · บอทใช้อ่านรูปโพย
+    OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+    OLLAMA_HOST: ${OLLAMA_HOST:-}
   # รูปโพยเป็นไฟล์ในโฟลเดอร์ uploads ของโปรเจกต์ (ฐานข้อมูลเก็บแค่ path) — migrate ย้ายรูปเก่า · app เสิร์ฟ · worker บันทึก
   volumes:
     - ./uploads:/app/uploads
@@ -85,9 +88,7 @@ services:
       # (บริการ ocr จึงต้องเปิดไว้เสมอ) · ว่าง = ใช้บริการ ocr อย่างเดียวตามเดิม
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CLAUDE_OCR_MODEL: ${CLAUDE_OCR_MODEL:-}
-      # Ollama Cloud (ผสมกับ Claude ได้ — แม่หวยเลือกรุ่นที่หน้าแม่หวย) · OCR_MODEL = รุ่นหลักของโหมดอัตโนมัติ
-      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
-      OLLAMA_HOST: ${OLLAMA_HOST:-}
+      # Ollama Cloud: key อยู่ใน app-env (เว็บใช้เช็กป้ายรุ่น · บอทใช้อ่านรูป) · OCR_MODEL = รุ่นหลักของโหมดอัตโนมัติ
       OCR_MODEL: ${OCR_MODEL:-}
       OCR_CONCURRENCY: ${OCR_CONCURRENCY:-}
     volumes:
