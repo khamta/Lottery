@@ -11,6 +11,7 @@
  *   ໓໒:15 (เลขลาว)                 →  32=15
  *   45.000 ใต้เส้นท้ายโพย           →  ລວມ45000
  *   ລາວ ใต้วันที่ / หัวชุด            →  ไม่มีคำกำกับ (ชื่อหวย ไม่ใช่ ບລ)
+ *   หัว ບົນ + ລ. 20.000 ท้ายโพย        →  39=5ບົນ … ລວມ20000          (ບົນ อย่างเดียว ไม่ใช่ ບລ · ລ. = ລວມ)
  *   ตัวเลขที่อ่านไม่ชัด               →  2?=3*3                      (parser ติดเป็นบรรทัดที่อ่านไม่ออก ให้คนตรวจกับรูป)
  *
  * ตัวอ่านไม่เดา: ตัวไหนไม่แน่ใจเขียน ? แทน — โพยที่อ่านครบและยอดรวมตรงจึงนับยอดได้เลย นอกนั้นรอตรวจตามเดิม
@@ -109,11 +110,12 @@ export const SLIP_PROMPT = `You transcribe photos of handwritten Lao lottery bet
 OUTPUT FORMAT — one bet per line:
 - NUMBER=AMOUNT                 e.g. 612=5
 - top × bottom: NUMBER=TOP*BOTTOM   e.g. 32=3*3   (handwritten as ∝, α, x, ×)
+- top only: NUMBER=AMOUNTບົນ
 - top and bottom, one amount: NUMBER=AMOUNTບລ
 - bottom only: NUMBER=AMOUNTລ່າງ
 - baht: append ฿, e.g. 732=80฿ . Kip has no suffix.
 - declared total: ລວມ followed by digits only, e.g. ລວມ45000
-- several numbers on one row followed by one amount = every number gets that amount and its mark (ບລ / ລ່າງ / ฿).
+- several numbers on one row followed by one amount = every number gets that amount and its mark (ບົນ / ບລ / ລ່າງ / ฿).
   Write one line per number: 10 20 30 50/5ບລ → 10=5ບລ, 20=5ບລ, 30=5ບລ, 50=5ບລ (each on its own line)
 - 3-digit numbers have no bottom bet — the parser handles that. Still write the mark exactly as written (590=5ບລ); do not drop it or the number.
 
@@ -122,12 +124,14 @@ READING RULES
 2. The separator between number and amount varies: = - . : ; / | or a space. All mean "=". Numbers have 2 or 3 digits; keep leading zeros (01, 079).
 3. A vertical line, bracket, wavy line or arrow drawn beside several rows means those rows share the amount written on the row where the line starts or ends (top, bottom, or both). Write that amount on every row of the group. A row without an amount between the end of such a line and the next row with an amount belongs to the group.
 4. Strokes are not digits. A vertical stroke |, a slash / or a dash used as a separator (between numbers, or between a number and its amount), and any grouping line drawn beside rows, is NEVER the digit 1 — do not write it. A 1 is a digit only when it is written inside a number, about the same height as the digits next to it. Never add a 1 to a number or an amount because of a stroke: 50/5 is 50=5, not 50=15 or 501=5; 26|10 is 26=10, not 261=10.
+   A plain straight vertical stroke | standing alone where the amount should be (in the amount column, after the separator) is a ditto mark, NOT the amount 1: it means "same amount as the row above" (and usually the row below has that amount too) — write that amount. A 1 written as an amount has a head: a flag or hook at the top-left (often a small foot too), like the 1s elsewhere on the slip. No head = not a 1. Example: 09-5, 49 |, 89-5 → 09=5, 49=5, 89=5 (not 49=1).
 5. An amount written once as ໂຕN / ຕົວN / ປ່ອງN / ຮູN (Thai ตัวN / ป่องN; N per number, e.g. ໂຕ2 = 2 each) — often written sideways, under a column, between two columns, or beside an arrow — applies to every row without its own amount in the column it sits under or next to, AND in each neighbouring column (left and right) that has no amounts of its own, stopping at a column that has its own amounts. Write NUMBER=N on every one of those rows. Example: columns 09 00 19 … 74 and 24 84 28 … 61 with ໂຕ2 written below/between them → 09=2 … 74=2, 24=2 … 61=2.
    The amount may be a word instead of a digit: ປ່ອງລະພັນ / ໂຕລະພັນ / ຮູລະພັນ / ป่องละพัน (ພັນ = one thousand, no digit) means 1 each → NUMBER=1; ໂຕສອງພັນ → NUMBER=2.
    Such a note is often written sideways along the edge of a block of columns (e.g. ປ່ອງລະພັນ beside the leftmost column). It applies to every column of that block that has no amounts of its own, up to a long dividing line drawn between blocks or a column with its own amounts.
    A row that still has no amount after rules 3 and 5: write the number alone (no =), so a person fills it in.
-6. B or ฿ written as a column header, or written below the column / at the bottom of the slip, = baht for every row in that column (on a single-column slip, for every row). Header K or no B anywhere = kip. Header ບົນ+ລ່າງ or ບລ = top and bottom. With several columns, transcribe column by column, left to right, each top to bottom.
-   ລາວ (Lao lottery) is NOT ບລ. Writers often put ລາວ under the date or above a block to name the lottery; it adds no mark — write the rows with no suffix. In handwriting ລາວ is a whole word of three letters (ລ, a tall loop າ, then ວ), often wider than the numbers; ບລ is two short letters, usually right after an amount on the same row. Write ບລ only when ບລ / ບົນລ່າງ / ບົນ+ລ່າງ is clearly written. If you cannot tell ລາວ from ບລ, add no mark and keep the total as written — a person checks it against the total.
+6. B or ฿ written as a column header, or written below the column / at the bottom of the slip, = baht for every row in that column (on a single-column slip, for every row). Header K or no B anywhere = kip. Header ບົນ alone = top only (ບົນ on every row). Header ລ່າງ alone = bottom only. Header ບົນ+ລ່າງ or ບລ = top and bottom. With several columns, transcribe column by column, left to right, each top to bottom.
+   ລາວ (Lao lottery) is NOT ບລ. Writers often put ລາວ under the date or above a block to name the lottery; it adds no mark — write the rows with no suffix. In handwriting ລາວ is a whole word of three letters (ລ, a tall loop າ, then ວ), often wider than the numbers; ບລ is two short letters, usually right after an amount on the same row. Write ບລ only when ບລ / ບົນລ່າງ / ບົນ+ລ່າງ is clearly written. No ບລ / ບົນລ່າງ written anywhere = never ບລ: ບົນ alone stays ບົນ, and a ລ elsewhere on the slip does not turn ບົນ into ບລ.
+   ລ / ລ. / ລ: written before the number under the bottom rule is short for ລວມ (the total), NOT ລ່າງ and NOT part of ບລ — it applies to no bet row. If you cannot tell ລາວ from ບລ, add no mark and keep the total as written — a person checks it against the total.
 7. Write amounts exactly as written (5 stays 5, 80 stays 80). Do not multiply, do not add thousands separators.
 8. Keep duplicate rows — each one is a separate bet. Keep the slip's order.
 9. Skip dates (2.10.26), names, signatures, notes and anything that is not a bet or the total. Text printed on the table or background is not part of the slip.
@@ -159,7 +163,21 @@ Output:
 50=5ບລ
 26=10
 47=20
-74=20`;
+74=20
+
+Slip: 909-3; 949 with a short plain stroke | as its amount; 989-3.
+Output:
+909=3
+949=3
+989=3
+
+Slip: date 7.10.26; a boxed header ບົນ at the top right; 39=5, then 79 and 739 joined by a vertical line down to 779=5; a rule; ລ. 20.000ກ; a name.
+Output:
+39=5ບົນ
+79=5ບົນ
+739=5ບົນ
+779=5ບົນ
+ລວມ20000`;
 
 /** ข้อความที่โมเดลตอบ → ข้อความโพย: ตัด code fence / บรรทัดว่าง · NONE = ไม่ใช่รูปโพย (ข้อความว่าง ให้คนดูรูป) */
 export function slipTextOf(raw: string): string {

@@ -360,6 +360,12 @@ describe("parseTicket — กติกา", () => {
     expect(parseTicket("24\n64\nປອ່ງ3").issues).toEqual([]);
   });
 
+  test("ขีดยาว – — − (จากผลอ่านรูป) อ่านเหมือนขีด -", () => {
+    const ticket = parseTicket("76-5\n076–2\n036—2\n732−3", { lakMultiplier: 1 });
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.map((b) => `${b.number} ${b.amount}`)).toEqual(["76 5", "076 2", "036 2", "732 3"]);
+  });
+
   test("ຮູ3 / รู3 / ป่อง3 อ่านเหมือน ປ່ອງ3", () => {
     for (const word of ["ຮູ", "รู", "ป่อง", "ປອງ"]) {
       const ticket = parseTicket(`24\n64\n${word}3`);
@@ -879,6 +885,14 @@ describe("parseTicket — กติกา", () => {
     expect(ticket.bets).toHaveLength(14);
     expect(ticket.bets.every((b) => b.position === "TOP" && b.amount === 20000)).toBe(true);
     expect(parseTicket("19’59’99=5").bets.map((b) => b.number)).toEqual(["19", "59", "99"]);
+  });
+
+  test('" ระหว่างเลข = ตัวคั่นเลข (032"072"932"972"532"572=50)', () => {
+    const ticket = parseTicket('032"072"932"972"532"572=50');
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.map((b) => b.number)).toEqual(["032", "072", "932", "972", "532", "572"]);
+    expect(ticket.bets.every((b) => b.position === "TOP" && b.amount === 50000)).toBe(true);
+    expect(parseTicket("19“59”99=5").bets.map((b) => b.number)).toEqual(["19", "59", "99"]);
   });
 
   test("ตัวท้ายที่ลงท้ายด้วยคำบอกบาท = ยอด (19-99-200Bเลขบนลาว)", () => {
