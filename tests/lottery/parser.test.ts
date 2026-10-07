@@ -1226,6 +1226,14 @@ describe("parseTicket — กติกา", () => {
     expect(ticket.issues.map((i) => i.code)).toEqual([]);
   });
 
+  test("ລາວ นำหน้ารายการ (ລາວ03-43-83=5) = ชื่อหวย ไม่ใช่ยอดรวม ລວມ", () => {
+    const ticket = parseTicket("11 51 91 211 251 291 411 :7\n511 551 591 351:11\nລາວ03-43-83-603-643-683=5");
+    expect(ticket.bets).toHaveLength(17);
+    expect(ticket.declaredTotal).toBeNull();
+    expect(ticket.typedTotal).toBe(123);
+    expect(ticket.issues.map((i) => i.code)).toEqual([]);
+  });
+
   test("ข้อความที่มีแต่ยอดรวม (ส่งแยกข้อความ) คืนยอดรวมโดยไม่มีรายการ", () => {
     const ticket = parseTicket("ລວມ150");
     expect(ticket.bets).toEqual([]);

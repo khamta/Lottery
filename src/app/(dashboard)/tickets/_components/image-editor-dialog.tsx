@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Crop, Eraser, History, RotateCw, ScanText, Undo2 } from "lucide-react";
+import { Contrast, Crop, Eraser, History, RotateCcw, RotateCw, ScanText, Sun, Undo2 } from "lucide-react";
 
 import {
   Dialog,
@@ -31,6 +31,28 @@ const HISTORY_MAX = 20;
 /** ยางลบระบายเป็นสีขาว = สีกระดาษโพย · เส้นกรอบครอปเป็นสีขาวบนพื้นมืด — วาดบน canvas ใช้ token ของ Tailwind ไม่ได้ */
 const ERASE_COLOR = "#ffffff";
 const BRUSH_SIZES = { min: 8, max: 80, initial: 28 };
+/** ความสว่าง/ความเข้มเป็น % แบบ CSS filter (100 = เท่าเดิม) — จอแสดงด้วย CSS filter ส่วนรูปที่บันทึกคำนวณสูตรเดียวกันลงพิกเซล */
+const ADJUST = { min: 50, max: 200, step: 5, initial: 100 };
+type Adjust = { brightness: number; contrast: number };
+const NO_ADJUST: Adjust = { brightness: ADJUST.initial, contrast: ADJUST.initial };
+
+/** สูตรเดียวกับ CSS `brightness(b) contrast(c)`: v·b แล้ว (v − 0.5)·c + 0.5 — ทำตรงพิกเซลเพื่อให้ได้ผลเหมือนกันทุกเบราว์เซอร์ */
+function applyAdjust(canvas: HTMLCanvasElement, { brightness, contrast }: Adjust) {
+  if (brightness === ADJUST.initial && contrast === ADJUST.initial) return;
+  const b = brightness / 100;
+  const c = contrast / 100;
+  const table = new Uint8ClampedArray(256);
+  for (let v = 0; v < 256; v++) table[v] = Math.round((Math.min(1, (v / 255) * b) - 0.5) * c * 255 + 127.5);
+  const ctx = canvas.getContext("2d")!;
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const px = image.data;
+  for (let i = 0; i < px.length; i += 4) {
+    px[i] = table[px[i]];
+    px[i + 1] = table[px[i + 1]];
+    px[i + 2] = table[px[i + 2]];
+  }
+  ctx.putImageData(image, 0, 0);
+}
 
 function cloneCanvas(source: HTMLCanvasElement, width = source.width, height = source.height) {
   const canvas = document.createElement("canvas");
@@ -70,6 +92,8 @@ export function ImageEditorDialog({
   const [undoCount, setUndoCount] = React.useState(0);
   /** มีอะไรเปลี่ยนจากรูปปัจจุบันของโพยไหม — ไม่เปลี่ยน = ไม่มีอะไรให้บันทึก */
   const [changed, setChanged] = React.useState(false);
+  const [adjust, setAdjust] = React.useState<Adjust>(NO_ADJUST);
+  const adjusted = adjust.brightness !== ADJUST.initial || adjust.contrast !== ADJUST.initial;
 
   const render = React.useCallback(() => {
     const canvas = canvasRef.current;
@@ -118,6 +142,7 @@ export function ImageEditorDialog({
         setCrop(null);
         setUndoCount(0);
         setChanged(isChange);
+        setAdjust(NO_ADJUST);
         setStatus("ready");
       };
       image.onerror = () => setStatus("error");
@@ -271,6 +296,7 @@ export function ImageEditorDialog({
     const ctx = output.getContext("2d")!;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(work, 0, 0, output.width, output.height);
+    applyAdjust(output, adjust);
     const data = output.toDataURL("image/jpeg", 0.9).replace(/^data:image\/jpeg;base64,/, "");
     onSubmit({ data, mimeType: "image/jpeg" });
   }
@@ -332,6 +358,44 @@ export function ImageEditorDialog({
             </Button>
           ) : null}
 
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {(
+              [
+                { key: "brightness", icon: Sun, label: "tickets.brightness" },
+                { key: "contrast", icon: Contrast, label: "tickets.contrast" },
+              ] as const
+            ).map((option) => (
+              <label key={option.key} title={t(option.label)} className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <option.icon className="size-4" aria-hidden />
+                <input
+                  type="range"
+                  aria-label={t(option.label)}
+                  min={ADJUST.min}
+                  max={ADJUST.max}
+                  step={ADJUST.step}
+                  value={adjust[option.key]}
+                  disabled={!ready}
+                  onChange={(event) => setAdjust((current) => ({ ...current, [option.key]: Number(event.target.value) }))}
+                  className="w-24 accent-primary"
+                />
+                <span className="w-10 text-xs tabular-nums">{adjust[option.key]}%</span>
+              </label>
+            ))}
+            {adjusted ? (
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-8"
+                aria-label={t("tickets.resetAdjust")}
+                title={t("tickets.resetAdjust")}
+                onClick={() => setAdjust(NO_ADJUST)}
+              >
+                <RotateCcw />
+              </Button>
+            ) : null}
+          </div>
+
           <div className="ml-auto flex flex-wrap gap-1">
             <Button type="button" size="sm" variant="outline" onClick={rotate} disabled={!ready}>
               <RotateCw /> {t("tickets.rotate")}
@@ -370,6 +434,7 @@ export function ImageEditorDialog({
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
+            style={adjusted ? { filter: `brightness(${adjust.brightness}%) contrast(${adjust.contrast}%)` } : undefined}
             className={cn("h-auto max-h-[60dvh] w-auto max-w-full touch-none cursor-crosshair", !ready && "hidden")}
           />
         </div>
@@ -378,7 +443,7 @@ export function ImageEditorDialog({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {t("common.cancel")}
           </Button>
-          <Button type="button" onClick={handleSave} disabled={!ready || !(changed || crop)}>
+          <Button type="button" onClick={handleSave} disabled={!ready || !(changed || crop || adjusted)}>
             <ScanText /> {t("tickets.editImageSave")}
           </Button>
         </DialogFooter>

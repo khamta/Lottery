@@ -180,13 +180,21 @@ const BARE_TOTAL_LINE = /^(\d{1,3}(?:[.,]000)+)([^\d]*)$/u;
 /** บรรทัดยอดรวม → [ข้อความทั้งบรรทัด, ยอด] · null = ไม่ใช่บรรทัดยอดรวม */
 function totalOf(text: string): RegExpMatchArray | null {
   const full = text.match(TOTAL_LINE) ?? text.match(LAO_TOTAL_TAIL);
-  if (full) return full;
+  if (full && !laoBetLine(text, full)) return full;
   // ລ120 / 14.000ບົນ — ส่วนท้ายต้องอ่านเป็นคำกำกับได้ (ບົນ / ฿ / ພັນ …) ไม่งั้นไม่ใช่ยอดรวม
   // Jo: 70.000k = ชื่อลูกค้า + ยอดรวม (ชื่อไม่ใช่ ໂຕ / ຮູ / ປ່ອງ ซึ่งเป็นยอดเลขละ)
   const named = text.match(NAMED_TOTAL);
   const rest = named && !AMOUNT_EACH_PREFIX.test(`${named[1]}1`) ? named[2]! : text;
   const short = rest.match(SHORT_TOTAL_LINE) ?? rest.match(BARE_TOTAL_LINE);
   return short && readSuffix(short[2]) ? short : null;
+}
+/**
+ * ລາວ นำหน้าเลขแทงที่มีเลข/ยอดตามมา = ชื่อหวย ไม่ใช่ยอดรวม: "ລາວ03-43-83=5" (ລາວ200,000 / ລາວ/90 ยังเป็นยอดรวม)
+ * — ລວມ / รวม / total ยังเป็นยอดรวมเสมอ
+ */
+const LAO_PREFIX = /^(?:ລາວ|ลาว)/iu;
+function laoBetLine(text: string, match: RegExpMatchArray): boolean {
+  return LAO_PREFIX.test(text) && /[\d=:]/.test(text.slice(match[0].length));
 }
 /** ชื่อ + : นำหน้ายอดรวม: "Jo: 70.000k" → ["Jo", "70.000k"] */
 const NAMED_TOTAL = /^([\p{L}\p{M}]{2,})\s*:\s*(\d.*)$/u;
@@ -825,6 +833,9 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
       if (ruled.trim()) notes.push(original);
       return;
     }
+    // ລາວ03-43-83=5 = ชื่อหวยนำหน้ารายการ (ไม่ใช่ ລວມ) → ตัดชื่อทิ้งแล้วอ่านเป็นรายการ
+    const laoLabel = text.match(TOTAL_LINE);
+    if (laoLabel && laoBetLine(text, laoLabel)) text = text.replace(LAO_PREFIX, "").replace(/^[\s:/.\-]+/, "");
     if (!awaitsBelow.has(index)) text = text.replace(SLASH_AMOUNT_LINE, "$1=$2");
     text = semicolonNumbers(text);
     if (splitAmounts) text = text.replace(SPLIT_AMOUNT_LINE, (_, number: string, a: string, b: string) => `${number}=${Number(a) + Number(b)}`);

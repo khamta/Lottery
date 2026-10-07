@@ -60,7 +60,17 @@ describe("<ImageEditorDialog /> (แก้รูปโพยก่อนอ่�
     fireEvent.click(screen.getByRole("radio", { name: t("tickets.toolErase") }));
 
     expect(screen.getByText(t("tickets.eraseHint"))).toBeTruthy();
-    expect(screen.getByRole("slider")).toBeTruthy();
+    expect(screen.getByRole("slider", { name: t("tickets.brushSize") })).toBeTruthy();
+  });
+
+  test("มีตัวปรับความสว่าง/ความเข้มเสมอ (เริ่มที่ 100%)", () => {
+    render(<ImageEditorDialog ticket={ticket()} onOpenChange={() => {}} onSubmit={() => {}} />);
+
+    const brightness = screen.getByRole("slider", { name: t("tickets.brightness") }) as HTMLInputElement;
+    const contrast = screen.getByRole("slider", { name: t("tickets.contrast") }) as HTMLInputElement;
+    expect(brightness.value).toBe("100");
+    expect(contrast.value).toBe("100");
+    expect(screen.queryByRole("button", { name: t("tickets.resetAdjust") })).toBeNull();
   });
 
   test("ปุ่มเริ่มจากรูปต้นฉบับ แสดงเฉพาะรูปที่เคยแก้แล้ว", () => {
