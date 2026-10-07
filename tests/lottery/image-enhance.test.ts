@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import sharp from "sharp";
 
-import { brightnessFactor, claheSlope, enhanceSlipImage } from "@/lottery/image-enhance";
+import { autoAdjustSlipImage, brightnessFactor, claheSlope, enhanceSlipImage } from "@/lottery/image-enhance";
 
 /** รูปโพยจำลอง: พื้นสีเดียว + แถบหมึก — background/ink = ความสว่าง 0-255 */
 async function slipPhoto(background: number, ink: number, width = 400, height = 300) {
@@ -72,5 +72,35 @@ describe("enhanceSlipImage", () => {
     expect((await enhanceSlipImage(photo, "image/gif")).data).toBe(photo);
     process.env.OCR_ENHANCE = "0";
     expect((await enhanceSlipImage(photo, "image/jpeg")).data).toBe(photo);
+  });
+});
+
+describe("autoAdjustSlipImage (ปรับรูปต้นฉบับก่อนให้คนตรวจ)", () => {
+  const original = process.env.IMAGE_AUTO_ADJUST;
+  afterEach(() => {
+    if (original === undefined) delete process.env.IMAGE_AUTO_ADJUST;
+    else process.env.IMAGE_AUTO_ADJUST = original;
+  });
+
+  test("รูปมืด/ซีด → สว่างขึ้น คอนทราสต์สูงขึ้น ขนาดเท่าเดิม เป็น JPEG", async () => {
+    const dark = await slipPhoto(70, 40);
+    const before = await statsOf(dark);
+    const out = await autoAdjustSlipImage(dark, "image/jpeg");
+    const after = await statsOf(out.data);
+
+    expect(out.mimeType).toBe("image/jpeg");
+    expect(after.mean).toBeGreaterThan(before.mean);
+    expect(after.stdev).toBeGreaterThan(before.stdev);
+    expect(await sharp(out.data).metadata()).toMatchObject({ width: 400, height: 300 });
+  });
+
+  test("รูปเสีย / gif / ปิดด้วย IMAGE_AUTO_ADJUST=0 → รูปเดิม", async () => {
+    const broken = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
+    expect(await autoAdjustSlipImage(broken, "image/jpeg")).toEqual({ data: broken, mimeType: "image/jpeg" });
+
+    const photo = await slipPhoto(70, 40);
+    expect((await autoAdjustSlipImage(photo, "image/gif")).data).toBe(photo);
+    process.env.IMAGE_AUTO_ADJUST = "0";
+    expect((await autoAdjustSlipImage(photo, "image/jpeg")).data).toBe(photo);
   });
 });

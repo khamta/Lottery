@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Contrast, Crop, Eraser, History, RotateCcw, RotateCw, ScanText, Sun, Undo2 } from "lucide-react";
+import { Contrast, Crop, Eraser, History, RotateCcw, RotateCw, ScanText, Sun, Undo2, WandSparkles } from "lucide-react";
 
 import {
   Dialog,
@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n/client";
 import type { EditedImageMime } from "@/lib/validations/ticket";
+import { autoLevelsPixels } from "@/lottery/auto-levels";
 import { ticketImageUrl, type TicketRow } from "../types";
 
 /** รูปที่แก้เสร็จ — base64 (ไม่มี data: นำหน้า) ส่งต่อให้ view สั่ง editTicketImage */
@@ -94,6 +95,8 @@ export function ImageEditorDialog({
   const [changed, setChanged] = React.useState(false);
   const [adjust, setAdjust] = React.useState<Adjust>(NO_ADJUST);
   const adjusted = adjust.brightness !== ADJUST.initial || adjust.contrast !== ADJUST.initial;
+  /** กดปรับอัตโนมัติแล้วรูปพอดีอยู่แล้ว — แสดงแทนคำแนะนำจนกว่าจะทำอย่างอื่น */
+  const [autoNone, setAutoNone] = React.useState(false);
 
   const render = React.useCallback(() => {
     const canvas = canvasRef.current;
@@ -143,6 +146,7 @@ export function ImageEditorDialog({
         setUndoCount(0);
         setChanged(isChange);
         setAdjust(NO_ADJUST);
+        setAutoNone(false);
         setStatus("ready");
       };
       image.onerror = () => setStatus("error");
@@ -172,6 +176,24 @@ export function ImageEditorDialog({
     historyRef.current = [...historyRef.current, copy].slice(-HISTORY_MAX);
     setUndoCount(historyRef.current.length);
     setChanged(true);
+    setAutoNone(false);
+  }
+
+  /** ความสว่าง/ยืดช่วงสีอัตโนมัติ (auto-levels.ts — สูตรเดียวกับที่บอทปรับก่อนบันทึกรูป) ลงรูปจริง ย้อนกลับได้ · ตัวเลื่อนกลับเป็น 100% */
+  function autoAdjust() {
+    const work = workRef.current;
+    if (!work) return;
+    const ctx = work.getContext("2d")!;
+    const image = ctx.getImageData(0, 0, work.width, work.height);
+    if (!autoLevelsPixels(image.data)) {
+      setAdjust(NO_ADJUST);
+      setAutoNone(true);
+      return;
+    }
+    pushHistory();
+    ctx.putImageData(image, 0, 0);
+    setAdjust(NO_ADJUST);
+    render();
   }
 
   function replaceWork(next: HTMLCanvasElement) {
@@ -333,7 +355,10 @@ export function ImageEditorDialog({
                 role="radio"
                 aria-checked={tool === option.value}
                 variant={tool === option.value ? "default" : "ghost"}
-                onClick={() => setTool(option.value)}
+                onClick={() => {
+                  setTool(option.value);
+                  setAutoNone(false);
+                }}
               >
                 <option.icon /> {t(option.label)}
               </Button>
@@ -359,6 +384,9 @@ export function ImageEditorDialog({
           ) : null}
 
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <Button type="button" size="sm" variant="outline" onClick={autoAdjust} disabled={!ready}>
+              <WandSparkles /> {t("tickets.autoAdjust")}
+            </Button>
             {(
               [
                 { key: "brightness", icon: Sun, label: "tickets.brightness" },
@@ -418,7 +446,7 @@ export function ImageEditorDialog({
         </div>
 
         <p className="-mt-1 text-xs text-muted-foreground">
-          {t(tool === "crop" ? "tickets.cropHint" : "tickets.eraseHint")}
+          {t(autoNone ? "tickets.autoAdjustNone" : tool === "crop" ? "tickets.cropHint" : "tickets.eraseHint")}
         </p>
 
         <div className="flex min-h-48 items-center justify-center overflow-hidden rounded-md border bg-muted p-2">

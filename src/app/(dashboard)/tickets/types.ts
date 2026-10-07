@@ -157,10 +157,15 @@ export const issueKey: Record<ParseIssueCode, string> = {
 };
 
 /**
- * รูปโพย — เสิร์ฟจาก tickets/image/[id]/route.ts · original = รูปต้นฉบับก่อนแก้
+ * รูปโพย — เสิร์ฟจาก tickets/image/[id]/route.ts · original = รูปต้นฉบับก่อนแก้ (ปรับแสงอัตโนมัติแล้ว)
+ * raw = ไฟล์ต้นฉบับตามที่ได้รับ ไม่ปรับแสง (ปุ่มดูต้นฉบับในหน้าตรวจ)
  * editedAt ต่อท้าย URL: แก้รูปแล้ว URL เปลี่ยน เบราว์เซอร์จึงไม่ใช้รูปเก่าที่ cache ไว้
  */
-export function ticketImageUrl(ticketId: string, { editedAt = null, original = false }: { editedAt?: string | null; original?: boolean } = {}) {
+export function ticketImageUrl(
+  ticketId: string,
+  { editedAt = null, original = false, raw = false }: { editedAt?: string | null; original?: boolean; raw?: boolean } = {},
+) {
+  if (raw) return `/tickets/image/${ticketId}?original=1&raw=1`;
   if (original) return `/tickets/image/${ticketId}?original=1`;
   return editedAt ? `/tickets/image/${ticketId}?v=${new Date(editedAt).getTime()}` : `/tickets/image/${ticketId}`;
 }

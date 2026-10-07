@@ -8,33 +8,24 @@
  *   ความคมชัดเฉพาะจุด (CLAHE)  เงามือ/เงามือถือ/แสงไม่เท่ากันทั้งใบ → หมึกเด่นขึ้นทุกส่วน · รูปซีด (คอนทราสต์ต่ำ) ดึงแรงขึ้น
  *   เพิ่มความคม (sharpen)    ขอบตัวเลขลายมือชัดขึ้น
  *
- * รูปที่เก็บไว้ให้คนดู (image-store.ts) ไม่ถูกแก้ — ปรับเฉพาะรูปที่ส่งให้ AI
+ * ไฟล์รูปที่เก็บไว้ (image-store.ts) เป็นต้นฉบับเสมอ — ปรับตอนส่งให้ AI (enhanceSlipImage) และตอนส่งให้คนตรวจ (autoAdjustSlipImage แค่แสง/ช่วงสี)
  * ปรับไม่ได้ (รูปเสีย / ชนิดที่ sharp ไม่รองรับ) → ส่งรูปเดิม ไม่ให้การปรับรูปทำให้อ่านไม่ได้
  * ปิดได้ด้วย OCR_ENHANCE=0
  */
 import sharp from "sharp";
 
+import { autoLevelsPixels, brightnessFactor } from "./auto-levels";
+
+export { brightnessFactor };
+
 /** ด้านยาวสุดของรูปที่ส่งให้ AI */
 const MAX_SIDE = 2000;
-/** ค่าเฉลี่ยความสว่าง (0-255) ที่อยากได้ — กระดาษโพยส่วนใหญ่เป็นพื้นขาว */
-const TARGET_BRIGHTNESS = 150;
-/** เพิ่มแสงได้มากสุดกี่เท่า */
-const MAX_BRIGHTEN = 1.4;
 /** ส่วนเบี่ยงเบนต่ำกว่านี้ = รูปซีด คอนทราสต์ต่ำ */
 const LOW_CONTRAST_STDEV = 45;
 
 export type SlipImageFile = { data: Uint8Array; mimeType: string };
 
 export const enhanceEnabled = () => process.env.OCR_ENHANCE !== "0";
-
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-
-/** เพิ่มความสว่างกี่เท่า — มืดเพิ่มได้ถึง 1.4 เท่า (แรงกว่านี้หมึกสีน้ำเงินจางตามกระดาษ) · ไม่ลดแสง (ลดแล้วกระดาษ/พื้นขาวกลายเป็นเทา — รูปจ้าให้ CLAHE + normalize ดึงหมึกแทน) · ใกล้เป้าแล้วไม่ปรับ */
-export function brightnessFactor(mean: number): number {
-  if (mean <= 0) return MAX_BRIGHTEN;
-  const factor = clamp(TARGET_BRIGHTNESS / mean, 1, MAX_BRIGHTEN);
-  return Math.abs(factor - 1) < 0.1 ? 1 : factor;
-}
 
 /** ความแรงของ CLAHE — รูปซีดดึงแรงขึ้น รูปที่คอนทราสต์ดีอยู่แล้วดึงเบา ๆ (แรงไปกระดาษจะเป็นจุดด่าง) */
 export const claheSlope = (stdev: number) => (stdev < LOW_CONTRAST_STDEV ? 4 : 3);
@@ -60,6 +51,35 @@ export async function enhanceSlipImage(data: Uint8Array, mimeType: string): Prom
       .jpeg({ quality: 90 })
       .toBuffer();
     return { data: new Uint8Array(enhanced), mimeType: "image/jpeg" };
+  } catch {
+    return { data, mimeType };
+  }
+}
+
+export const autoAdjustEnabled = () => process.env.IMAGE_AUTO_ADJUST !== "0";
+
+/**
+ * ปรับรูปต้นฉบับก่อนส่งให้คนตรวจ (tickets/image/[id]/route.ts) — ไฟล์ที่เก็บไว้ไม่ถูกแก้ รูปที่เห็นในหน้าโพยสว่างและชัดขึ้น
+ * หมุนตาม EXIF + ความสว่าง/ยืดช่วงสีอัตโนมัติ (auto-levels.ts — สูตรเดียวกับปุ่ม "ปรับอัตโนมัติ" ในหน้าแก้รูป)
+ * ไม่ย่อ ไม่ทำ CLAHE / sharpen (รูปดูแปลกตาสำหรับคน) · ปรับไม่ได้ / gif → รูปเดิม · ปิดได้ด้วย IMAGE_AUTO_ADJUST=0
+ */
+export async function autoAdjustSlipImage(data: Uint8Array, mimeType: string): Promise<SlipImageFile> {
+  if (!autoAdjustEnabled() || mimeType.toLowerCase().startsWith("image/gif")) return { data, mimeType };
+  try {
+    // รูปโปร่งใส (PNG) → พื้นขาวเหมือนกระดาษ
+    const { data: pixels, info } = await sharp(data, { failOn: "none" })
+      .rotate()
+      .flatten({ background: "#ffffff" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const rgba = new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, pixels.length);
+    if (!autoLevelsPixels(rgba)) return { data, mimeType };
+    const adjusted = await sharp(pixels, { raw: { width: info.width, height: info.height, channels: 4 } })
+      .removeAlpha()
+      .jpeg({ quality: 90 })
+      .toBuffer();
+    return { data: new Uint8Array(adjusted), mimeType: "image/jpeg" };
   } catch {
     return { data, mimeType };
   }

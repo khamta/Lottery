@@ -3,7 +3,7 @@
 import * as React from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { Crop, Save } from "lucide-react";
+import { Crop, Image as ImageIcon, Save, WandSparkles } from "lucide-react";
 
 import {
   Dialog,
@@ -236,6 +236,7 @@ export function TicketDialog({
             <div className={hasImage ? "grid gap-4 lg:grid-cols-2 lg:items-start" : "contents"}>
               {ticket?.ocrStatus ? (
                 <TicketImage
+                  key={ticket.id}
                   ticket={ticket}
                   status={ticket.ocrStatus}
                   onEdit={canRereadImage(ticket) ? () => onEditImage(ticket) : null}
@@ -344,7 +345,11 @@ function TicketImage({
   onEdit: (() => void) | null;
 }) {
   const { t } = useI18n();
-  const src = ticketImageUrl(ticket.id, { editedAt: ticket.imageEditedAt });
+  /** ดูไฟล์ต้นฉบับตามที่ได้รับ — ปกติแสดงรูปที่ปรับแสงอัตโนมัติแล้ว (หรือรูปที่คนแก้) */
+  const [showOriginal, setShowOriginal] = React.useState(false);
+  const src = showOriginal
+    ? ticketImageUrl(ticket.id, { raw: true })
+    : ticketImageUrl(ticket.id, { editedAt: ticket.imageEditedAt });
   const transcript = ticket.ocrTranscript;
 
   return (
@@ -360,12 +365,26 @@ function TicketImage({
           ) : null}
           {t(`tickets.imageHint${status}`)}
           {ticket.imageEditedAt ? ` · ${t("tickets.imageEdited")}` : ""}
+          {showOriginal ? <span className="block font-medium">{t("tickets.viewingOriginal")}</span> : null}
         </p>
-        {onEdit ? (
-          <Button type="button" variant="outline" size="sm" className="w-full shrink-0 sm:w-auto" onClick={onEdit}>
-            <Crop /> {t("tickets.editImage")}
+        <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full sm:w-auto"
+            aria-pressed={showOriginal}
+            onClick={() => setShowOriginal((current) => !current)}
+          >
+            {showOriginal ? <WandSparkles /> : <ImageIcon />}
+            {t(showOriginal ? "tickets.viewAdjusted" : "tickets.viewOriginal")}
           </Button>
-        ) : null}
+          {onEdit ? (
+            <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={onEdit}>
+              <Crop /> {t("tickets.editImage")}
+            </Button>
+          ) : null}
+        </div>
       </div>
       {transcript ? (
         <div className="grid gap-1">

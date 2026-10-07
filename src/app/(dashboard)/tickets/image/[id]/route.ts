@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findAccess, ownerScope } from "@/lottery/access";
+import { autoAdjustSlipImage } from "@/lottery/image-enhance";
 import { readTicketImage } from "@/lottery/image-store";
 
 /** รูปแบบรูปที่เปิดในเบราว์เซอร์ได้อย่างปลอดภัย — SVG/HTML ห้ามเสิร์ฟเป็นรูป (มีสคริปต์ได้) */
@@ -11,6 +12,8 @@ const SAFE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"
  * ไม่วางรูปไว้ใน public/ เพราะต้องตรวจสิทธิ์ก่อนทุกครั้ง
  * เห็นได้เฉพาะโพยของแม่หวยที่ตัวเองเป็นเจ้าของ (ผู้ดูแลระบบเห็นทุกแม่หวย) เหมือนหน้าโพย
  * ?original=1 = รูปต้นฉบับก่อนคนแก้ (ยังไม่เคยแก้ = รูปปัจจุบัน)
+ * รูปต้นฉบับ (ไฟล์เก็บตามที่ได้รับ) ปรับแสง/ความเข้มอัตโนมัติก่อนส่งให้คนตรวจ (image-enhance.ts) · รูปที่คนแก้แล้วส่งตามที่แก้
+ * &raw=1 = ไฟล์ตามที่เก็บไว้ ไม่ปรับแสง (ปุ่มดูต้นฉบับในหน้าตรวจ)
  * ไฟล์แต่ละไฟล์ไม่เปลี่ยนหลังเก็บแล้ว จึง cache ได้ยาว — แก้รูปแล้ว URL เปลี่ยนตาม ?v= (ticketImageUrl)
  */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -24,12 +27,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     where: { ticketId: id, ticket: { draw: { dealer: ownerScope(access) } } },
     select: { path: true, originalPath: true, mimeType: true },
   });
-  const original = new URL(request.url).searchParams.get("original") === "1";
+  const { searchParams } = new URL(request.url);
+  const original = searchParams.get("original") === "1";
+  const raw = searchParams.get("raw") === "1";
   const path = original ? (image?.originalPath ?? image?.path) : image?.path;
-  const data = path ? await readTicketImage(path) : null;
-  if (!image || !data) return new Response(null, { status: 404 });
+  const stored = path ? await readTicketImage(path) : null;
+  if (!image || !stored) return new Response(null, { status: 404 });
+  const edited = !!image.originalPath && path !== image.originalPath;
+  const data = edited || raw ? stored : (await autoAdjustSlipImage(stored, sniffType(stored) ?? image.mimeType)).data;
 
-  return new Response(data, {
+  return new Response(new Uint8Array(data), {
     headers: {
       // ชนิดจริงดูจากไฟล์ (รูปต้นฉบับกับรูปที่แก้อาจเป็นคนละชนิด) — ไม่รู้จัก = ตามที่บันทึกไว้
       "Content-Type": sniffType(data) ?? (SAFE_TYPES.has(image.mimeType) ? image.mimeType : "application/octet-stream"),
