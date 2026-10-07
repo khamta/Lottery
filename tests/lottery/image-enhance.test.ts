@@ -56,12 +56,13 @@ describe("enhanceSlipImage", () => {
     expect((await statsOf(out.data)).stdev).toBeGreaterThan((await statsOf(faded)).stdev);
   });
 
+  // รูปแถบยาวเตี้ย ๆ พอให้ย่อ แต่ประมวลผลเร็ว — runner ของ CI ช้า (รูป 4000×3000 เคยเกิน 5 วินาที)
   test("รูปใหญ่ → ย่อด้านยาวเหลือ 2000px · รูปเล็กไม่ขยาย", async () => {
-    const big = await enhanceSlipImage(await slipPhoto(200, 30, 4000, 3000), "image/jpeg");
-    expect(await sharp(big.data).metadata()).toMatchObject({ width: 2000, height: 1500 });
+    const big = await enhanceSlipImage(await slipPhoto(200, 30, 2400, 200), "image/jpeg");
+    expect(await sharp(big.data).metadata()).toMatchObject({ width: 2000, height: 167 });
     const small = await enhanceSlipImage(await slipPhoto(200, 30), "image/jpeg");
     expect(await sharp(small.data).metadata()).toMatchObject({ width: 400, height: 300 });
-  });
+  }, 30_000);
 
   test("รูปเสีย / gif / ปิดด้วย OCR_ENHANCE=0 → ส่งรูปเดิม", async () => {
     const broken = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
