@@ -150,7 +150,6 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       image: {
         ocrStatus: TicketRow["ocrStatus"];
         ocrReader: string | null;
-        transcript: string | null;
         editedAt: Date | null;
       } | null;
       betCount: number;
@@ -183,8 +182,8 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       lakMultiplier: true,
       note: true,
       issues: true,
-      // สถานะ + ข้อความทุกอย่างที่อ่านได้จากรูป (ขั้นที่ 1) — ตัวรูปดึงแยกทีละรูปตอนเปิดดู
-      image: { select: { ocrStatus: true, ocrReader: true, transcript: true, editedAt: true } },
+      // สถานะการอ่านรูป — ตัวรูปดึงแยกทีละรูปตอนเปิดดู
+      image: { select: { ocrStatus: true, ocrReader: true, editedAt: true } },
       betCount: true,
       totalLak: true,
       totalThb: true,
@@ -197,7 +196,6 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       issueCount: Array.isArray(issues) ? issues.length : 0,
       ocrStatus: image?.ocrStatus ?? null,
       ocrReader: image?.ocrReader ?? null,
-      ocrTranscript: image?.transcript ?? null,
       imageEditedAt: image?.editedAt?.toISOString() ?? null,
       totalLak: Number(row.totalLak),
       totalThb: Number(row.totalThb),

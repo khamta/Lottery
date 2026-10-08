@@ -27,8 +27,6 @@ export type TicketRow = {
   ocrStatus: OcrStatusValue | null;
   /** โพยจากรูป: ตัวอ่านที่กำลังอ่าน (PENDING) / อ่านล่าสุด — ชื่อรุ่น Claude หรือ "ocr" · null = ยังรอคิว */
   ocrReader: string | null;
-  /** โพยจากรูป: ทุกอย่างที่ OCR อ่านได้จากรูป ก่อนกรองตามกติกา (null = ยังไม่ได้อ่าน / ไม่มีรูป) */
-  ocrTranscript: string | null;
   /** โพยจากรูป: เวลาที่คนแก้รูป (ครอป/ลบ/หมุน) ล่าสุด — null = ยังไม่เคยแก้ (รูปตามที่ลูกค้าส่งมา) */
   imageEditedAt: string | null;
   /** กลุ่ม WhatsApp ที่ส่งโพยนี้มา (null = คีย์เอง / ไม่รู้กลุ่ม) */

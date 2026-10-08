@@ -259,7 +259,6 @@ export function TicketsView({
             senderName: null,
             ocrStatus: null,
             ocrReader: null,
-            ocrTranscript: null,
             imageEditedAt: null,
             groupId: null, // คีย์เอง = ไม่มีกลุ่ม
             isNew: false,

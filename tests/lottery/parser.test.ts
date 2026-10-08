@@ -938,6 +938,13 @@ describe("parseTicket — กติกา", () => {
     expect(ticket.declaredTotal).toBe(15);
     // มีเลขรอยอด = ยอดเลขละ (ตามเดิม)
     expect(parseTicket("12\n=15.000").bets.map((b) => `${b.number} ${b.amount}`)).toEqual(["12 15000"]);
+    // ไม่คั่นหลักพัน: =135000 = ยอดรวม 135
+    const plain = parseTicket(
+      "ລາວ\n\n09/49/89=5\n12/52/92.5\n00/20/60=5\n39/79/38/78=5\n06/46/86=10\n08/48/88=5\n01/41/81/30/70=5\n\n=135000",
+    );
+    expect(plain.issues).toEqual([]);
+    expect(plain.declaredTotal).toBe(135);
+    expect(plain.typedTotal).toBe(135);
   });
 
   test("ຈັບຫລັກ8ນຳ = เติมหลัก 8 และแทงเลขฐานด้วย · ยอดจากบรรทัด ໂຕ10 ด้านล่าง", () => {

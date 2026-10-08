@@ -183,10 +183,14 @@ export default async function ReportsPage({ searchParams }: PageProps) {
 
       <StatCards stats={stats} />
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <nav className="flex flex-wrap gap-2" aria-label={t("reports.views")}>
+      {/* มือถือ: แท็บรายงานเลื่อนซ้าย-ขวาได้แถวเดียวชนขอบจอแบบแอป ปุ่มส่งออกอยู่บรรทัดถัดไป */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <nav
+          className="scroll-area -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0"
+          aria-label={t("reports.views")}
+        >
           {REPORT_VIEWS.map((item) => (
-            <Button key={item} asChild size="sm" variant={item === view ? "default" : "outline"}>
+            <Button key={item} asChild size="sm" className="shrink-0" variant={item === view ? "default" : "outline"}>
               <Link
                 href={toRoute(`/reports?${buildQueryString(raw, { view: item })}`)}
                 aria-current={item === view ? "page" : undefined}

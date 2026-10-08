@@ -25,15 +25,15 @@ export function OnlineUsers({ users, total, currentUserId }: OnlineUsersProps) {
   const hidden = total - users.length;
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="gap-4 py-4 sm:gap-6 sm:py-6">
+      <CardHeader className="px-4 sm:px-6">
         <CardTitle className="flex items-center gap-2">
           <OnlineDot online className="ring-0" />
           {t("presence.title")}
         </CardTitle>
         <CardDescription>{t("presence.count", { count: total })}</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-4 sm:px-6">
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {users.map((user) => (
             <li key={user.id} className="flex min-w-0 items-center gap-3">

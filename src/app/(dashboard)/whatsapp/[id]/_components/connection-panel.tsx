@@ -52,8 +52,8 @@ export function ConnectionPanel({ account: initial }: { account: WhatsappAccount
         </Alert>
       ) : null}
 
-      <Card>
-        <CardHeader>
+      <Card className="gap-4 py-4 sm:gap-6 sm:py-6">
+        <CardHeader className="px-4 sm:px-6">
           <CardTitle className="flex flex-wrap items-center gap-2">
             {t("whatsapp.connection")}
             <Badge variant={statusVariant[account.status]}>{t(statusKey[account.status])}</Badge>
@@ -72,7 +72,7 @@ export function ConnectionPanel({ account: initial }: { account: WhatsappAccount
           ) : null}
         </CardHeader>
 
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 px-4 sm:px-6">
           {account.status === "QR" && account.qrImage ? (
             <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
               {/* QR ต้องเป็นสีดำบนพื้นขาวเสมอ (รูปมีพื้นขาวในตัว) ไม่งั้นแอปสแกนไม่ได้ในธีมมืด */}

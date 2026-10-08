@@ -49,9 +49,10 @@ export function ReportFilters({
   }
 
   return (
-    <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-nowrap">
+    // มือถือ: งวดเต็มแถว แล้วกลุ่ม | อันดับ แบ่งครึ่ง
+    <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-nowrap">
       <Select value={drawId} onValueChange={(value) => apply({ draw: value })} disabled={isPending}>
-        <SelectTrigger className="min-w-0 flex-1 sm:w-52" aria-label={t("reports.filterDraw")}>
+        <SelectTrigger className="col-span-2 min-w-0 sm:w-52" aria-label={t("reports.filterDraw")}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -64,7 +65,7 @@ export function ReportFilters({
       </Select>
 
       <Select value={groupKey ?? ALL_GROUPS} onValueChange={(value) => apply({ group: value })} disabled={isPending}>
-        <SelectTrigger className="min-w-0 flex-1 sm:w-52" aria-label={t("reports.filterGroup")}>
+        <SelectTrigger className={`min-w-0 sm:w-52 ${showTop ? "" : "col-span-2"}`} aria-label={t("reports.filterGroup")}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -79,7 +80,7 @@ export function ReportFilters({
 
       {showTop ? (
         <Select value={String(top)} onValueChange={(value) => apply({ top: value })} disabled={isPending}>
-          <SelectTrigger className="w-32 shrink-0" aria-label={t("reports.filterTop")}>
+          <SelectTrigger className="min-w-0 sm:w-32 sm:shrink-0" aria-label={t("reports.filterTop")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

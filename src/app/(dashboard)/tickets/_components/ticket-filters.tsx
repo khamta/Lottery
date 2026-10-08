@@ -67,14 +67,15 @@ export function TicketFilters({
     searchParams.has("draw") || !!searchParams.get("q") || !!filters.status || filters.oddLak || !!filters.amount || !!filters.image;
 
   return (
-    <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-nowrap">
+    // มือถือ: ตาราง 2 คอลัมน์ (งวด | สถานะ · ยอด | มีรูป · ยอดกีบแปลก | ล้าง) — ไม่ต้องเลื่อนผ่านปุ่มเต็มจอทีละแถว
+    <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-nowrap">
       {/* "ทุกงวด" ต้องเขียน draw=all ลง URL เพราะไม่ระบุ = งวดที่เปิดรับล่าสุด · เปลี่ยนงวด = กลับไปกลุ่มเริ่มต้นของงวดนั้น (กลุ่มที่มีโพยล่าสุด) */}
       <Select
         value={filters.drawId ?? ALL}
         onValueChange={(value) => apply({ draw: value, group: null })}
         disabled={disabled || isPending}
       >
-        <SelectTrigger className="min-w-0 flex-1 sm:w-44" aria-label={t("tickets.filterDraw")}>
+        <SelectTrigger className="min-w-0 sm:w-44" aria-label={t("tickets.filterDraw")}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -92,7 +93,7 @@ export function TicketFilters({
         onValueChange={(value) => apply({ status: value === ALL ? null : value })}
         disabled={disabled || isPending}
       >
-        <SelectTrigger className="min-w-0 flex-1 sm:w-36" aria-label={t("tickets.filterStatus")}>
+        <SelectTrigger className="min-w-0 sm:w-36" aria-label={t("tickets.filterStatus")}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -105,7 +106,7 @@ export function TicketFilters({
         </SelectContent>
       </Select>
 
-      <div className="relative min-w-0 flex-1 sm:w-36 sm:flex-none">
+      <div className="relative min-w-0 sm:w-36 sm:flex-none">
         <Coins className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           inputMode="decimal"
@@ -127,26 +128,26 @@ export function TicketFilters({
         type="button"
         variant={filters.image ? "default" : "outline"}
         aria-pressed={!!filters.image}
-        className="w-full sm:w-auto"
+        className="min-w-0 sm:w-auto"
         disabled={disabled || isPending || (!filters.image && imageCount === 0)}
         title={t("tickets.filterImageHint")}
         onClick={() => apply({ image: filters.image ? null : "1" })}
       >
         <ImageIcon />
-        {t("tickets.filterImage", { count: imageCount })}
+        <span className="truncate">{t("tickets.filterImage", { count: imageCount })}</span>
       </Button>
 
       <Button
         type="button"
         variant={filters.oddLak ? "default" : "outline"}
         aria-pressed={filters.oddLak}
-        className="w-full sm:w-auto"
+        className="min-w-0 sm:w-auto"
         disabled={disabled || isPending || (!filters.oddLak && oddLakCount === 0)}
         title={t("tickets.filterOddLakHint")}
         onClick={() => apply({ odd: filters.oddLak ? null : "1" })}
       >
         <CircleAlert className={filters.oddLak || oddLakCount === 0 ? undefined : "text-warning"} />
-        {t("tickets.filterOddLak", { count: oddLakCount })}
+        <span className="truncate">{t("tickets.filterOddLak", { count: oddLakCount })}</span>
       </Button>
 
       {/* หน้านี้จำตัวกรองไว้ (กลับมาจากหน้าอื่นยังกรองเหมือนเดิม) จึงต้องมีทางกลับไปค่าเริ่มต้นในคลิกเดียว */}
@@ -154,12 +155,12 @@ export function TicketFilters({
         <Button
           type="button"
           variant="ghost"
-          className="w-full sm:w-auto"
+          className="min-w-0 sm:w-auto"
           disabled={disabled || isPending}
           onClick={() => apply({ draw: null, group: null, status: null, odd: null, amount: null, image: null, q: null })}
         >
           <FilterX />
-          {t("tickets.clearFilters")}
+          <span className="truncate">{t("tickets.clearFilters")}</span>
         </Button>
       ) : null}
     </div>

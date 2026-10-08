@@ -164,8 +164,9 @@ export default async function DashboardPage() {
         </Alert>
       ) : null}
 
-      <Card>
-        <CardHeader>
+      {/* มือถือ: ขอบการ์ดแคบลงให้ตารางได้ความกว้างเต็มที่ */}
+      <Card className="gap-4 py-4 sm:gap-6 sm:py-6">
+        <CardHeader className="px-4 sm:px-6">
           <CardTitle>{t("lottery.topTitle", { count: TOP_NUMBERS })}</CardTitle>
           <CardDescription>{t("lottery.topDesc")}</CardDescription>
           <CardAction>
@@ -174,7 +175,7 @@ export default async function DashboardPage() {
             </Button>
           </CardAction>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-3 sm:px-6">
           {topNumbers.length > 0 ? (
             <TwoDigitTable rows={topNumbers} limits={limits} />
           ) : (

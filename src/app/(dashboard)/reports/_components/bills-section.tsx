@@ -59,7 +59,7 @@ export async function BillsSection({ drawId, ticket }: { drawId: string; ticket?
                 {t("tickets.totalThb")}{" "}
                 <span className="text-foreground font-semibold">{formatNumber(group.total.thb, intl)}</span>
               </p>
-              <div className="flex gap-2" role="group" aria-label={t("reports.exportGroup")}>
+              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto" role="group" aria-label={t("reports.exportGroup")}>
                 <Button asChild variant="outline" size="sm">
                   <a href={exportHref(group, "xlsx")} download>
                     <FileSpreadsheet /> {t("reports.exportExcel")}

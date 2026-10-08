@@ -332,7 +332,6 @@ export function TicketDialog({
 
 /**
  * รูปโพยที่ลูกค้าส่งมา — กดเปิดขนาดเต็มในแท็บใหม่ · ปุ่มแก้รูป (ครอป / ยางลบ) แล้วอ่านใหม่
- * ใต้รูปแสดงทุกอย่างที่ OCR อ่านได้ (ก่อนกรอง) ให้เทียบว่าอะไรถูกกรองทิ้งไป
  */
 function TicketImage({
   ticket,
@@ -350,13 +349,12 @@ function TicketImage({
   const src = showOriginal
     ? ticketImageUrl(ticket.id, { raw: true })
     : ticketImageUrl(ticket.id, { editedAt: ticket.imageEditedAt });
-  const transcript = ticket.ocrTranscript;
 
   return (
     <div className="grid gap-2">
       <a href={src} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-md border bg-muted">
         {/* eslint-disable-next-line @next/next/no-img-element -- route ภายในที่ตรวจสิทธิ์เอง ไม่ต้องผ่าน next/image */}
-        <img src={src} alt={t("tickets.imageAlt")} className="max-h-[60dvh] w-full object-contain" />
+        <img src={src} alt={t("tickets.imageAlt")} className="max-h-[45dvh] w-full object-contain sm:max-h-[60dvh]" />
       </a>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <p className={`text-xs ${status === "FAILED" ? "font-medium text-destructive" : "text-muted-foreground"}`}>
@@ -367,12 +365,13 @@ function TicketImage({
           {ticket.imageEditedAt ? ` · ${t("tickets.imageEdited")}` : ""}
           {showOriginal ? <span className="block font-medium">{t("tickets.viewingOriginal")}</span> : null}
         </p>
-        <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+        {/* มือถือ: ปุ่มรูปเรียงแถวเดียวกันแบ่งความกว้างเท่ากัน */}
+        <div className="flex shrink-0 gap-2">
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="w-full sm:w-auto"
+            className="min-w-0 flex-1 sm:flex-none"
             aria-pressed={showOriginal}
             onClick={() => setShowOriginal((current) => !current)}
           >
@@ -380,21 +379,12 @@ function TicketImage({
             {t(showOriginal ? "tickets.viewAdjusted" : "tickets.viewOriginal")}
           </Button>
           {onEdit ? (
-            <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={onEdit}>
+            <Button type="button" variant="outline" size="sm" className="min-w-0 flex-1 sm:flex-none" onClick={onEdit}>
               <Crop /> {t("tickets.editImage")}
             </Button>
           ) : null}
         </div>
       </div>
-      {transcript ? (
-        <div className="grid gap-1">
-          <p className="text-sm font-medium">{t("tickets.transcript")}</p>
-          <pre className="whitespace-pre-wrap break-words rounded-md border bg-muted p-3 font-sans text-sm tabular-nums">
-            {transcript}
-          </pre>
-          <p className="text-xs text-muted-foreground">{t("tickets.transcriptHint")}</p>
-        </div>
-      ) : null}
     </div>
   );
 }

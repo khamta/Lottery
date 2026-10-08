@@ -116,8 +116,8 @@ export function SettlementExport({
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <ReceiptText /> {t("reports.exportSheet")}
+        <Button variant="outline" size="sm" className="min-w-0">
+          <ReceiptText /> <span className="truncate">{t("reports.exportSheet")}</span>
         </Button>
       </DialogTrigger>
       <DialogContent>

@@ -90,3 +90,84 @@ html {
   75% { top: 35%; left: 62%; transform: rotate(4deg); }
   100% { top: 75%; left: 4%; transform: rotate(-6deg); }
 }
+
+/*
+ * มือถือ (< sm): ให้ความรู้สึกแบบแอป
+ * อยู่นอก @layer จึงชนะ utility ของ component กลาง (dialog / table / input) โดยไม่ต้องแก้ไฟล์ core
+ */
+@media (max-width: 39.99rem) {
+  /*
+   * หน้าต่าง (Dialog) → แผ่นเลื่อนขึ้นจากล่างจอเต็มความกว้าง มีขีดจับด้านบน
+   * สูงสุด 92% ของจอ เลื่อนในตัวได้ · ConfirmDialog (alert-dialog) ยังอยู่กลางจอแบบกล่องเตือนของแอป
+   */
+  [data-slot="dialog-content"] {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    translate: none;
+    width: 100%;
+    max-width: none;
+    max-height: 92dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    gap: 1rem;
+    border-width: 1px 0 0;
+    border-radius: 1.25rem 1.25rem 0 0;
+    padding: 1.75rem max(1rem, env(safe-area-inset-right)) calc(1rem + env(safe-area-inset-bottom))
+      max(1rem, env(safe-area-inset-left));
+    animation: sheet-up 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  [data-slot="dialog-content"]::before {
+    content: "";
+    position: absolute;
+    top: 0.5rem;
+    left: 50%;
+    width: 2.5rem;
+    height: 0.25rem;
+    translate: -50% 0;
+    border-radius: 999px;
+    background: var(--border);
+  }
+
+  /* ปุ่มบันทึก/ยกเลิกตรึงล่างแผ่นเสมอ — ฟอร์มยาว (หน้าตรวจโพย) ไม่ต้องเลื่อนลงไปหาปุ่ม */
+  [data-slot="dialog-content"]:has([data-slot="dialog-footer"]) {
+    padding-bottom: 0;
+  }
+  [data-slot="dialog-footer"] {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    margin-right: calc(-1 * max(1rem, env(safe-area-inset-right)));
+    margin-left: calc(-1 * max(1rem, env(safe-area-inset-left)));
+    padding: 0.75rem max(1rem, env(safe-area-inset-right)) calc(0.75rem + env(safe-area-inset-bottom))
+      max(1rem, env(safe-area-inset-left));
+    border-top: 1px solid var(--border);
+    background: var(--background);
+  }
+
+  /* ตาราง: ขอบเซลล์แคบลงให้เห็นคอลัมน์มากขึ้นบนจอเล็ก หัวตารางไม่ตัดบรรทัด */
+  [data-slot="table-head"],
+  [data-slot="table-cell"] {
+    padding-inline: 0.625rem;
+  }
+  [data-slot="table-head"] {
+    white-space: nowrap;
+  }
+
+  /* ช่องกรอกตัวอักษร 16px — iPhone ไม่ซูมหน้าจอเองตอนแตะช่องกรอก */
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    font-size: 1rem;
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}

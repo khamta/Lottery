@@ -42,11 +42,11 @@ export async function ReportExport({
     `/reports/export?${buildQueryString({}, { format, draw: drawId, group: group?.key, view, top })}`;
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm">
-            <Download /> {t("reports.export")}
+          <Button variant="outline" size="sm" className="min-w-0">
+            <Download /> <span className="truncate">{t("reports.export")}</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">

@@ -69,7 +69,7 @@ export function TicketGroups({
       <div
         role="group"
         aria-label={t("tickets.groups")}
-        className="scroll-area flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1"
+        className="scroll-area -mx-4 flex min-w-0 flex-1 gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0"
       >
         <GroupChip
           label={t("tickets.groupAll")}

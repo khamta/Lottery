@@ -32,7 +32,6 @@ const ticket = (overrides: Partial<TicketRow> = {}): TicketRow => ({
   issueCount: 1,
   ocrStatus: "DONE",
   ocrReader: null,
-  ocrTranscript: null,
   imageEditedAt: null,
   groupId: null,
   isNew: false,
