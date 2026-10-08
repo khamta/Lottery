@@ -17,7 +17,7 @@ export function AiAutoCountSwitch({ on, onToggle, disabled }: { on: boolean; onT
       title={t("tickets.aiAutoCountHint")}
       onClick={onToggle}
       disabled={disabled}
-      className="inline-flex h-9 w-full items-center justify-between gap-2 rounded-md border px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 sm:w-auto sm:justify-start"
+      className="inline-flex h-9 w-full shrink-0 items-center justify-between gap-2 whitespace-nowrap rounded-md border px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 sm:w-auto sm:justify-start"
     >
       <span className={on ? "font-medium" : "text-muted-foreground"}>{t("tickets.aiAutoCount")}</span>
       <span
