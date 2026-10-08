@@ -887,6 +887,112 @@ describe("parseTicket — กติกา", () => {
     expect(parseTicket("19’59’99=5").bets.map((b) => b.number)).toEqual(["19", "59", "99"]);
   });
 
+  test("หลายชุดในบรรทัดเดียว (ໂຕยอด ติดเลขชุดใหม่ · คำกำกับเว้นวรรค) และหมายเหตุ ຄ້າງ ไม่ใช่รายการ", () => {
+    const brief = (text: string) => {
+      const ticket = parseTicket(text);
+      expect(ticket.issues).toEqual([]);
+      return ticket.bets.map((b) => `${b.number} ${b.position} ${b.amount / 1000}`);
+    };
+    expect(brief("08 48 88 ໂຕ10ພັນ708 748 788 ໂຕ5")).toEqual([
+      "08 TOP 10", "48 TOP 10", "88 TOP 10", "708 TOP 5", "748 TOP 5", "788 TOP 5",
+    ]);
+    expect(brief("06.46=20 ພັນກີບບົນລ່າງລາວ 006.046=20 ພັນກີບບົນເລກລາວ")).toEqual([
+      "06 TOP 20", "06 BOTTOM 20", "46 TOP 20", "46 BOTTOM 20", "006 TOP 20", "046 TOP 20",
+    ]);
+    const debt = parseTicket("11.51.91.ຮູ10 ເອື້ອຍຊິມ30₭ຄ້າງ");
+    expect(debt.issues).toEqual([]);
+    expect(debt.bets.map((b) => `${b.number} ${b.amount / 1000}`)).toEqual(["11 10", "51 10", "91 10"]);
+    expect(debt.notes).toEqual(["ເອື້ອຍຊິມ30₭ຄ້າງ"]);
+  });
+
+  test('"51=" ไม่มียอด = เลขเปล่า ใช้ยอดจากบรรทัดถัดไป (11=5 / 51= / 91=5)', () => {
+    const ticket = parseTicket("11=5\n51=\n91=5\n411=3\n451=\n491=3");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.map((b) => `${b.number} ${b.amount / 1000}`)).toEqual([
+      "11 5", "51 5", "91 5", "411 3", "451 3", "491 3",
+    ]);
+  });
+
+  test("ตัวเว้นว่างที่มองไม่เห็น (Hangul filler / braille blank / CGJ) ระหว่างเลขกับ ໂຕ ถูกตัดทิ้ง", () => {
+    for (const blank of ["ㅤ", "⠀", "͏", "ᅟ", "ﾠ"]) {
+      const ticket = parseTicket(`08'48'88'39'79${blank}ໂຕ100`);
+      expect(ticket.issues).toEqual([]);
+      expect(ticket.bets.map((b) => b.number)).toEqual(["08", "48", "88", "39", "79"]);
+    }
+  });
+
+  test("ຫັລກ = ຫລັກ · โຕ / ໂต = ໂຕ (พิมพ์สลับ/ปนอักษรไทย)", () => {
+    const base = "04.44.84.02.42.82.24.64.26.66.22.62.16.56.96ໂຕ5ບົນລ່າງລາວ\n";
+    for (const line of ["ຫລັກ3.5ໂຕ5ພັນ", "ຫັລກ3.5ໂຕ5ພັນ", "ຫລັກ3.5โຕ5ພັນ", "ຫລັກ3.5ໂต5ພັນ"]) {
+      const ticket = parseTicket(base + line);
+      expect(ticket.issues).toEqual([]);
+      expect(ticket.bets).toHaveLength(60);
+      expect(ticket.bets.filter((b) => b.digits === 3).map((b) => b.number).slice(0, 3)).toEqual(["304", "344", "384"]);
+    }
+  });
+
+  test("=15.000 บรรทัดท้ายที่ไม่มีเลขรอยอด = ยอดรวม", () => {
+    const ticket = parseTicket("09=5\n49\n89=5\n=15.000");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.map((b) => `${b.number} ${b.amount / 1000}`)).toEqual(["09 5", "49 5", "89 5"]);
+    expect(ticket.declaredTotal).toBe(15);
+    // มีเลขรอยอด = ยอดเลขละ (ตามเดิม)
+    expect(parseTicket("12\n=15.000").bets.map((b) => `${b.number} ${b.amount}`)).toEqual(["12 15000"]);
+  });
+
+  test("ຈັບຫລັກ8ນຳ = เติมหลัก 8 และแทงเลขฐานด้วย · ยอดจากบรรทัด ໂຕ10 ด้านล่าง", () => {
+    const ticket = parseTicket("14\n54\n94\n18\n58\n98\nຈັບຫລັກ8ນຳ\nໂຕ10");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.map((b) => `${b.number} ${b.amount / 1000}`)).toEqual(
+      ["14", "54", "94", "18", "58", "98", "814", "854", "894", "818", "858", "898"].map((n) => `${n} 10`),
+    );
+    expect(ticket.bets.every((b) => b.position === "TOP")).toBe(true);
+    // ไม่มี ນຳ = เลข 3 ตัวอย่างเดียว (ตามเดิม)
+    expect(parseTicket("14\n54\nຈັບຫລັກ8\nໂຕ10").bets.map((b) => b.number)).toEqual(["814", "854"]);
+  });
+
+  test("ລາວໂຕ2ພັນ ใต้เลขที่ไม่มียอด = ยอดเลขละ ไม่ใช่ยอดรวม", () => {
+    const ticket = parseTicket("129\n169\n272\n232\n29\n69\n32\n72\nລາວໂຕ2ພັນ");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.declaredTotal).toBeNull();
+    expect(ticket.bets.map((b) => `${b.number} ${b.position} ${b.amount / 1000}`)).toEqual(
+      ["129", "169", "272", "232", "29", "69", "32", "72"].map((n) => `${n} TOP 2`),
+    );
+  });
+
+  test("to = ໂຕ (32 to50 · 32 72 To 20 · 32=to5)", () => {
+    const brief = (text: string) => {
+      const ticket = parseTicket(text);
+      expect(ticket.issues).toEqual([]);
+      return ticket.bets.map((b) => `${b.number} ${b.position} ${b.amount / 1000}`);
+    };
+    expect(brief("32 to50")).toEqual(["32 TOP 50"]);
+    expect(brief("32 72 To 20")).toEqual(["32 TOP 20", "72 TOP 20"]);
+    expect(brief("32=to5")).toEqual(["32 TOP 5"]);
+    expect(brief("32\n72\nto10")).toEqual(["32 TOP 10", "72 TOP 10"]);
+  });
+
+  test("ກິບ = ກີບ · ບົນລ່າງ ใต้ ຫລັກ ใช้กับเลข 2 ตัวด้านบนด้วย (07-47=100ກິບ / ຫລັກ4-5=30ກິບ / ບົນລ່າງລາວ)", () => {
+    const ticket = parseTicket("07-47=100ກິບ\nຫລັກ4-5=30ກິບ\nບົນລ່າງລາວ");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.map((b) => `${b.number} ${b.position} ${b.amount / 1000}`)).toEqual([
+      "07 TOP 100", "07 BOTTOM 100", "47 TOP 100", "47 BOTTOM 100",
+      "407 TOP 30", "447 TOP 30", "507 TOP 30", "547 TOP 30",
+    ]);
+  });
+
+  test("หลายรายการ เลข-ยอด. คั่นด้วย / ในบรรทัดเดียว (528-3./ 628-3./ · 21-5×5. /61-5×5.)", () => {
+    const ticket = parseTicket("28-5×5./\n528-3./ 628-3./ 521-2./ 561-2/\n621-2. /661-2./ 721-2. /761-2./\n21-5×5. /61-5×5.");
+    expect(ticket.issues).toEqual([]);
+    const brief = ticket.bets.map((b) => `${b.number} ${b.position} ${b.amount / 1000}`);
+    expect(brief).toEqual([
+      "28 TOP 5", "28 BOTTOM 5",
+      "528 TOP 3", "628 TOP 3", "521 TOP 2", "561 TOP 2",
+      "621 TOP 2", "661 TOP 2", "721 TOP 2", "761 TOP 2",
+      "21 TOP 5", "21 BOTTOM 5", "61 TOP 5", "61 BOTTOM 5",
+    ]);
+  });
+
   test('" ระหว่างเลข = ตัวคั่นเลข (032"072"932"972"532"572=50)', () => {
     const ticket = parseTicket('032"072"932"972"532"572=50');
     expect(ticket.issues).toEqual([]);
@@ -1246,6 +1352,15 @@ describe("parseTicket — กติกา", () => {
     expect(ticket.declaredTotal).toBeNull();
     expect(ticket.typedTotal).toBe(123);
     expect(ticket.issues.map((i) => i.code)).toEqual([]);
+  });
+
+  test("ชื่อลูกค้าเว้นวรรคนำหน้ารายการ (ສາວຫູ້າ 01-41-81:5) = หมายเหตุ ไม่ใช่เลขผิด", () => {
+    const ticket = parseTicket("ສາວຫູ້າ 01-41-81:5");
+    expect(ticket.bets.map((b) => `${b.number} ${b.position} ${b.amount}`)).toEqual([
+      "01 TOP 5000", "41 TOP 5000", "81 TOP 5000",
+    ]);
+    expect(ticket.notes).toEqual(["ສາວຫູ້າ"]);
+    expect(ticket.issues).toEqual([]);
   });
 
   test("ข้อความที่มีแต่ยอดรวม (ส่งแยกข้อความ) คืนยอดรวมโดยไม่มีรายการ", () => {
