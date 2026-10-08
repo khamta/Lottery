@@ -23,6 +23,7 @@ import {
   rereadDrawImagesSchema,
   rereadTicketImageSchema,
   resetTicketsSchema,
+  setAiAutoCountSchema,
   updateTicketSchema,
   type EditedImageMime,
   type TicketInput,
@@ -240,6 +241,36 @@ const rereadErrorKey: Record<RereadSkip, string> = {
   reading: "tickets.rereadReading",
   "draw-closed": "tickets.drawNotOpen",
 };
+
+/**
+ * สวิตช์ "นับยอดอัตโนมัติ" หลัง AI อ่านรูป ของแม่หวยที่เลือกอยู่ (ticket.ts — readAiTicketText)
+ * มีผลกับรูปที่ AI อ่านเสร็จหลังจากนี้ — โพยที่อ่านไปแล้วไม่ถูกแก้
+ */
+export const setAiAutoCount = createAction(
+  setAiAutoCountSchema,
+  async ({ autoCount }) => {
+    const user = await requireUser();
+    const dealerId = await requireDealerId(user.id);
+
+    await prisma.$transaction(async (tx) => {
+      const before = await tx.dealer.findUniqueOrThrow({ where: { id: dealerId }, select: { aiAutoCount: true } });
+      const dealer = await tx.dealer.update({ where: { id: dealerId }, data: { aiAutoCount: autoCount } });
+      await logAudit(tx, {
+        action: "UPDATE",
+        entity: "Dealer",
+        entityId: dealer.id,
+        summary: dealer.name,
+        before,
+        after: { aiAutoCount: dealer.aiAutoCount },
+        user,
+      });
+    });
+
+    revalidatePath("/tickets");
+    return { autoCount };
+  },
+  { successMessage: "tickets.aiAutoCountSaved" },
+);
 
 /**
  * อ่านรูปของโพยรอตรวจใบเดียวใหม่ด้วย AI (ผู้ใช้ทุกคน) — รูปกลับเข้าคิวของบอท แล้วข้อความขึ้นเองเมื่ออ่านเสร็จ

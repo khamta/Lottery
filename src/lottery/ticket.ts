@@ -95,3 +95,30 @@ export function readImageTicketText(text: string, { lakMultiplier, rules }: Read
     bets: [],
   };
 }
+
+/** โพยที่ AI อ่านครบแล้วแต่แม่หวยปิด "นับยอดอัตโนมัติ" — รอคนตรวจ ยังไม่นับยอด มี issue AI_HOLD บอกเหตุ */
+export function holdForReview(read: TicketRecord): TicketRecord {
+  if (read.fields.status !== "CONFIRMED") return read;
+  return {
+    fields: {
+      ...read.fields,
+      status: "REVIEW",
+      issues: [{ code: "AI_HOLD", line: 0, text: "" }, ...read.fields.issues],
+      totalLak: 0,
+      totalThb: 0,
+      betCount: 0,
+    },
+    bets: [],
+  };
+}
+
+/**
+ * ข้อความที่ AI อ่านจากรูป → ค่าที่จะเขียนลงตาราง · null = ไม่ใช่โพย
+ * autoCount = สวิตช์ "นับยอดอัตโนมัติ" ของแม่หวย (dealers.aiAutoCount — หน้าโพย)
+ *   เปิด  อ่านได้ครบทุกบรรทัด = นับยอดเลย · มีบรรทัดที่อ่านไม่ออก = รอตรวจ
+ *   ปิด   รอคนตรวจทุกใบ — นับยอดเมื่อกดบันทึกในหน้าตรวจโพย
+ */
+export function readAiTicketText(text: string, options: ReadOptions, autoCount: boolean): TicketRecord | null {
+  const read = readTicketText(text, options);
+  return read && !autoCount ? holdForReview(read) : read;
+}

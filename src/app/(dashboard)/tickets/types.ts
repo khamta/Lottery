@@ -154,6 +154,7 @@ export const issueKey: Record<ParseIssueCode, string> = {
   TOTAL_MISMATCH: "tickets.issueTOTAL_MISMATCH",
   UNREADABLE: "tickets.issueUNREADABLE",
   FROM_IMAGE: "tickets.issueFROM_IMAGE",
+  AI_HOLD: "tickets.issueAI_HOLD",
 };
 
 /**

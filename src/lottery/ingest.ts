@@ -9,7 +9,9 @@ import { imageToTicketText, OCR_SERVICE_READER, transcribeImage, type OcrResult 
 import { DEFAULT_LAK_MULTIPLIER, parseTicket } from "./parser";
 import { READ_RULES_MAX, type ReadRuleSpec } from "./read-rules";
 import {
+  holdForReview,
   isTicketMessage,
+  readAiTicketText,
   readImageTicketText,
   readTicketText,
   type ReadOptions,
@@ -107,16 +109,28 @@ type Read = TicketRecord;
 
 const summaryOf = (text: string) => text.split("\n")[0]!.slice(0, 60);
 
+/** สวิตช์ "นับยอดอัตโนมัติ" ของแม่หวย (หน้าโพย) — ไม่พบแม่หวย = เปิด (ค่าเริ่มต้น) */
+async function aiAutoCountOf(client: Pick<Tx, "dealer">, dealerId: string): Promise<boolean> {
+  const dealer = await client.dealer.findUnique({ where: { id: dealerId }, select: { aiAutoCount: true } });
+  return dealer?.aiAutoCount ?? true;
+}
+
 /** โพยที่บอทสร้างไว้แทนข้อความที่ถอดรหัสไม่ได้: รอตรวจ + ข้อความว่าง (โพยจากรูปที่ยังไม่ได้อ่านก็ข้อความว่าง จึงต้องเช็ครูปด้วย) */
 const isPlaceholder = (ticket: { status: string; rawText: string }, hasImage = false) =>
   !hasImage && ticket.status === "REVIEW" && ticket.rawText === "";
 
-/** โพยจากรูปที่ OCR ยังไม่ได้อ่าน ต้องคงสถานะรอรูปไว้ — นอกนั้น (รวมโพยจากรูปที่อ่านแล้ว) อ่านตามข้อความปกติ */
-const reread = (text: string, options: ReadOptions, imagePending: boolean) =>
-  imagePending ? readImageTicketText(text, options) : readTicketText(text, options);
-
 const hasIssue = (issues: Prisma.JsonValue, code: string) =>
   Array.isArray(issues) && issues.some((issue) => (issue as { code?: string } | null)?.code === code);
+
+/** โพยที่ AI อ่านแล้วรอคนตรวจตามที่แม่หวยตั้ง (AI_HOLD) — อ่านใหม่เพราะเหตุอื่นก็ยังรอคนตรวจ ไม่นับยอดเอง */
+const keepHold = (read: Read, issues: Prisma.JsonValue) => (hasIssue(issues, "AI_HOLD") ? holdForReview(read) : read);
+
+/** โพยจากรูปที่ OCR ยังไม่ได้อ่าน ต้องคงสถานะรอรูปไว้ — นอกนั้น (รวมโพยจากรูปที่อ่านแล้ว) อ่านตามข้อความปกติ */
+const reread = (text: string, options: ReadOptions, imagePending: boolean, issues: Prisma.JsonValue) => {
+  if (imagePending) return readImageTicketText(text, options);
+  const read = readTicketText(text, options);
+  return read && keepHold(read, issues);
+};
 
 /** บรรทัดยอดรวมที่ image-text.ts ใส่ไว้ท้ายข้อความ */
 const withoutTotal = (text: string) =>
@@ -363,7 +377,8 @@ export async function ingestImage(db: PrismaClient, message: IncomingImage): Pro
 
 /**
  * OCR อ่านรูปเสร็จ → เอาข้อความที่แปลงได้ใส่หน้าข้อความเดิมของโพย (คำบรรยายรูป / ยอดรวมที่ส่งตามมา)
- * แล้วอ่านเหมือนข้อความในแชตทั่วไป: อ่านได้ครบทุกบรรทัด = นับยอดเลย · มีบรรทัดที่อ่านไม่ออก/ยอดรวมไม่ตรง = รอตรวจกับรูป
+ * แล้วอ่านเหมือนข้อความในแชตทั่วไป ตามสวิตช์ "นับยอดอัตโนมัติ" ของแม่หวย (dealers.aiAutoCount)
+ * เปิด: อ่านได้ครบทุกบรรทัด = นับยอดเลย · มีบรรทัดที่อ่านไม่ออก/ยอดรวมไม่ตรง = รอตรวจกับรูป · ปิด: รอคนตรวจทุกใบ
  * ไม่ได้อะไรที่เป็นโพยเลย = ยังรอคนดูรูป
  * คนบันทึกโพยไปก่อนแล้ว (พิมพ์เองระหว่างรอคิว) หรืองวดปิดแล้ว → เก็บผล OCR ไว้เฉย ๆ ไม่แตะข้อความที่คนแก้
  */
@@ -405,7 +420,7 @@ export async function applyOcr(db: PrismaClient, ticketId: string, outcome: OcrO
     const options = { lakMultiplier: before.lakMultiplier, rules: await rulesOf(tx, draw.dealerId) };
     const { fromImage, text } = withImageText(outcome.text, before.rawText, options);
     await tx.ticketImage.update({ where: { ticketId }, data: { ...done, ocrText: fromImage } });
-    const read = readTicketText(text, options) ?? readImageTicketText(text, options);
+    const read = readAiTicketText(text, options, await aiAutoCountOf(tx, draw.dealerId)) ?? readImageTicketText(text, options);
     const ticket = await rewriteTicket(tx, before, read.fields, read.bets);
 
     await logAudit(tx, {
@@ -612,7 +627,7 @@ async function attachTotal(db: PrismaClient, message: IncomingMessage): Promise<
     }
 
     const text = before.rawText ? `${before.rawText}\n${message.text}` : message.text;
-    const read = reread(text, options, !!image && hasIssue(before.issues, "FROM_IMAGE"));
+    const read = reread(text, options, !!image && hasIssue(before.issues, "FROM_IMAGE"), before.issues);
     if (!read) return { action: "skipped", reason: "not-ticket" };
     const ticket = await rewriteTicket(tx, before, read.fields, read.bets);
 
@@ -642,7 +657,7 @@ export async function editMessage(db: PrismaClient, waMessageId: string, text: s
 
     // แก้จนไม่เหลือรายการแทง → เก็บเป็นโพยรอตรวจให้คนตัดสินใจ ไม่ลบเอง
     const options = { lakMultiplier: before.lakMultiplier, rules: await rulesOf(tx, draw.dealerId) };
-    const read = readTicketText(text, options) ?? unreadable(text, before.lakMultiplier);
+    const read = keepHold(readTicketText(text, options) ?? unreadable(text, before.lakMultiplier), before.issues);
     const ticket = await rewriteTicket(tx, before, read.fields, read.bets);
 
     await logAudit(tx, {
@@ -736,7 +751,7 @@ export async function rereadTickets(
     if (ticket.status === "CONFIRMED" && byUser.has(ticket.id)) continue;
     const imagePending = !!image && hasIssue(ticket.issues, "FROM_IMAGE");
     const read = (list: readonly ReadRuleSpec[]) =>
-      reread(ticket.rawText, { lakMultiplier: ticket.lakMultiplier, rules: list }, imagePending);
+      reread(ticket.rawText, { lakMultiplier: ticket.lakMultiplier, rules: list }, imagePending, ticket.issues);
 
     const next = read(rules);
     if (!next) continue;

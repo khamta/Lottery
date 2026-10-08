@@ -21,6 +21,7 @@ import {
   rereadDrawImages,
   rereadTicketImage,
   resetTickets,
+  setAiAutoCount,
   updateTicket,
 } from "../actions";
 import { markTicketRead, markTicketsSeen } from "../seen/actions";
@@ -34,6 +35,7 @@ import {
   type TicketGroupOption,
   type TicketRow,
 } from "../types";
+import { AiAutoCountSwitch } from "./ai-auto-count-switch";
 import { getTicketColumns } from "./columns";
 import { TicketDialog } from "./ticket-dialog";
 import { ImageEditorDialog, type EditedImageData } from "./image-editor-dialog";
@@ -62,6 +64,7 @@ export function TicketsView({
   groupOptions,
   renderedAt,
   dealerId,
+  aiAutoCount,
 }: {
   page: Paginated<TicketRow>;
   draws: DrawOption[];
@@ -79,6 +82,8 @@ export function TicketsView({
   /** เวลาที่ server render หน้านี้ — "ดูทั้งหมดแล้ว" ทำเครื่องหมายถึงเวลานี้ (โพยที่เข้ามาหลังจากนั้นยังไม่ได้เห็นบนจอ) */
   renderedAt: string;
   dealerId: string;
+  /** สวิตช์ "นับยอดอัตโนมัติ" หลัง AI อ่านรูป ของแม่หวยที่เลือกอยู่ */
+  aiAutoCount: boolean;
 }) {
   const { t, intl } = useI18n();
   const { rows: listRows, isPending, mutate, tempId } = useOptimisticList(page.rows);
@@ -313,6 +318,21 @@ export function TicketsView({
     });
   }
 
+  // ค่าที่เลือกขึ้นบนจอทันที · บันทึกไม่สำเร็จ = กลับเป็นค่าเดิม · เปลี่ยนแม่หวย/refresh = ใช้ค่าจาก server
+  const [autoCount, setAutoCount] = React.useState(aiAutoCount);
+  React.useEffect(() => setAutoCount(aiAutoCount), [aiAutoCount]);
+
+  /** ตั้งค่าของแม่หวย ไม่ใช่การแก้แถว — patch ว่าง ม่านโหลดปิดเมื่อ refresh */
+  function handleAiAutoCount() {
+    const next = !autoCount;
+    setAutoCount(next);
+    mutate({
+      patch: { type: "delete-many", ids: [] },
+      action: () => setAiAutoCount({ autoCount: next }),
+      onError: () => setAutoCount(!next),
+    });
+  }
+
   const filtered = !!filters.status || filters.oddLak || !!filters.amount || !!filters.image;
 
   return (
@@ -355,6 +375,7 @@ export function TicketsView({
           toolbar={
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <TicketFilters draws={draws} filters={filters} oddLakCount={oddLakCount} imageCount={imageTicketCount} disabled={isPending} />
+              <AiAutoCountSwitch on={autoCount} onToggle={handleAiAutoCount} disabled={isPending} />
               {rereadDraw ? (
                 <Button
                   variant="outline"

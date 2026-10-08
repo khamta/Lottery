@@ -58,7 +58,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
   });
 
   // rules = เงื่อนไขอ่านโพยของแม่หวย (หน้า /read-rules) — ให้ตัวอย่างในหน้าต่างโพยอ่านได้ตรงกับที่ server บันทึก
-  const [draws, customers, rules] = await Promise.all([
+  const [draws, customers, rules, dealerSettings] = await Promise.all([
     prisma.draw.findMany({
       where: { dealerId: current.id },
       orderBy: { drawDate: "desc" },
@@ -72,6 +72,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       select: { id: true, name: true, lakMultiplier: true },
     }),
     rulesOf(prisma, current.id),
+    prisma.dealer.findUniqueOrThrow({ where: { id: current.id }, select: { aiAutoCount: true } }),
   ]);
 
   // ตัวกรองจาก URL (?draw=<id>|all&status=REVIEW) — ไม่ระบุงวด = งวดที่เปิดรับล่าสุด · ไฟล์ส่งออกใช้ชุดเดียวกัน
@@ -225,6 +226,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
         groupOptions={groupOptions}
         renderedAt={renderedAt.toISOString()}
         dealerId={current.id}
+        aiAutoCount={dealerSettings.aiAutoCount}
       />
     </>
   );

@@ -37,6 +37,8 @@ const state = {
   images: new Map<string, Row>(),
   /** เงื่อนไขอ่านโพยที่ผู้ใช้กำหนดเอง */
   rules: [] as Array<{ dealerId: string; kind: "SKIP" | "REPLACE" | "PATTERN"; find: string; replace: string }>,
+  /** dealerId -> สวิตช์ "นับยอดอัตโนมัติ" (ไม่มี = เปิด) */
+  aiAutoCount: new Map<string, boolean>(),
 };
 let nextId = 1;
 
@@ -52,6 +54,9 @@ const withIncludes = (ticket: Row, include?: { draw?: unknown; image?: unknown }
 const tx = {
   // advisory lock ของการออกเลขบิล (src/lottery/bill.ts)
   $queryRaw: async () => [{ locked: 1 }],
+  dealer: {
+    findUnique: async ({ where }: { where: { id: string } }) => ({ aiAutoCount: state.aiAutoCount.get(where.id) ?? true }),
+  },
   readRule: {
     findMany: async ({ where }: { where: { dealerId: string } }) =>
       state.rules
@@ -196,6 +201,7 @@ const briefBets = () => state.bets.map((b) => `${b.number} ${b.position} ${b.cur
 const onlyTicket = () => [...state.tickets.values()][0]!;
 
 beforeEach(() => {
+  state.aiAutoCount = new Map();
   state.draws = [
     { id: "draw-1", dealerId: "dealer-1", status: "OPEN", drawDate: new Date("2026-09-30"), createdAt: DRAW_OPENED_AT },
   ];
@@ -603,6 +609,20 @@ describe("รูปโพย (ingestImage → applyOcr)", () => {
 
     expect(result).toMatchObject({ status: "REVIEW" });
     expect(onlyTicket()).toMatchObject({ status: "REVIEW", totalLak: 0 });
+    expect(state.bets).toEqual([]);
+  });
+
+  test("ปิดสวิตช์นับยอดอัตโนมัติ → อ่านครบก็ยังรอตรวจ (AI_HOLD) · ยอดรวมที่ส่งตามมาไม่ทำให้นับเอง", async () => {
+    state.aiAutoCount.set("dealer-1", false);
+    await ingestImage(db, imageMessage("wa-img"));
+    const result = await applyOcr(db, "ticket-1", { text: "32=300\n45=100", ocr });
+
+    expect(result).toMatchObject({ status: "REVIEW" });
+    expect(onlyTicket()).toMatchObject({ status: "REVIEW", totalLak: 0, betCount: 0, issues: [{ code: "AI_HOLD", line: 0, text: "" }] });
+    expect(state.bets).toEqual([]);
+
+    expect(await ingestMessage(db, message("wa-total", "ລວມ400"))).toMatchObject({ action: "total-attached", status: "REVIEW" });
+    expect(onlyTicket()).toMatchObject({ rawText: "32=300\n45=100\nລວມ400", status: "REVIEW", totalLak: 0 });
     expect(state.bets).toEqual([]);
   });
 

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import sharp from "sharp";
 
-import { autoAdjustSlipImage, brightnessFactor, claheSlope, enhanceSlipImage } from "@/lottery/image-enhance";
+import { autoAdjustSlipImage, enhanceSlipImage } from "@/lottery/image-enhance";
+import { boldInkPixels, inkKnee, inkTable } from "@/lottery/ink";
 
 /** รูปโพยจำลอง: พื้นสีเดียว + แถบหมึก — background/ink = ความสว่าง 0-255 */
 async function slipPhoto(background: number, ink: number, width = 400, height = 300) {
@@ -15,19 +16,42 @@ async function slipPhoto(background: number, ink: number, width = 400, height = 
   return new Uint8Array(jpeg);
 }
 
-const statsOf = async (data: Uint8Array) => (await sharp(data).greyscale().stats()).channels[0]!;
 
-describe("ค่าปรับตามสภาพรูป", () => {
-  test("รูปมืดเพิ่มแสง · รูปจ้าไม่ลดแสง (พื้นขาวไม่กลายเป็นเทา) · ใกล้เป้าแล้วไม่ปรับ", () => {
-    expect(brightnessFactor(60)).toBe(1.4);
-    expect(brightnessFactor(120)).toBeCloseTo(1.25);
-    expect(brightnessFactor(0)).toBe(1.4);
-    expect(brightnessFactor(240)).toBe(1);
-    expect(brightnessFactor(150)).toBe(1);
+/** ความสว่างของพื้นกระดาษ (มุมซ้ายบน) และหมึก (กลางแถบ) */
+async function samples(data: Uint8Array) {
+  const { data: px, info } = await sharp(data).greyscale().raw().toBuffer({ resolveWithObject: true });
+  const at = (x: number, y: number) => px[y * info.width + x]!;
+  return { paper: at(5, 5), ink: at(Math.round(info.width / 2), Math.round(info.height / 2) + 10) };
+}
+
+describe("ink.ts — หมึกเข้มและหนาขึ้น ไม่ปรับแสง", () => {
+  test("จุดตัดหมึก = 80% ของกระดาษ · รูปมืดทั้งรูป/ว่างไม่ปรับ", () => {
+    const histogram = new Uint32Array(256);
+    histogram[200] = 90;
+    histogram[40] = 10;
+    expect(inkKnee(histogram)).toBe(160);
+    expect(inkKnee(new Uint32Array(256))).toBeNull();
+    const dark = new Uint32Array(256);
+    dark[30] = 100;
+    expect(inkKnee(dark)).toBeNull();
   });
 
-  test("รูปซีดดึงคอนทราสต์แรงกว่า", () => {
-    expect(claheSlope(20)).toBeGreaterThan(claheSlope(80));
+  test("ตาราง: ต่ำกว่าจุดตัดมืดลง · ตั้งแต่จุดตัดขึ้นไปคงเดิม", () => {
+    const table = inkTable(160);
+    expect(table[80]).toBe(40);
+    expect(table[0]).toBe(0);
+    expect(table[160]).toBe(160);
+    expect(table[230]).toBe(230);
+  });
+
+  test("เส้นหมึกกว้าง 1px → 3px และเข้มขึ้น กระดาษคงเดิม", () => {
+    const width = 7;
+    const height = 3;
+    const pixels = new Uint8Array(width * height * 3).fill(220);
+    for (let y = 0; y < height; y++) pixels.fill(100, (y * width + 3) * 3, (y * width + 4) * 3);
+    expect(boldInkPixels(pixels, width, height, 3)).toBe(true);
+    const row = [...pixels.slice(width * 3, width * 6)].filter((_, i) => i % 3 === 0);
+    expect(row).toEqual([220, 220, 57, 57, 57, 220, 220]);
   });
 });
 
@@ -38,22 +62,15 @@ describe("enhanceSlipImage", () => {
     else process.env.OCR_ENHANCE = original;
   });
 
-  test("รูปมืด → สว่างขึ้นและหมึกต่างจากพื้นชัดขึ้น", async () => {
-    const dark = await slipPhoto(70, 40);
-    const before = await statsOf(dark);
-
+  test("รูปมืด → แสงไม่เปลี่ยน (กระดาษเท่าเดิม) หมึกเข้มขึ้น", async () => {
+    const dark = await slipPhoto(120, 70);
+    const before = await samples(dark);
     const out = await enhanceSlipImage(dark, "image/jpeg");
-    const after = await statsOf(out.data);
+    const after = await samples(out.data);
 
     expect(out.mimeType).toBe("image/jpeg");
-    expect(after.mean).toBeGreaterThan(before.mean);
-    expect(after.stdev).toBeGreaterThan(before.stdev);
-  });
-
-  test("รูปซีด → คอนทราสต์สูงขึ้น", async () => {
-    const faded = await slipPhoto(200, 170);
-    const out = await enhanceSlipImage(faded, "image/jpeg");
-    expect((await statsOf(out.data)).stdev).toBeGreaterThan((await statsOf(faded)).stdev);
+    expect(Math.abs(after.paper - before.paper)).toBeLessThanOrEqual(3);
+    expect(after.ink).toBeLessThan(before.ink - 15);
   });
 
   // รูปแถบยาวเตี้ย ๆ พอให้ย่อ แต่ประมวลผลเร็ว — runner ของ CI ช้า (รูป 4000×3000 เคยเกิน 5 วินาที)
@@ -82,15 +99,15 @@ describe("autoAdjustSlipImage (ปรับรูปต้นฉบับก่�
     else process.env.IMAGE_AUTO_ADJUST = original;
   });
 
-  test("รูปมืด/ซีด → สว่างขึ้น คอนทราสต์สูงขึ้น ขนาดเท่าเดิม เป็น JPEG", async () => {
-    const dark = await slipPhoto(70, 40);
-    const before = await statsOf(dark);
-    const out = await autoAdjustSlipImage(dark, "image/jpeg");
-    const after = await statsOf(out.data);
+  test("แสงไม่เปลี่ยน หมึกเข้มขึ้น ขนาดเท่าเดิม เป็น JPEG", async () => {
+    const photo = await slipPhoto(200, 140);
+    const before = await samples(photo);
+    const out = await autoAdjustSlipImage(photo, "image/jpeg");
+    const after = await samples(out.data);
 
     expect(out.mimeType).toBe("image/jpeg");
-    expect(after.mean).toBeGreaterThan(before.mean);
-    expect(after.stdev).toBeGreaterThan(before.stdev);
+    expect(Math.abs(after.paper - before.paper)).toBeLessThanOrEqual(3);
+    expect(after.ink).toBeLessThan(before.ink - 15);
     expect(await sharp(out.data).metadata()).toMatchObject({ width: 400, height: 300 });
   });
 

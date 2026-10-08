@@ -179,7 +179,7 @@ export function ImageEditorDialog({
     setAutoNone(false);
   }
 
-  /** ความสว่าง/ยืดช่วงสีอัตโนมัติ (auto-levels.ts — สูตรเดียวกับที่บอทปรับก่อนบันทึกรูป) ลงรูปจริง ย้อนกลับได้ · ตัวเลื่อนกลับเป็น 100% */
+  /** ความสว่าง/ยืดช่วงสีอัตโนมัติ (auto-levels.ts) ลงรูปจริง ย้อนกลับได้ · ตัวเลื่อนกลับเป็น 100% */
   function autoAdjust() {
     const work = workRef.current;
     if (!work) return;

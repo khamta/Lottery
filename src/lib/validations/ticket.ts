@@ -29,6 +29,9 @@ export const deleteTicketsSchema = z.object({
 /** คืนสถานะโพยที่นับยอดแล้วกลับเป็นรอตรวจ (ใบเดียวหรือหลายใบที่เลือก) — จำกัดเท่ากับลบหลายรายการ */
 export const resetTicketsSchema = deleteTicketsSchema;
 
+/** สวิตช์ "นับยอดอัตโนมัติ" หลัง AI อ่านรูป ของแม่หวยที่เลือกอยู่ — ปิด = รอคนตรวจ นับยอดเมื่อกดบันทึก */
+export const setAiAutoCountSchema = z.object({ autoCount: z.boolean() });
+
 /** อ่านรูปของโพยรอตรวจใบเดียวใหม่ด้วย AI — ผู้ใช้ทุกคน */
 export const rereadTicketImageSchema = z.object({
   id: z.string().min(1, "validation.required"),

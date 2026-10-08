@@ -240,6 +240,9 @@ model Dealer {
   /// สวิตช์หลัก: อ่านรูปโพยด้วย AI ไหม — false = ทุกกลุ่มของแม่หวยนี้เก็บรูปไว้รอตรวจ (SKIPPED) ไม่ว่ากลุ่มจะตั้งไว้อย่างไร
   /// (whatsapp_groups.readImages ไม่ถูกแก้ — เปิดกลับแล้วแต่ละกลุ่มใช้ค่าเดิม) · สั่งอ่านเองจากหน้าโพยยังทำได้
   readImages     Boolean @default(true)
+  /// สวิตช์ "นับยอดอัตโนมัติ" ที่หน้าโพย — true = โพยที่ AI อ่านได้ครบทุกบรรทัดนับยอดเลย
+  /// false = รอคนตรวจทุกใบ นับยอดเมื่อกดบันทึก · มีผลกับรูปที่อ่านเสร็จหลังจากนี้ (ดู src/lottery/ticket.ts)
+  aiAutoCount    Boolean @default(true)
 
   draws     Draw[]
   customers Customer[]
