@@ -243,7 +243,7 @@ const rereadErrorKey: Record<RereadSkip, string> = {
 };
 
 /**
- * สวิตช์ "นับยอดอัตโนมัติ" หลัง AI อ่านรูป ของแม่หวยที่เลือกอยู่ (ticket.ts — readAiTicketText)
+ * สวิตช์ "นับยอดรูปอัตโนมัติ" ของแม่หวยที่เลือกอยู่ — ใช้กับโพยจากรูปที่ AI อ่านเท่านั้น โพยข้อความนับยอดอัตโนมัติเสมอ (ticket.ts — readAiTicketText)
  * มีผลกับรูปที่ AI อ่านเสร็จหลังจากนี้ — โพยที่อ่านไปแล้วไม่ถูกแก้
  */
 export const setAiAutoCount = createAction(

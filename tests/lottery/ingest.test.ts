@@ -612,6 +612,12 @@ describe("รูปโพย (ingestImage → applyOcr)", () => {
     expect(state.bets).toEqual([]);
   });
 
+  test("ปิดสวิตช์นับยอดรูปอัตโนมัติ → โพยข้อความยังนับยอดอัตโนมัติตามเดิม", async () => {
+    state.aiAutoCount.set("dealer-1", false);
+    expect(await ingestMessage(db, message("wa-text", "32=300"))).toMatchObject({ action: "created", status: "CONFIRMED" });
+    expect(briefBets()).toEqual(["32 TOP LAK 300000"]);
+  });
+
   test("ปิดสวิตช์นับยอดอัตโนมัติ → อ่านครบก็ยังรอตรวจ (AI_HOLD) · ยอดรวมที่ส่งตามมาไม่ทำให้นับเอง", async () => {
     state.aiAutoCount.set("dealer-1", false);
     await ingestImage(db, imageMessage("wa-img"));
