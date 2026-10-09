@@ -668,6 +668,18 @@ describe("parseTicket — กติกา", () => {
     expect(parseTicket("32=50\n_____\n32 72").declaredTotal).toBeNull();
   });
 
+  test("บล็อกเลขกว้างเท่ากันทุกบรรทัด + =ยอด ท้ายบล็อก = ยอดเดียวกันทั้งบล็อก (ตัวท้ายแต่ละบรรทัดเป็นเลข)", () => {
+    const rows = ["55 58 52 57 50 59 53", "15 18 12 17 10 19 13", "05 08 02 07 00 09 03", "35 38 32 37 30 39 33"];
+    const ticket = parseTicket([...rows, "65 68 62 67 60 69 63=1.000", "ລວມ:35.000"].join("\n"));
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets).toHaveLength(35);
+    expect(ticket.bets.every((b) => b.amount === 1000 && b.position === "TOP")).toBe(true);
+    expect(ticket.declaredTotal).toBe(35);
+    // 3 ตัว "32 72 50" ยังเป็น เลข ยอด ({N} {A})
+    const short = parseTicket("32 72 50\n24 64 11=10").bets.map((b) => `${b.number} ${b.amount}`);
+    expect(short).toEqual(["32 50000", "72 50000", "24 10000", "64 10000", "11 10000"]);
+  });
+
   test("ລວມ:1ລ້ານ / ລວມ5ແສນ = ยอดรวมเต็มจำนวน · บรรทัดอีโมจิ/ชื่อเป็นหมายเหตุ", () => {
     const ticket = parseTicket("19.59.99.32.72ຮູ200\nລວມ:1ລ້ານ\nແອ໋ມ💰✅");
     expect(ticket.issues).toEqual([]);
@@ -679,6 +691,16 @@ describe("parseTicket — กติกา", () => {
 
     expect(parseTicket("32=250\n72=250\nລວມ 5ແສນ").issues).toEqual([]);
     expect(parseTicket("32=750\n72=750\nລວມ1.5ລ້ານ").issues).toEqual([]);
+    // ยอดย่อ 3 หลัก + ແສນ = บอกว่าอยู่หลักแสน: ລວມ_200ແສນ = 200,000 (ไม่ใช่ 20 ล้าน) · 15ແສນ ยังเป็น 1.5 ล้าน
+    const lakh = parseTicket("32_30\n72_30\n24_70\n64_70\nລວມ_200ແສນ");
+    expect(lakh.declaredTotal).toBe(200);
+    expect(lakh.issues).toEqual([]);
+    expect(parseTicket("32=750\n72=750\nລວມ15ແສນ").issues).toEqual([]);
+    // ໝື່ນ / ຕື້ · ລວມ20ໝື່ນ = 20,000 หรือ 200,000 — เลือกแบบที่ตรงกับยอดที่คิดได้
+    expect(parseTicket("32=10\n72=10\nລວມ20ໝື່ນ").issues).toEqual([]);
+    expect(parseTicket("32=100\n72=100\nລວມ20ໝື່ນ").issues).toEqual([]);
+    expect(parseTicket("32=500000\n72=500000\nລວມ1ລ້ານ").declaredTotal).toBe(1000);
+    expect(parseTicket("32=10\nລວມ1ຕື້").issues.map((i) => i.code)).toEqual(["TOTAL_MISMATCH"]);
     // ยอดรวมไม่ตรงยังเตือนเหมือนเดิม
     expect(parseTicket("32=100\nລວມ1ລ້ານ").issues.map((i) => i.code)).toEqual(["TOTAL_MISMATCH"]);
   });
@@ -854,8 +876,14 @@ describe("parseTicket — กติกา", () => {
     expect(brief("33 73=1ລ້ານ")).toEqual(["33 TOP 1000000", "73 TOP 1000000"]);
     expect(brief("38 78=1ລ້ານ*1ລ້ານ")).toEqual(["38 TOP 1000000", "38 BOTTOM 1000000", "78 TOP 1000000", "78 BOTTOM 1000000"]);
     expect(brief("32=1.5ລ້ານ")).toEqual(["32 TOP 1500000"]);
-    // 200ແສນ (= 20 ล้าน?) / 200ລ້ານ → รอตรวจ ไม่ตัดหน่วยทิ้งเป็นชื่อ
-    for (const text of ["16.56.96โต200แสน", "32=200ລ້ານ"]) {
+    // หัวหน่วยบอกหลักของยอด: 200ແສນ = 200,000 · 20ໝື່ນ = 20,000 · 5ຮ້ອຍ / 500ຮ້ອຍ = ยอดย่อ 500 · 15ແສນ = 1.5 ล้าน
+    expect(brief("16.56.96โต200แสน")).toEqual(["16 TOP 200000", "56 TOP 200000", "96 TOP 200000"]);
+    expect(brief("32=20ໝື່ນ")).toEqual(["32 TOP 20000"]);
+    expect(brief("32=5ຮ້ອຍ")).toEqual(["32 TOP 500000"]);
+    expect(brief("32=500ຮ້ອຍ")).toEqual(["32 TOP 500000"]);
+    expect(brief("32=15ແສນ")).toEqual(["32 TOP 1500000"]);
+    // 200ລ້ານ ไม่ตกหลักล้าน → รอตรวจ ไม่ตัดหน่วยทิ้งเป็นชื่อ
+    for (const text of ["32=200ລ້ານ"]) {
       expect([text, parseTicket(text).issues.map((i) => i.code)]).toEqual([text, ["UNREADABLE"]]);
     }
   });

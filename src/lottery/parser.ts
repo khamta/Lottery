@@ -214,9 +214,33 @@ function laoBetLine(text: string, match: RegExpMatchArray): boolean {
 }
 /** ชื่อ + : นำหน้ายอดรวม: "Jo: 70.000k" → ["Jo", "70.000k"] */
 const NAMED_TOTAL = /^([\p{L}\p{M}]{2,})\s*:\s*(\d.*)$/u;
-/** หน่วยเต็มของยอดรวม: ລວມ:1ລ້ານ = 1,000,000 กีบ · ລວມ5ແສນ = 500,000 กีบ */
-const TOTAL_UNITS: Record<string, number> = { ລ້ານ: 1_000_000, ລານ: 1_000_000, ล้าน: 1_000_000, ແສນ: 100_000, แสน: 100_000 };
-const TOTAL_UNIT_LINE = /^(?:ລວມ|รวม|ลวม|total|ລາວ|ลาว)[^\d]*(\d+(?:[.,]\d+)?)\s*(ລ້ານ|ລານ|ล้าน|ແສນ|แสน)/iu;
+/** หัวหน่วยหลังตัวเลข (ພັນ อ่านเป็นคำกำกับท้ายยอดอยู่แล้ว ไม่อยู่ในนี้) */
+const PLACE_UNITS: Record<string, number> = {
+  ສິບ: 10, ສີບ: 10, สิบ: 10,
+  ຮ້ອຍ: 100, ຮອຍ: 100, ร้อย: 100,
+  ໝື່ນ: 10_000, ຫມື່ນ: 10_000, ໝືນ: 10_000, หมื่น: 10_000,
+  ແສນ: 100_000, แสน: 100_000,
+  ລ້ານ: 1_000_000, ລານ: 1_000_000, ล้าน: 1_000_000,
+  ຕື້: 1_000_000_000, ຕື: 1_000_000_000,
+};
+const PLACE_UNIT = Object.keys(PLACE_UNITS).join("|");
+/** ตัวเลข + หัวหน่วย: "2ແສນ" · "1.5ລ້ານ" · "200ແສນ" · "20ໝື່ນ" */
+const PLACE_AMOUNT = new RegExp(String.raw`(?<![\d.,])(\d+(?:[.,]\d+)?)\s*(${PLACE_UNIT})`, "gu");
+const TOTAL_UNIT_LINE = new RegExp(String.raw`^(?:ລວມ|รวม|ลวม|total|ລາວ|ลาว)[^\d]*(\d+(?:[.,]\d+)?)\s*(${PLACE_UNIT})`, "iu");
+/**
+ * ตัวเลข + หัวหน่วย → ยอดแบบที่พิมพ์ (ต่ำกว่า 1,000 = ยอดย่อ · ตั้งแต่ 1,000 = กีบเต็มจำนวน)
+ *  - ตัวเลข 1–9 (ทศนิยมได้) = ตัวคูณ: 5ແສນ = 500,000 · 1.5ລ້ານ = 1,500,000 · 5ຮ້ອຍ = 500
+ *  - ตัวเลขหลายหลัก = หัวหน่วยบอกว่ายอดอยู่หลักไหน: 200ແສນ = 200,000 · 20ໝື່ນ = 20,000 · 500ຮ້ອຍ = 500
+ *    (ยอดตามที่พิมพ์ หรือยอดย่อ × ตัวคูณกีบ ที่ตกอยู่ในหลักนั้น) — other = แบบตัวคูณ ใช้เมื่อยอดรวมตรงกว่า
+ *  - ไม่ตกหลักไหนเลย: 10–99 ยังเป็นตัวคูณ (15ແສນ = 1,500,000) · ตั้งแต่ 100 กำกวม (200ລ້ານ) → null
+ */
+function placeAmount(count: number, unit: number, multiplier: number): { value: number; other?: number } | null {
+  const product = Math.round(count * unit);
+  if (count < 10) return { value: product };
+  const place = [count, count * multiplier].find((value) => value >= unit && value < unit * 10);
+  if (place !== undefined) return { value: place, other: product };
+  return count < 100 ? { value: product } : null;
+}
 /** สกุลเงิน/หลักพันระหว่างยอดบนกับ × : "20ບາດ×20ບາດ" */
 const CURRENCY_BEFORE_TIMES = /(\d)\s*(฿|ບາດ|บาท|บาด|baht|b|₭|ກີບ|ກິບ|กีบ|กิบ|kip|ພັນ|ພ|พัน|k)\s*(?=[*x×]\s*\d)/iu;
 /** ໂຕ / ຮູ / ປ່ອງ (+ລະ) หน้ายอด: "255=ໂຕ5ພັນ" */
@@ -244,13 +268,6 @@ function hasThbMarkLine(lines: readonly string[]) {
     (text, index) => (index < first || index > last) && THB_ONLY_LINE.test(text.replace(/[\s.:+\-/()[\]（）]/g, "")),
   );
 }
-/** ยอดหลักแสน: "2ແສນ" / "2 แสน" (ตัวเลขหลักเดียว) */
-const LAKH_AMOUNT = /^([1-9])\s*(?:ແສນ|แสน)(.*)$/u;
-/**
- * ยอดหลักล้าน: "1ລ້ານ" = 1,000,000 กีบ · "1.5ລ້ານ" · "1ລ້ານ*1ລ້ານ" (ตัวเลข 1–9 ทศนิยมได้ 1 ตำแหน่ง)
- * แปลงเป็นยอดเต็มจำนวน (ไม่คูณตัวคูณกีบ) · "200ລ້ານ" ยังกำกวม ส่งให้คนตรวจ
- */
-const MILLION_AMOUNT = /(?<![\d.,])([1-9](?:[.,]\d)?)\s*(?:ລ້ານ|ລານ|ล้าน)/gu;
 /** ยอดบนกับยอดล่างเขียนเป็นคำแยกกัน: "30ບົນ/20ລ່າງ" · "20ລ່າງ,30ບົນ" (คั่นด้วย / , - หรือช่องว่าง) */
 const TOP_BOTTOM_WORDS = new RegExp(
   String.raw`^(${AMOUNT})\s*(ບົນ|บน|ລ່າງ|ລາງ|ລຸ່ມ|ล่าง)\s*[/,\-\s]?\s*(${AMOUNT})\s*(ບົນ|บน|ລ່າງ|ລາງ|ລຸ່ມ|ล่าง)(.*)$`,
@@ -583,10 +600,11 @@ function parseAmount(text: string, fallback: Currency = "LAK"): Amount | { issue
     body = body.replace(CURRENCY_BEFORE_TIMES, "$1");
     if (!body.toLowerCase().includes(between[2].toLowerCase())) body += between[2];
   }
-  // 2ແສນ = 200,000 กีบ = ยอดย่อ 200 (เฉพาะ 1–9 ແສນ · "200ແສນ" กำกวม ส่งให้คนตรวจ)
-  body = body.replace(MILLION_AMOUNT, (_, value: string) => String(Math.round(Number(value.replace(",", ".")) * 1_000_000)));
-  const lakh = body.match(LAKH_AMOUNT);
-  if (lakh) body = `${Number(lakh[1]) * 100}${lakh[2]}`;
+  // หัวหน่วย: 2ແສນ / 200ແສນ = 200,000 · 1ລ້ານ*1ລ້ານ · 20ໝື່ນ = 20,000 (ดู placeAmount) · "200ລ້ານ" กำกวม คงไว้ให้คนตรวจ
+  body = body.replace(PLACE_AMOUNT, (match, count: string, unit: string) => {
+    const place = placeAmount(Number(count.replace(",", ".")), PLACE_UNITS[unit]!, DEFAULT_LAK_MULTIPLIER);
+    return place ? String(place.value) : match;
+  });
   // 30ບົນ/20ລ່າງ · 20ລ່າງ 30ບົນ = บน × ล่าง: "30*20"
   // ฝั่งเดียวกันสองครั้ง ("30ບົນ/20ບົນ") ไม่แปลง → อ่านไม่ออกตามเดิม
   const sided = body.match(TOP_BOTTOM_WORDS);
@@ -754,7 +772,9 @@ const ATTACHED_TOTAL = /^(.*\d\D*?)((?:ລວມ|รวม|ลวม)[^\d]*\d[^=
  * เลข 3 ตัวขึ้นไปคั่นด้วย ; หรือ : ล้วน ไม่มียอด: "10;50;90;210" = เลขล้วน รอยอดบรรทัดล่าง (Hu 20)
  * (2 ตัว "772;5" / "20;25" ยังเป็น เลข;ยอด)
  */
-const SEMICOLON_NUMBERS = /^\d{2,3}(?:\s*[;:]\s*\d{2,3}){2,}\s*[;:]?$/;
+/** เลขหลายตัว (เว้นวรรค/ตัวคั่น) แล้ว =ยอด: "65 68 62 67 60 69 63=1.000" — ดู sharesBelow ใน parseTicket */
+const BLOCK_AMOUNT_LINE = /^(\d{2,3}(?:[\s.,\-_]+\d{2,3})+)\s*=\s*\d/u;
+const SEMICOLON_NUMBERS =/^\d{2,3}(?:\s*[;:]\s*\d{2,3}){2,}\s*[;:]?$/;
 const semicolonNumbers = (text: string) => (SEMICOLON_NUMBERS.test(text) ? text.replace(/[;:]/g, ",") : text);
 /** เลข-ยอด แบบง่าย: "97-20" · "23.5" — ใช้ดูว่าโพยนี้เขียนยอดหลังขีด/จุด (ดู SPLIT_AMOUNT_LINE) */
 const SIMPLE_BET_LINE = /^\d{2,3}\s*[.\-]\s*\d{1,3}$/;
@@ -851,6 +871,8 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
   let afterDivider = false;
   /** ส่วนของยอดรวมที่แจ้งที่อยู่ในช่วงกำกวม 1,000–9,999 (นับเป็นหน่วยย่อไว้ก่อน) */
   let ambiguousTotal = 0;
+  /** ยอดรวมหัวหน่วยที่อ่านเป็นหลักแทนตัวคูณ (ລວມ20ໝື່ນ = 20,000) — ส่วนต่างถ้าอ่านเป็นตัวคูณแทน (200,000) */
+  let placeAlternative = 0;
   /** ยอดรวมที่แจ้ง (ລວມ / ใต้เส้นคั่น) → หน่วยย่อ */
   const addDeclared = (value: number) => {
     if (value >= LAK_FULL_BET_AMOUNT && value < LAK_FULL_AMOUNT) ambiguousTotal += value;
@@ -917,13 +939,28 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
   // = เลขที่รอยอด/เลขฐานของบรรทัดด้านล่าง — ไม่ใช้เงื่อนไขอ่านโพยและ "96/50" กับบรรทัดเหล่านี้
   // ไม่งั้น "{N} {A}" อ่าน "28 68" เป็นเลข 28 ยอด 68
   const awaitsBelow = new Set<number>();
+  const numberTokens = (text: string) => {
+    const tokens = semicolonNumbers(text).split(NUMBER_SEPARATOR).filter(Boolean);
+    return tokens.length > 0 && tokens.every((t) => /^\d{2,3}$/.test(t)) ? tokens : null;
+  };
   for (let i = segments.length - 1, next = false; i >= 0; i--) {
     const text = segments[i]!.original;
-    const tokens = semicolonNumbers(text).split(NUMBER_SEPARATOR).filter(Boolean);
-    const numbersOnly = tokens.length > 0 && tokens.every((t) => /^\d{2,3}$/.test(t));
+    const numbersOnly = numberTokens(text) !== null;
     if (numbersOnly && next) awaitsBelow.add(i);
     else next = !numbersOnly && (isAmountOnlyLine(text) || HUNDREDS_LINE.test(text));
   }
+  // บล็อกเลขที่มีจำนวนเลขเท่ากันทุกบรรทัด (4 ตัวขึ้นไป · "32 72 50" 3 ตัวยังเป็น เลข ยอด) แล้วบรรทัดสุดท้ายมี =ยอด = ยอดเดียวกันทั้งบล็อก:
+  // "55 58 52 57 50 59 53 / … / 65 68 62 67 60 69 63=1.000" — ตัวท้ายของบรรทัดบนเป็นเลข ไม่ใช่ยอด ({N} {A})
+  const sharesBelow = new Set<number>();
+  segments.forEach(({ original }, index) => {
+    const amountLine = original.match(BLOCK_AMOUNT_LINE);
+    const width = amountLine ? numberTokens(amountLine[1]!)?.length ?? 0 : 0;
+    if (width < 4) return;
+    for (let i = index - 1; i >= 0 && numberTokens(segments[i]!.original)?.length === width; i--) {
+      awaitsBelow.add(i);
+      sharesBelow.add(i);
+    }
+  });
 
   // โพยเขียน "เลข-ยอด" ทีละบรรทัด (2 บรรทัดขึ้นไป) → "11.5.50" = ยอดรวม 5+50
   const splitAmounts = segments.filter((segment) => SIMPLE_BET_LINE.test(segment.original)).length >= 2;
@@ -1057,11 +1094,20 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
       pending = [];
       sideHeading = null;
       closeHeading();
-      // ລວມ:1ລ້ານ / ລວມ 1.5ລ້ານ / ລວມ 5ແສນ = ยอดเต็มจำนวน (กีบ)
+      // ລວມ:1ລ້ານ / ລວມ 5ແສນ / ລວມ200ແສນ / ລວມ20ໝື່ນ = ยอดตามหัวหน่วย (ดู placeAmount)
       const unit = text.match(TOTAL_UNIT_LINE);
-      const value = unit ? Number(unit[1].replace(",", ".")) * TOTAL_UNITS[unit[2]] : toAmount(total[1]);
-      if (value === null || !(value > 0)) issues.push({ code: "UNREADABLE", line, text: original });
-      else addDeclared(value);
+      if (unit) {
+        const place = placeAmount(Number(unit[1]!.replace(",", ".")), PLACE_UNITS[unit[2]!]!, lakMultiplier || 1);
+        if (!place) issues.push({ code: "UNREADABLE", line, text: original });
+        else {
+          declaredTotal = (declaredTotal ?? 0) + betShort(place.value);
+          if (place.other !== undefined) placeAlternative += betShort(place.other) - betShort(place.value);
+        }
+      } else {
+        const value = toAmount(total[1]);
+        if (value === null || !(value > 0)) issues.push({ code: "UNREADABLE", line, text: original });
+        else addDeclared(value);
+      }
       // "30.000 ເລກລ່າງ" — ยอดรวมที่บอกฝั่ง = ฝั่งของรายการด้านบนที่ไม่ได้ระบุฝั่ง (เหมือนบรรทัด ລ່າງ เปล่า ๆ)
       const side = readSuffix(text.slice(text.indexOf(total[1]) + total[1].length).replace(/[:=]/g, ""))?.position;
       if (side && run.length > 0) {
@@ -1161,7 +1207,7 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
       const issue: ParseIssue = { code: result.issue, line, text: original };
       issues.push(issue);
       if (!hundreds && result.issue === "NO_AMOUNT" && numbers.length > 0 && numbers.every((n) => /^\d{2,3}$/.test(n))) {
-        pending = [...waiting, { numbers, line, issue, continued: /[-,./_]\s*$/.test(text) }];
+        pending = [...waiting, { numbers, line, issue, continued: /[-,./_]\s*$/.test(text) || sharesBelow.has(index) }];
       }
       if (!hundreds && result.issue === "NO_AMOUNT" && numbers.every((n) => /^\d{2}$/.test(n))) {
         bare = prev
@@ -1207,6 +1253,13 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
   if (declaredTotal !== null && ambiguousTotal > 0 && lakMultiplier > 0) {
     const asFull = declaredTotal - ambiguousTotal + ambiguousTotal / lakMultiplier;
     if (Math.round(asFull * 1000) / 1000 === typedTotal) declaredTotal = asFull;
+  }
+  // ລວມ20ໝື່ນ อ่านเป็น 20,000 ไว้ก่อน — ถ้าแบบตัวคูณ (200,000) ตรงกับยอดที่คิดได้ ใช้แบบนั้น
+  if (declaredTotal !== null && placeAlternative !== 0) {
+    const asProduct = declaredTotal + placeAlternative;
+    if (Math.round(declaredTotal * 1000) / 1000 !== typedTotal && Math.round(asProduct * 1000) / 1000 === typedTotal) {
+      declaredTotal = asProduct;
+    }
   }
   if (declaredTotal !== null) declaredTotal = Math.round(declaredTotal * 1000) / 1000;
 
