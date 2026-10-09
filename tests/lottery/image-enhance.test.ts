@@ -55,14 +55,34 @@ describe("ink.ts — หมึกเข้มและหนาขึ้น ไ�
   });
 });
 
-describe("enhanceSlipImage", () => {
+describe("enhanceSlipImage (รูปที่ส่งให้ AI)", () => {
   const original = process.env.OCR_ENHANCE;
   afterEach(() => {
     if (original === undefined) delete process.env.OCR_ENHANCE;
     else process.env.OCR_ENHANCE = original;
   });
 
-  test("รูปมืด → แสงไม่เปลี่ยน (กระดาษเท่าเดิม) หมึกเข้มขึ้น", async () => {
+  test("ค่าเริ่มต้น → ส่งรูปต้นฉบับ ไม่ปรับ", async () => {
+    delete process.env.OCR_ENHANCE;
+    const photo = await slipPhoto(120, 70);
+    expect(await enhanceSlipImage(photo, "image/png")).toEqual({ data: photo, mimeType: "image/png" });
+  });
+
+  test("ค่าเริ่มต้น รูปใหญ่เกิน 4MB → ย่อเท่านั้น หมึกไม่เข้มขึ้น", async () => {
+    delete process.env.OCR_ENHANCE;
+    const photo = await slipPhoto(200, 100, 2400, 200);
+    // ไบต์ต่อท้าย JPEG ไม่มีผลกับรูป — ทำให้ไฟล์ใหญ่เกินเกณฑ์โดยไม่ต้องสร้างรูปใหญ่จริง
+    const padded = new Uint8Array(5 * 1024 * 1024);
+    padded.set(photo);
+    const before = await samples(photo);
+    const out = await enhanceSlipImage(padded, "image/jpeg");
+    expect(await sharp(out.data).metadata()).toMatchObject({ width: 2000, height: 167 });
+    const after = await samples(out.data);
+    expect(Math.abs(after.ink - before.ink)).toBeLessThanOrEqual(8);
+  }, 30_000);
+
+  test("OCR_ENHANCE=1 → แสงไม่เปลี่ยน (กระดาษเท่าเดิม) หมึกเข้มขึ้น", async () => {
+    process.env.OCR_ENHANCE = "1";
     const dark = await slipPhoto(120, 70);
     const before = await samples(dark);
     const out = await enhanceSlipImage(dark, "image/jpeg");
@@ -74,32 +94,38 @@ describe("enhanceSlipImage", () => {
   });
 
   // รูปแถบยาวเตี้ย ๆ พอให้ย่อ แต่ประมวลผลเร็ว — runner ของ CI ช้า (รูป 4000×3000 เคยเกิน 5 วินาที)
-  test("รูปใหญ่ → ย่อด้านยาวเหลือ 2000px · รูปเล็กไม่ขยาย", async () => {
+  test("OCR_ENHANCE=1 รูปใหญ่ → ย่อด้านยาวเหลือ 2000px · รูปเล็กไม่ขยาย", async () => {
+    process.env.OCR_ENHANCE = "1";
     const big = await enhanceSlipImage(await slipPhoto(200, 30, 2400, 200), "image/jpeg");
     expect(await sharp(big.data).metadata()).toMatchObject({ width: 2000, height: 167 });
     const small = await enhanceSlipImage(await slipPhoto(200, 30), "image/jpeg");
     expect(await sharp(small.data).metadata()).toMatchObject({ width: 400, height: 300 });
   }, 30_000);
 
-  test("รูปเสีย / gif / ปิดด้วย OCR_ENHANCE=0 → ส่งรูปเดิม", async () => {
+  test("OCR_ENHANCE=1 รูปเสีย / gif → ส่งรูปเดิม", async () => {
+    process.env.OCR_ENHANCE = "1";
     const broken = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
     expect(await enhanceSlipImage(broken, "image/jpeg")).toEqual({ data: broken, mimeType: "image/jpeg" });
-
     const photo = await slipPhoto(70, 40);
     expect((await enhanceSlipImage(photo, "image/gif")).data).toBe(photo);
-    process.env.OCR_ENHANCE = "0";
-    expect((await enhanceSlipImage(photo, "image/jpeg")).data).toBe(photo);
   });
 });
 
-describe("autoAdjustSlipImage (ปรับรูปต้นฉบับก่อนให้คนตรวจ)", () => {
+describe("autoAdjustSlipImage (รูปต้นฉบับที่ส่งให้คนตรวจ)", () => {
   const original = process.env.IMAGE_AUTO_ADJUST;
   afterEach(() => {
     if (original === undefined) delete process.env.IMAGE_AUTO_ADJUST;
     else process.env.IMAGE_AUTO_ADJUST = original;
   });
 
-  test("แสงไม่เปลี่ยน หมึกเข้มขึ้น ขนาดเท่าเดิม เป็น JPEG", async () => {
+  test("ค่าเริ่มต้น → รูปต้นฉบับ ไม่ปรับ", async () => {
+    delete process.env.IMAGE_AUTO_ADJUST;
+    const photo = await slipPhoto(200, 140);
+    expect((await autoAdjustSlipImage(photo, "image/jpeg")).data).toBe(photo);
+  });
+
+  test("IMAGE_AUTO_ADJUST=1 → แสงไม่เปลี่ยน หมึกเข้มขึ้น ขนาดเท่าเดิม เป็น JPEG", async () => {
+    process.env.IMAGE_AUTO_ADJUST = "1";
     const photo = await slipPhoto(200, 140);
     const before = await samples(photo);
     const out = await autoAdjustSlipImage(photo, "image/jpeg");
@@ -111,13 +137,11 @@ describe("autoAdjustSlipImage (ปรับรูปต้นฉบับก่�
     expect(await sharp(out.data).metadata()).toMatchObject({ width: 400, height: 300 });
   });
 
-  test("รูปเสีย / gif / ปิดด้วย IMAGE_AUTO_ADJUST=0 → รูปเดิม", async () => {
+  test("IMAGE_AUTO_ADJUST=1 รูปเสีย / gif → รูปเดิม", async () => {
+    process.env.IMAGE_AUTO_ADJUST = "1";
     const broken = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
     expect(await autoAdjustSlipImage(broken, "image/jpeg")).toEqual({ data: broken, mimeType: "image/jpeg" });
-
     const photo = await slipPhoto(70, 40);
     expect((await autoAdjustSlipImage(photo, "image/gif")).data).toBe(photo);
-    process.env.IMAGE_AUTO_ADJUST = "0";
-    expect((await autoAdjustSlipImage(photo, "image/jpeg")).data).toBe(photo);
   });
 });

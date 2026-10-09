@@ -346,6 +346,11 @@ export function TicketsView({
         />
       </div>
 
+      {/* แถบตัวกรองแยกจากแถบปุ่มของตาราง: กลุ่ม (ของใคร) → ตัวกรอง (ดูอะไร) → ตาราง + ปุ่มทำงาน */}
+      <div className="mb-4 rounded-xl border bg-muted/30 p-2">
+        <TicketFilters draws={draws} filters={filters} oddLakCount={oddLakCount} imageCount={imageTicketCount} disabled={isPending} />
+      </div>
+
       {/* กดที่แถว = เปิดหน้าตรวจโพย (ตารางกลางรับ onClick ของแถวไม่ได้ จึงดักที่กรอบนอก) · แถวที่ยังไม่ได้ดูมีพื้นเน้น */}
       <div
         onClick={handleRowClick}
@@ -372,8 +377,7 @@ export function TicketsView({
             </>
           )}
           toolbar={
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <TicketFilters draws={draws} filters={filters} oddLakCount={oddLakCount} imageCount={imageTicketCount} disabled={isPending} />
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
               <AiAutoCountSwitch on={autoCount} onToggle={handleAiAutoCount} disabled={isPending} />
               {rereadDraw ? (
                 <Button

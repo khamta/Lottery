@@ -68,7 +68,8 @@ export function TicketFilters({
 
   return (
     // มือถือ: ตาราง 2 คอลัมน์ (งวด | สถานะ · ยอด | มีรูป · ยอดกีบแปลก | ล้าง) — ไม่ต้องเลื่อนผ่านปุ่มเต็มจอทีละแถว
-    <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-nowrap">
+    // จอใหญ่: [งวด สถานะ ยอดต่อตัว] | [มีรูป ยอดกีบแปลก] … [ล้าง] ชิดขวา — ขึ้นบรรทัดใหม่เองเมื่อจอแคบ
+    <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
       {/* "ทุกงวด" ต้องเขียน draw=all ลง URL เพราะไม่ระบุ = งวดที่เปิดรับล่าสุด · เปลี่ยนงวด = กลับไปกลุ่มเริ่มต้นของงวดนั้น (กลุ่มที่มีโพยล่าสุด) */}
       <Select
         value={filters.drawId ?? ALL}
@@ -124,6 +125,8 @@ export function TicketFilters({
         />
       </div>
 
+      <span aria-hidden className="hidden h-6 w-px bg-border sm:block" />
+
       <Button
         type="button"
         variant={filters.image ? "default" : "outline"}
@@ -155,7 +158,7 @@ export function TicketFilters({
         <Button
           type="button"
           variant="ghost"
-          className="min-w-0 sm:w-auto"
+          className="min-w-0 sm:ml-auto sm:w-auto"
           disabled={disabled || isPending}
           onClick={() => apply({ draw: null, group: null, status: null, odd: null, amount: null, image: null, q: null })}
         >

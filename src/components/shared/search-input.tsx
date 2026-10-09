@@ -45,12 +45,37 @@ export function SearchInput({
     return () => clearTimeout(timer);
   }, [value, initial, delay, pathname, router, searchParams]);
 
+  // ยุบเหลือปุ่มไอคอนจนกว่าจะกด — มีคำค้นอยู่แล้วกางค้างไว้ · ช่องว่างแล้วออกจากช่อง = ยุบกลับ
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const [open, setOpen] = React.useState(false);
+  const expanded = open || value !== "";
+
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label={placeholder}
+        title={placeholder}
+        className="inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-input text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <Search className="size-4" />
+      </button>
+    );
+  }
+
   return (
-    <div className="relative min-w-0 flex-1 sm:max-w-xs">
+    <div className="relative min-w-0 flex-1 animate-in-up sm:max-w-xs">
       <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
       <Input
+        ref={inputRef}
+        autoFocus={open}
         value={value}
         onChange={(e) => setValue(e.target.value)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && !value) inputRef.current?.blur();
+        }}
         placeholder={placeholder}
         className="pr-9 pl-9"
         aria-label={placeholder}
@@ -60,7 +85,11 @@ export function SearchInput({
       ) : value ? (
         <button
           type="button"
-          onClick={() => setValue("")}
+          onClick={() => {
+            setValue("");
+            setOpen(true);
+            inputRef.current?.focus();
+          }}
           aria-label={t("table.clearSearch")}
           className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
         >
