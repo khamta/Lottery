@@ -720,6 +720,39 @@ const sameAsStored = (
   ticket.betCount === read.fields.betCount;
 
 /**
+ * แม่หวยเปิดสวิตช์ "นับยอดโพยรูปอัตโนมัติ" → ปล่อยโพยที่รอตรวจเพราะสวิตช์ปิด (AI_HOLD) ในงวดที่เปิดรับ:
+ * อ่านข้อความเดิมใหม่ — อ่านได้ครบ = นับยอดเลย · ยังมีบรรทัดที่อ่านไม่ออก = รอตรวจต่อ (เหลือแต่ปัญหาจริง ไม่มี AI_HOLD)
+ * audit ในนามระบบเหมือน rereadTickets · คืนจำนวนโพยที่นับยอดได้
+ */
+export async function releaseHeldTickets(db: PrismaClient, dealerId: string): Promise<number> {
+  const tickets = await db.ticket.findMany({
+    where: { draw: { dealerId, status: "OPEN" }, status: "REVIEW", rawText: { not: "" } },
+  });
+  const held = tickets.filter((ticket) => hasIssue(ticket.issues, "AI_HOLD"));
+  if (held.length === 0) return 0;
+  const rules = await rulesOf(db, dealerId);
+
+  let counted = 0;
+  for (const ticket of held) {
+    const next = readTicketText(ticket.rawText, { lakMultiplier: ticket.lakMultiplier, rules });
+    if (!next) continue;
+    await db.$transaction(async (tx) => {
+      const updated = await rewriteTicket(tx, ticket, next.fields, next.bets);
+      await logAudit(tx, {
+        action: "UPDATE",
+        entity: "Ticket",
+        entityId: ticket.id,
+        summary: summaryOf(ticket.rawText),
+        before: ticket,
+        after: updated,
+      });
+    });
+    if (next.fields.status === "CONFIRMED") counted++;
+  }
+  return counted;
+}
+
+/**
  * เงื่อนไขอ่านโพยของแม่หวยเปลี่ยน (หน้า /read-rules) → อ่านโพยในงวดที่เปิดรับใหม่ด้วยเงื่อนไขชุดใหม่
  * ข้อความของโพยไม่ถูกแก้ — เงื่อนไขใช้ตอนอ่านเท่านั้น จึงเปลี่ยนกลับได้เสมอ
  *

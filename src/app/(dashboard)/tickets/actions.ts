@@ -13,7 +13,7 @@ import { nextBillNo } from "@/lottery/bill";
 import { requireDealerId } from "@/lottery/dealer";
 import { DEFAULT_LAK_MULTIPLIER } from "@/lottery/parser";
 import { removeTicketImage, saveTicketImage } from "@/lottery/image-store";
-import { replaceImageAndReread, requestImageReread, rulesOf, type RereadSkip } from "@/lottery/ingest";
+import { releaseHeldTickets, replaceImageAndReread, requestImageReread, rulesOf, type RereadSkip } from "@/lottery/ingest";
 import { readTicketText } from "@/lottery/ticket";
 import {
   createTicketSchema,
@@ -244,7 +244,8 @@ const rereadErrorKey: Record<RereadSkip, string> = {
 
 /**
  * สวิตช์ "นับยอดรูปอัตโนมัติ" ของแม่หวยที่เลือกอยู่ — ใช้กับโพยจากรูปที่ AI อ่านเท่านั้น โพยข้อความนับยอดอัตโนมัติเสมอ (ticket.ts — readAiTicketText)
- * มีผลกับรูปที่ AI อ่านเสร็จหลังจากนี้ — โพยที่อ่านไปแล้วไม่ถูกแก้
+ * ปิด → มีผลกับรูปที่ AI อ่านเสร็จหลังจากนี้ (โพยที่นับยอดแล้วไม่ถูกแก้)
+ * เปิด → โพยที่รอตรวจเพราะสวิตช์ปิด (AI_HOLD) ในงวดที่เปิดรับถูกอ่านใหม่ ใบที่อ่านได้ครบนับยอดเลย (releaseHeldTickets)
  */
 export const setAiAutoCount = createAction(
   setAiAutoCountSchema,
@@ -266,8 +267,9 @@ export const setAiAutoCount = createAction(
       });
     });
 
+    const released = autoCount ? await releaseHeldTickets(prisma, dealerId) : 0;
     revalidatePath("/tickets");
-    return { autoCount };
+    return { autoCount, released };
   },
   { successMessage: "tickets.aiAutoCountSaved" },
 );

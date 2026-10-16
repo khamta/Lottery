@@ -9,6 +9,7 @@ import {
   ingestMessage,
   ingestUndecryptable,
   reapplyOcr,
+  releaseHeldTickets,
   requestImageReread,
   revokeMessage,
 } from "@/lottery/ingest";
@@ -88,6 +89,15 @@ const tx = {
       ) ?? null,
   },
   ticket: {
+    // โพยรอตรวจในงวดที่เปิดรับของแม่หวย (releaseHeldTickets)
+    findMany: async ({ where }: { where: { draw: { dealerId: string; status: string }; status: string } }) =>
+      [...state.tickets.values()].filter(
+        (ticket) =>
+          drawOf(ticket).dealerId === where.draw.dealerId &&
+          drawOf(ticket).status === where.draw.status &&
+          ticket.status === where.status &&
+          ticket.rawText !== "",
+      ),
     create: async ({ data }: { data: Row }) => {
       const ticket = { id: `ticket-${nextId++}`, createdAt: new Date(), ...data };
       state.tickets.set(ticket.id, ticket);
@@ -630,6 +640,21 @@ describe("รูปโพย (ingestImage → applyOcr)", () => {
     expect(await ingestMessage(db, message("wa-total", "ລວມ400"))).toMatchObject({ action: "total-attached", status: "REVIEW" });
     expect(onlyTicket()).toMatchObject({ rawText: "32=300\n45=100\nລວມ400", status: "REVIEW", totalLak: 0 });
     expect(state.bets).toEqual([]);
+  });
+
+  test("เปิดสวิตช์นับยอดอัตโนมัติอีกครั้ง → โพยที่รอตรวจเพราะสวิตช์ (AI_HOLD) ที่อ่านได้ครบนับยอดเลย", async () => {
+    state.aiAutoCount.set("dealer-1", false);
+    await ingestImage(db, imageMessage("wa-img"));
+    await applyOcr(db, "ticket-1", { text: "32=300\n45=100", ocr });
+    expect(onlyTicket()).toMatchObject({ status: "REVIEW", totalLak: 0 });
+
+    // releaseHeldTickets อ่านรายการโพยนอก transaction
+    const withTickets = { ...(db as object), ticket: tx.ticket } as unknown as PrismaClient;
+    expect(await releaseHeldTickets(withTickets, "dealer-1")).toBe(1);
+    expect(onlyTicket()).toMatchObject({ status: "CONFIRMED", totalLak: 400_000, issues: [] });
+    expect(briefBets()).toEqual(["32 TOP LAK 300000", "45 TOP LAK 100000"]);
+    // ไม่มีโพยที่รออยู่แล้ว
+    expect(await releaseHeldTickets(withTickets, "dealer-1")).toBe(0);
   });
 
   test("ยอดรวมใต้รูปไม่ตรงกับที่อ่านได้ (OCR อ่านตกหล่น) → รอตรวจ", async () => {

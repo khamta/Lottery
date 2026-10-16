@@ -8,6 +8,7 @@ import { DataTable } from "@/components/shared/data-table";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { useOptimisticList } from "@/hooks/use-optimistic-list";
 import { useI18n } from "@/i18n/client";
+import { notify } from "@/lib/notify";
 import type { TicketInput } from "@/lib/validations/ticket";
 import { DEFAULT_LAK_MULTIPLIER, parseTicket } from "@/lottery/parser";
 import type { ReadRuleSpec } from "@/lottery/read-rules";
@@ -330,6 +331,10 @@ export function TicketsView({
     mutate({
       patch: { type: "delete-many", ids: [] },
       action: () => setAiAutoCount({ autoCount: next }),
+      // เปิดสวิตช์ → โพยที่รอตรวจเพราะสวิตช์ปิดถูกอ่านใหม่ บอกว่านับยอดได้กี่ใบ
+      onSuccess: ({ released }) => {
+        if (released > 0) notify.info(t("tickets.aiAutoCountReleased", { count: released }));
+      },
       onError: () => setAutoCount(!next),
     });
   }
