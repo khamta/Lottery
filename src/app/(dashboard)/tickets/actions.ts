@@ -128,7 +128,7 @@ export const updateTicket = createAction(
       const { data, bets } = await readTicket(tx, input, dealerId);
 
       await tx.bet.deleteMany({ where: { ticketId: id } });
-      const ticket = await tx.ticket.update({ where: { id }, data });
+      const ticket = await tx.ticket.update({ where: { id }, data: { ...data, editedAt: new Date() } });
       if (bets.length > 0) {
         await tx.bet.createMany({ data: bets.map((bet) => ({ ...bet, ticketId: id })) });
       }
@@ -210,7 +210,7 @@ export const resetTickets = createAction(
         await tx.bet.deleteMany({ where: { ticketId: before.id } });
         const after = await tx.ticket.update({
           where: { id: before.id },
-          data: { status: "REVIEW", totalLak: 0, totalThb: 0, betCount: 0 },
+          data: { status: "REVIEW", totalLak: 0, totalThb: 0, betCount: 0, editedAt: new Date() },
         });
         entries.push({
           action: "UPDATE" as const,

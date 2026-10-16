@@ -115,6 +115,7 @@ OUTPUT FORMAT — one bet per line:
 - bottom only: NUMBER=AMOUNTລ່າງ
 - baht: append ฿, e.g. 732=80฿ . Kip has no suffix.
 - declared total: ລວມ followed by digits only, e.g. ລວມ45000
+  A total written in two currencies (kip and baht) = one ລວມ line per currency, baht with ฿: ລ 30K 250B → ລວມ30 and ລວມ250฿ (two lines). Never repeat a bet row inside the total.
 - several numbers on one row followed by one amount = every number gets that amount and its mark (ບົນ / ບລ / ລ່າງ / ฿).
   Write one line per number: 10 20 30 50/5ບລ → 10=5ບລ, 20=5ບລ, 30=5ບລ, 50=5ບລ (each on its own line)
 - 3-digit numbers have no bottom bet — the parser handles that. Still write the mark exactly as written (590=5ບລ); do not drop it or the number.

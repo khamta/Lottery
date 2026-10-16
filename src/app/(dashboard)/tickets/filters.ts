@@ -39,7 +39,7 @@ export function parseAmountQuery(value: string | undefined): number | null {
   return amount > 0 && amount <= AMOUNT_MAX ? amount : null;
 }
 
-/** อ่าน ?draw=<id>|all&status=&odd=1&amount=&image=1 จาก URL — ไม่ระบุงวด = งวดที่เปิดรับล่าสุด (draws เรียงใหม่ → เก่า) */
+/** อ่าน ?draw=<id>|all&status=&odd=1&amount=&image=1&edited=1 จาก URL — ไม่ระบุงวด = งวดที่เปิดรับล่าสุด (draws เรียงใหม่ → เก่า) */
 export function readTicketFilters(raw: SearchParamsInput, draws: Pick<DrawOption, "id" | "status">[]): TicketFilterValues {
   const drawParam = (first(raw.draw) ?? "").slice(0, 50);
   const drawId =
@@ -51,11 +51,15 @@ export function readTicketFilters(raw: SearchParamsInput, draws: Pick<DrawOption
     oddLak: first(raw.odd) === "1",
     amount: parseAmountQuery(first(raw.amount)),
     image: first(raw.image) === "1",
+    edited: first(raw.edited) === "1",
   };
 }
 
 /** โพยที่มีรูป — ใช้ทั้งตัวกรอง ?image=1 และนับจำนวนบนปุ่มกรอง */
 export const withImageWhere: Prisma.TicketWhereInput = { image: { isNot: null } };
+
+/** โพยที่คนแก้แล้ว — ตัวกรอง ?edited=1 (ปุ่ม "แก้ไขล่าสุด") */
+export const editedWhere: Prisma.TicketWhereInput = { editedAt: { not: null } };
 
 /** อ่านรูปใหม่ทั้งงวดได้ครั้งละไม่เกินเท่านี้ใบ — กันคำสั่งเดียวใช้เวลา/ค่า AI มากเกินไป (กดซ้ำเพื่ออ่านส่วนที่เหลือ) */
 export const REREAD_DRAW_MAX = 300;
@@ -75,6 +79,7 @@ export function rereadableWhere(dealerId: string, drawId: string): Prisma.Ticket
  * oddLakIds = โพยที่มียอดกีบแปลก (oddLakTicketIds) — ใช้เมื่อเปิดตัวกรอง ?odd=1 · ไม่ส่งมา = ไม่เจออะไร
  * ?amount= = มีรายการแทงยอดต่อตัวเท่านี้อย่างน้อย 1 รายการ — ดูจากตาราง bets จึงเจอเฉพาะโพยที่นับยอดแล้ว
  * ?image=1 = เฉพาะโพยที่มีรูป (withImageWhere)
+ * ?edited=1 = เฉพาะโพยที่คนแก้แล้ว (editedWhere) — page.tsx เรียงตามเวลาที่แก้ล่าสุดก่อน
  * groups = กลุ่มที่ดูอยู่ (groups.ts) · null/ไม่มี = ทุกกลุ่ม — page.tsx ตรวจกับกลุ่มจริงก่อนส่งมา
  */
 export function ticketWhere(
@@ -89,6 +94,7 @@ export function ticketWhere(
   if (filters.oddLak) conditions.push({ id: { in: oddLakIds } });
   if (filters.amount) conditions.push({ bets: { some: { amount: filters.amount } } });
   if (filters.image) conditions.push(withImageWhere);
+  if (filters.edited) conditions.push(editedWhere);
   if (filters.groups) conditions.push(groupWhere(filters.groups));
   if (q) {
     const bill = billQueryPrefix(q);

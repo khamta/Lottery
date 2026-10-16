@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import sharp from "sharp";
 
-import { autoAdjustSlipImage, enhanceSlipImage } from "@/lottery/image-enhance";
+import { ticketImageUrl } from "@/app/(dashboard)/tickets/types";
+import { boldSlipImage, enhanceSlipImage } from "@/lottery/image-enhance";
 import { boldInkPixels, inkKnee, inkTable } from "@/lottery/ink";
 
 /** รูปโพยจำลอง: พื้นสีเดียว + แถบหมึก — background/ink = ความสว่าง 0-255 */
@@ -111,24 +112,11 @@ describe("enhanceSlipImage (รูปที่ส่งให้ AI)", () => {
   });
 });
 
-describe("autoAdjustSlipImage (รูปต้นฉบับที่ส่งให้คนตรวจ)", () => {
-  const original = process.env.IMAGE_AUTO_ADJUST;
-  afterEach(() => {
-    if (original === undefined) delete process.env.IMAGE_AUTO_ADJUST;
-    else process.env.IMAGE_AUTO_ADJUST = original;
-  });
-
-  test("ค่าเริ่มต้น → รูปต้นฉบับ ไม่ปรับ", async () => {
-    delete process.env.IMAGE_AUTO_ADJUST;
-    const photo = await slipPhoto(200, 140);
-    expect((await autoAdjustSlipImage(photo, "image/jpeg")).data).toBe(photo);
-  });
-
-  test("IMAGE_AUTO_ADJUST=1 → แสงไม่เปลี่ยน หมึกเข้มขึ้น ขนาดเท่าเดิม เป็น JPEG", async () => {
-    process.env.IMAGE_AUTO_ADJUST = "1";
+describe("boldSlipImage (ปุ่มดูตัวอักษรเข้มในหน้าตรวจ)", () => {
+  test("แสงไม่เปลี่ยน หมึกเข้มขึ้น ขนาดเท่าเดิม เป็น JPEG", async () => {
     const photo = await slipPhoto(200, 140);
     const before = await samples(photo);
-    const out = await autoAdjustSlipImage(photo, "image/jpeg");
+    const out = await boldSlipImage(photo, "image/jpeg");
     const after = await samples(out.data);
 
     expect(out.mimeType).toBe("image/jpeg");
@@ -137,11 +125,20 @@ describe("autoAdjustSlipImage (รูปต้นฉบับที่ส่ง�
     expect(await sharp(out.data).metadata()).toMatchObject({ width: 400, height: 300 });
   });
 
-  test("IMAGE_AUTO_ADJUST=1 รูปเสีย / gif → รูปเดิม", async () => {
-    process.env.IMAGE_AUTO_ADJUST = "1";
+  test("รูปเสีย / gif → รูปเดิม", async () => {
     const broken = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
-    expect(await autoAdjustSlipImage(broken, "image/jpeg")).toEqual({ data: broken, mimeType: "image/jpeg" });
+    expect(await boldSlipImage(broken, "image/jpeg")).toEqual({ data: broken, mimeType: "image/jpeg" });
     const photo = await slipPhoto(70, 40);
-    expect((await autoAdjustSlipImage(photo, "image/gif")).data).toBe(photo);
+    expect((await boldSlipImage(photo, "image/gif")).data).toBe(photo);
+  });
+});
+
+describe("ticketImageUrl", () => {
+  test("ปกติ = ไฟล์ตามที่เก็บไว้ · bold ต่อท้าย ?bold=1 · original ไม่สน bold", () => {
+    expect(ticketImageUrl("t1")).toBe("/tickets/image/t1");
+    expect(ticketImageUrl("t1", { bold: true })).toBe("/tickets/image/t1?bold=1");
+    const editedAt = new Date(1_000).toISOString();
+    expect(ticketImageUrl("t1", { editedAt, bold: true })).toBe("/tickets/image/t1?v=1000&bold=1");
+    expect(ticketImageUrl("t1", { original: true })).toBe("/tickets/image/t1?original=1");
   });
 });

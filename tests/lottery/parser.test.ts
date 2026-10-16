@@ -601,6 +601,37 @@ describe("parseTicket — กติกา", () => {
     expect(parseTicket("84=20\n144=5\n25.000 ເລກລ່າງ").issues.map((i) => i.code)).toEqual(["THREE_DIGIT_BOTTOM"]);
   });
 
+  test("เลขไม่มียอดทั้งโพย + ยอดรวม = หารยอดรวมเท่ากันทุกเลข", () => {
+    const ticket = parseTicket(["00", "20", "60", "40", "80", "06", "46", "86", "39", "79", "20,000"].join("\n"));
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets).toHaveLength(10);
+    expect(ticket.bets.every((b) => b.amount === 2000 && b.position === "TOP")).toBe(true);
+    expect(ticket.declaredTotal).toBe(20);
+    expect(ticket.typedTotal).toBe(20);
+  });
+
+  test("ชื่อ + ตัวเลขเปล่า ๆ บรรทัดสุดท้าย = ชื่อลูกค้า + ยอดรวม", () => {
+    const ticket = parseTicket("32.72.30.70=50*2\nຫລັກ9=25\nປານ 308");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.notes).toContain("ປານ");
+    expect(ticket.declaredTotal).toBe(308);
+    expect(ticket.typedTotal).toBe(308);
+    expect(parseTicket("32=10\nປານ 20").issues.map((i) => i.code)).toEqual(["TOTAL_MISMATCH"]);
+  });
+
+  test("ฝั่งเปล่า ๆ ท้ายโพย (ใต้ ລວມ / เว้นบรรทัด) = ฝั่งของรายการด้านบน", () => {
+    const ticket = parseTicket("11=20\n51=20\n91=20\nລວມ120000\n\nບົນ-ລ່າງ");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.map((b) => `${b.number} ${b.position}`)).toEqual(["11 TOP", "11 BOTTOM", "51 TOP", "51 BOTTOM", "91 TOP", "91 BOTTOM"]);
+    expect(ticket.typedTotal).toBe(120);
+
+    const sides = (text: string) => parseTicket(text).bets.map((b) => `${b.number} ${b.position}`);
+    expect(sides("84=20\n44=5\nລວມ25\nລ່າງ")).toEqual(["84 BOTTOM", "44 BOTTOM"]);
+    expect(sides("84=20\n44=5\n\nລ່າງ")).toEqual(["84 BOTTOM", "44 BOTTOM"]);
+    // เว้นบรรทัดแล้วมีเลขด้านล่าง = หัวฝั่งของบรรทัดด้านล่างตามเดิม
+    expect(sides("84=20\nລວມ20\n\nລ່າງ\n44=5")).toEqual(["84 TOP", "44 BOTTOM"]);
+  });
+
   test("14.000ບົນ / ລ 14.000ບົນ / ລວມ 14.000ບົນ / 14.000 = ยอดรวม (ลาว + ไทย)", () => {
     const body = "2/10/26🇱🇦\n28=5\n68=5\n028=2\n068=2\n";
     for (const tail of ["14.000ບົນ", "ລວມ 14.000ບົນ", "ລ 14.000ບົນ", "14.000", "14,000", "รวม 14.000บน", "ล 14.000บน", "ล14"]) {
@@ -666,6 +697,19 @@ describe("parseTicket — กติกา", () => {
     // ไม่มีเส้นคั่นแต่เป็นรูปแบบหลักพันเดี่ยว ๆ → ยอดรวมเหมือนกัน · ใต้เส้นเป็นเลขหลายตัว → ไม่ใช่ยอดรวม
     expect(parseTicket("32=50\n101.000").declaredTotal).toBe(101);
     expect(parseTicket("32=50\n_____\n32 72").declaredTotal).toBeNull();
+  });
+
+  test("ฝั่งนำหน้ายอดที่สอง: 30ບົນລ່າງ10 · ບົນ30ລ່າງ10 = บน 30 ล่าง 10 (ไม่กลับข้าง)", () => {
+    const brief = (text: string) => parseTicket(text).bets.map((b) => `${b.number} ${b.position} ${b.amount}`);
+    const expected = ["19 TOP 30000", "19 BOTTOM 10000"];
+    for (const text of ["19=30ບົນລ່າງ10", "19ໂຕ30ບົນລ່າງ10", "19=ບົນ30ລ່າງ10", "19=30ບົນ ລ່າງ10", "19=30ບົນ/10ລ່າງ"]) {
+      expect([text, brief(text)]).toEqual([text, expected]);
+    }
+    // ไม่มียอดตามหลังฝั่งที่สอง = บนล่างยอดเดียว
+    expect(brief("19=30ບົນລ່າງ")).toEqual(["19 TOP 30000", "19 BOTTOM 30000"]);
+    const ticket = parseTicket("ລີ້ເລກລາວ\n19 59 99ໂຕ30ບົນລ່າງ10\n619 659 699ໂຕ10");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.typedTotal).toBe(150);
   });
 
   test("บล็อกเลขกว้างเท่ากันทุกบรรทัด + =ยอด ท้ายบล็อก = ยอดเดียวกันทั้งบล็อก (ตัวท้ายแต่ละบรรทัดเป็นเลข)", () => {
@@ -1678,5 +1722,130 @@ describe("ໂຕ3 แล้วบรรทัด ບົນ-ລ່າງ เป�
     expect(ticket.bets.every((b) => b.amount === 3000)).toBe(true);
     expect(ticket.bets.filter((b) => b.position === "BOTTOM").map((b) => b.number)).toEqual(["28", "68", "29", "69", "32", "72"]);
     expect(ticket.typedTotal).toBe(36);
+  });
+});
+
+describe("parseTicket — โพยจริงชุด 2026-10-16", () => {
+  const brief = (text: string) => parseTicket(text).bets.map((b) => `${b.number} ${b.position} ${b.amount}${b.currency === "THB" ? "฿" : ""}`);
+  const ok = (text: string) => {
+    const ticket = parseTicket(text);
+    expect(ticket.issues).toEqual([]);
+    return ticket;
+  };
+
+  test("บ ไทยท้าย บน×ล่าง / ในโพยบาท = บาท", () => {
+    expect(ok("16.200×200บ\n56.200×200บ\n96.200×200บ\nอแล้ด1200บาด").typedTotal).toBe(1200);
+    expect(brief("16.200×200บ")).toEqual(["16 TOP 200฿", "16 BOTTOM 200฿"]);
+    const ticket = ok("616.90บ\n656\n696\n916\n956\n996.90บ\nอแล้ด540บาด");
+    expect(ticket.bets.every((b) => b.amount === 90 && b.currency === "THB")).toBe(true);
+    expect(ticket.typedTotal).toBe(540);
+    // ไม่มีบริบทบาท = ยังกำกวม
+    expect(parseTicket("616.90บ").needsReview).toBe(true);
+  });
+
+  test("บ ไทยคั่นเลขกับยอด = บน: 02/42/82บ1แสน · หลัก2บ50", () => {
+    const ticket = ok("02/42/82บ1แสน\nหลัก2บ50\nลวม450тн");
+    expect(brief("02/42/82บ1แสน\nหลัก2บ50")).toEqual([
+      "02 TOP 100000", "42 TOP 100000", "82 TOP 100000", "202 TOP 50000", "242 TOP 50000", "282 TOP 50000",
+    ]);
+    expect(ticket.typedTotal).toBe(450);
+  });
+
+  test("หัวยอด ตัวละ 50 บาท บนล่าง → บรรทัด 03-30 เป็นเลขสองตัว ไม่ใช่ เลข-ยอด", () => {
+    const ticket = ok("ตัวละ 50 บาท บนล่าง\n03-30\n05-50\n\nตัวละ 100 บาท บนล่าง\n25-52");
+    expect(ticket.bets.map((b) => `${b.number} ${b.position} ${b.amount}`)).toEqual([
+      "03 TOP 50", "03 BOTTOM 50", "30 TOP 50", "30 BOTTOM 50", "05 TOP 50", "05 BOTTOM 50", "50 TOP 50", "50 BOTTOM 50",
+      "25 TOP 100", "25 BOTTOM 100", "52 TOP 100", "52 BOTTOM 100",
+    ]);
+  });
+
+  test("บรรทัดยอด 50x50฿ เปล่า ๆ = ยอดของเลขด้านบน", () => {
+    expect(ok("15\n51\n28\n82\n33\n50x50฿\n\n89\n98\n99\n100x100฿").typedTotal).toBe(1100);
+    expect(brief("11\n36\n100x100฿")).toEqual(["11 TOP 100฿", "11 BOTTOM 100฿", "36 TOP 100฿", "36 BOTTOM 100฿"]);
+  });
+
+  test("หลายชุดในบรรทัดเดียวหลังยอด฿ + คำกำกับ · ไทย ท้ายยอดไม่มีผล", () => {
+    const ticket = ok("14-41-54-94-75-76-200฿\n594-775-676-541-100฿เลขบนไทย 41=300฿เลขล่างไทย");
+    expect(ticket.typedTotal).toBe(1900);
+    expect(ticket.bets.at(-1)).toMatchObject({ number: "41", position: "BOTTOM", amount: 300, currency: "THB" });
+  });
+
+  test("ชื่อ + ໄທລວມ = ยอดรวม", () => {
+    const ticket = ok("114 411 141 =2\n 11 41 14=3\nກົງ ໄທລວມ 15ພ");
+    expect(ticket.declaredTotal).toBe(15);
+    expect(ticket.notes).toContain("ກົງ");
+  });
+
+  test("ยอดรวมไม่ตรง → บรรทัดเลขล้วนเหนือ เลข=ยอด ใช้ยอดเดียวกัน (ตัวท้ายเป็นเลข)", () => {
+    const ticket = ok(
+      "ໄທ\n33 73 34 74 20 71 31 48\n133 173 273 120 820 133 833 933 134 371 271 831 =10\n23 023 923 823 =10\n 24 64 124 164 924 964 024 064=10\nລວມ:320 ເອື້ອຍອ້ຍ",
+    );
+    expect(ticket.bets).toHaveLength(32);
+    expect(ticket.bets.every((b) => b.amount === 10_000)).toBe(true);
+    // ไม่มียอดรวม = อ่านแบบเดิม
+    expect(parseTicket("33 73 48\n133 =10").bets[0]).toMatchObject({ number: "33", amount: 48_000 });
+  });
+
+  test("ยอดรวมสองสกุล: ລ 30K / 250B", () => {
+    const ticket = ok("11=15k\n51=15k\n91=200B\n091=50B\nລ 30K\n250B\nສີອໂບ");
+    expect(ticket.declaredTotal).toBe(280);
+    expect(ticket.typedTotal).toBe(280);
+  });
+
+  test("Luk 4 kup 5 = ຫລັກ 4 ກັບ 5 · Hu 20 ท้ายชุด", () => {
+    const ticket = ok("16/56/96/06/46/86\nLuk 4 kup 5\nHu 20");
+    expect(ticket.bets.map((b) => b.number)).toEqual(["416", "456", "496", "406", "446", "486", "516", "556", "596", "506", "546", "586"]);
+    expect(ticket.typedTotal).toBe(240);
+    expect(ok("16 56\nຫລັກ 4 ກັບ 5\nໂຕ20").bets).toHaveLength(4);
+  });
+});
+
+describe("parseTicket — โพยจริงชุด 2026-10-16 (2)", () => {
+  const ok = (text: string) => {
+    const ticket = parseTicket(text);
+    expect(ticket.issues).toEqual([]);
+    return ticket;
+  };
+  const numbers = (text: string) => ok(text).bets.map((b) => `${b.number} ${b.position} ${b.amount / 1000}`);
+
+  test("ຫຼັກ0ຮອດ9 = หลักร้อย 0 ถึง 9", () => {
+    const ticket = ok("26,66=10\nຫຼັກ0ຮອດ9=2\nລວມ=60\nພໍ່ເທບ");
+    expect(ticket.bets.filter((b) => b.digits === 3)).toHaveLength(20);
+    expect(ticket.typedTotal).toBe(60);
+  });
+
+  test("ชื่อสัตว์แทนเลข: ໄກ່=10ບລ / ไก่=10บล", () => {
+    const expected = ["28 TOP 10", "28 BOTTOM 10", "68 TOP 10", "68 BOTTOM 10", "528 TOP 10", "568 TOP 10"];
+    expect(numbers("ໄກ່=10ບລ\nຫລັກ5=10")).toEqual(expected);
+    expect(numbers("ไก่=10บล\nหลัก5=10")).toEqual(expected);
+    expect(numbers("ໝາ ໄກ່ ໂຕ5").map((n) => n.split(" ")[0])).toEqual(["11", "51", "91", "28", "68"]);
+    expect(parseTicket("ໝາກ=5").needsReview).toBe(true);
+  });
+
+  test("บรรทัดยอด ບົນ3ລ່າງ2 เปล่า ๆ = ยอดของเลขด้านบน", () => {
+    const ticket = ok("64\n24\n46\n28\n74\n68\n76\n58\n97\n07\nບົນ3ລ່າງ2\nລວມ50000");
+    expect(ticket.bets).toHaveLength(20);
+    expect(ticket.typedTotal).toBe(50);
+  });
+
+  test("ໂຕ.2 = ໂຕ2", () => {
+    expect(ok("08.48.28.68.ໂຕ20\n38.78..18.58.98.88..ໂຕ2\n39.79.09.49ໂຕ.2\nລວມ_100\nລຸງຖາ").typedTotal).toBe(100);
+  });
+
+  test("หลายชุด เลข=ยอด + ຫລັກ ในบรรทัดเดียว — ຫລັກ ใช้เลขฐานของชุดตัวเอง", () => {
+    const ticket = ok("11-51-91=10 ຫລັກ5=10 ....| 12-52-92-25-65-89=5 ຫລັກ6=3");
+    expect(ticket.bets.filter((b) => b.digits === 3).map((b) => b.number)).toEqual([
+      "511", "551", "591", "612", "652", "692", "625", "665", "689",
+    ]);
+    expect(ticket.typedTotal).toBe(108);
+  });
+
+  test("68::20 / 28∶20 · 2820 ที่ลืมตัวคั่น (ยอดรวมยืนยัน)", () => {
+    const tail = "\n328:3\n368:3\n428:2\n468:2\nລວມ50,000";
+    for (const first of ["28:20", "28∶20", "2820"]) {
+      expect(ok(`${first}\n68::20${tail}`).typedTotal).toBe(50);
+    }
+    // ไม่มียอดรวม = ไม่เดา
+    expect(parseTicket("2820\n68:20").needsReview).toBe(true);
   });
 });

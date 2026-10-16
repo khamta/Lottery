@@ -162,7 +162,12 @@ export function rulesOf(client: RulesClient, dealerId: string): Promise<ReadRule
 }
 
 /** แทนที่รายการแทงของโพยด้วยผลการอ่านข้อความใหม่ */
-async function rewriteTicket(tx: Tx, ticket: { id: string; drawId: string }, fields: Read["fields"], bets: Read["bets"]) {
+async function rewriteTicket(
+  tx: Tx,
+  ticket: { id: string; drawId: string },
+  fields: Read["fields"] & { editedAt?: Date },
+  bets: Read["bets"],
+) {
   await tx.bet.deleteMany({ where: { ticketId: ticket.id } });
   const updated = await tx.ticket.update({ where: { id: ticket.id }, data: fields });
   if (bets.length > 0) {
@@ -570,7 +575,8 @@ async function queueImageReread(
       ? before.rawText
       : "";
   const read = readImageTicketText(rest, { lakMultiplier: before.lakMultiplier, rules: await rulesOf(tx, dealerId) });
-  const ticket = await rewriteTicket(tx, before, read.fields, read.bets);
+  // แก้รูป = คนแก้โพย (ปุ่ม "แก้ไขล่าสุด" ของหน้าโพย) · สั่งอ่านใหม่เฉย ๆ ไม่นับ
+  const ticket = await rewriteTicket(tx, before, edited ? { ...read.fields, editedAt: new Date() } : read.fields, read.bets);
   await tx.ticketImage.update({
     where: { ticketId },
     data: {

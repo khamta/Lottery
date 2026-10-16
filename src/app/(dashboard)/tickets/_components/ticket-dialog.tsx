@@ -344,11 +344,9 @@ function TicketImage({
   onEdit: (() => void) | null;
 }) {
   const { t } = useI18n();
-  /** ดูไฟล์ต้นฉบับตามที่ได้รับ — ปกติแสดงรูปที่ปรับแสงอัตโนมัติแล้ว (หรือรูปที่คนแก้) */
-  const [showOriginal, setShowOriginal] = React.useState(false);
-  const src = showOriginal
-    ? ticketImageUrl(ticket.id, { raw: true })
-    : ticketImageUrl(ticket.id, { editedAt: ticket.imageEditedAt });
+  /** ดูรูปแบบตัวอักษรเข้ม/หนาขึ้น — ปกติแสดงไฟล์ตามที่เก็บไว้ (รูปที่ได้รับ หรือรูปที่คนแก้) ซึ่ง AI อ่านรูปเดียวกันนี้ */
+  const [showBold, setShowBold] = React.useState(false);
+  const src = ticketImageUrl(ticket.id, { editedAt: ticket.imageEditedAt, bold: showBold });
 
   return (
     <div className="grid gap-2">
@@ -363,7 +361,7 @@ function TicketImage({
           ) : null}
           {t(`tickets.imageHint${status}`)}
           {ticket.imageEditedAt ? ` · ${t("tickets.imageEdited")}` : ""}
-          {showOriginal ? <span className="block font-medium">{t("tickets.viewingOriginal")}</span> : null}
+          {showBold ? <span className="block font-medium">{t("tickets.viewingBold")}</span> : null}
         </p>
         {/* มือถือ: ปุ่มรูปเรียงแถวเดียวกันแบ่งความกว้างเท่ากัน */}
         <div className="flex shrink-0 gap-2">
@@ -372,11 +370,11 @@ function TicketImage({
             variant="outline"
             size="sm"
             className="min-w-0 flex-1 sm:flex-none"
-            aria-pressed={showOriginal}
-            onClick={() => setShowOriginal((current) => !current)}
+            aria-pressed={showBold}
+            onClick={() => setShowBold((current) => !current)}
           >
-            {showOriginal ? <WandSparkles /> : <ImageIcon />}
-            {t(showOriginal ? "tickets.viewAdjusted" : "tickets.viewOriginal")}
+            {showBold ? <ImageIcon /> : <WandSparkles />}
+            {t(showBold ? "tickets.viewOriginal" : "tickets.viewBold")}
           </Button>
           {onEdit ? (
             <Button type="button" variant="outline" size="sm" className="min-w-0 flex-1 sm:flex-none" onClick={onEdit}>

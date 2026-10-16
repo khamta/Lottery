@@ -3,7 +3,7 @@
  * ค่าเริ่มต้น = รูปต้นฉบับตามที่นำเข้า ไม่ปรับอะไร — คนปรับเองทีหลังตอนตรวจ (image-editor-dialog.tsx)
  * ยกเว้นรูปที่ใหญ่เกินที่ AI รับได้ (MAX_AI_BYTES) → หมุนตาม EXIF + ย่อด้านยาวเหลือ 2000px เท่านั้น ไม่ปรับหมึก/แสง
  *
- * เปิดการทำหมึกเข้มและหนาขึ้น (ink.ts) ได้ด้วย OCR_ENHANCE=1 (รูปที่ส่งให้ AI) และ IMAGE_AUTO_ADJUST=1 (รูปที่ส่งให้คนตรวจ)
+ * ทำหมึกเข้มและหนาขึ้น (ink.ts): รูปที่ส่งให้ AI เปิดด้วย OCR_ENHANCE=1 · คนตรวจกดปุ่ม "ดูตัวอักษรเข้ม" ในหน้าตรวจ (?bold=1)
  *
  * ไฟล์รูปที่เก็บไว้ (image-store.ts) เป็นต้นฉบับเสมอ — ปรับตอนส่งเท่านั้น
  * ปรับไม่ได้ (รูปเสีย / ชนิดที่ sharp ไม่รองรับ) → ส่งรูปเดิม ไม่ให้การปรับรูปทำให้อ่านไม่ได้
@@ -20,7 +20,6 @@ const MAX_AI_BYTES = 4 * 1024 * 1024;
 export type SlipImageFile = { data: Uint8Array; mimeType: string };
 
 export const enhanceEnabled = () => process.env.OCR_ENHANCE === "1";
-export const autoAdjustEnabled = () => process.env.IMAGE_AUTO_ADJUST === "1";
 
 /** หมุนตั้งตรง (+ ย่อถ้าระบุ) (+ หมึกเข้ม/หนาขึ้นถ้า ink) — gif (อาจเป็นภาพเคลื่อนไหว) / ปรับไม่ได้ → รูปเดิม */
 async function adjust(data: Uint8Array, mimeType: string, { maxSide, ink }: { maxSide?: number; ink: boolean }): Promise<SlipImageFile> {
@@ -49,8 +48,7 @@ export async function enhanceSlipImage(data: Uint8Array, mimeType: string): Prom
   return adjust(data, mimeType, { maxSide: MAX_SIDE, ink: false });
 }
 
-/** รูปต้นฉบับที่ส่งให้คนตรวจ — ต้นฉบับ · IMAGE_AUTO_ADJUST=1 = หมึกเข้ม/หนาขึ้น (ไฟล์ที่เก็บไว้ไม่ถูกแก้) */
-export async function autoAdjustSlipImage(data: Uint8Array, mimeType: string): Promise<SlipImageFile> {
-  if (!autoAdjustEnabled()) return { data, mimeType };
+/** รูปที่คนตรวจกด "ดูตัวอักษรเข้ม" — ขนาดเดิม หมึกเข้ม/หนาขึ้น (ไฟล์ที่เก็บไว้ไม่ถูกแก้) */
+export async function boldSlipImage(data: Uint8Array, mimeType: string): Promise<SlipImageFile> {
   return adjust(data, mimeType, { ink: true });
 }

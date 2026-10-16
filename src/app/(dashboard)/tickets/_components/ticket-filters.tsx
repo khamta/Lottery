@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CircleAlert, Coins, FilterX, ImageIcon } from "lucide-react";
+import { CircleAlert, Coins, FilterX, History, ImageIcon } from "lucide-react";
 
 import {
   Select,
@@ -25,6 +25,7 @@ const ALL = "all";
  * ตัวกรองงวด / สถานะ / ยอดต่อตัว / ยอดกีบแปลก — เขียนค่าลง URL (?draw=&status=&amount=&odd=1) ให้ server กรองที่ฐานข้อมูล
  * ยอดต่อตัว = มีรายการแทงยอดเท่านี้พอดี (กด Enter หรือออกจากช่องเพื่อค้น · ล้างช่อง = ไม่กรอง)
  * มีรูป = เฉพาะโพยที่มีรูป (?image=1) — ปุ่มบอกจำนวนโพยที่มีรูปของงวดที่กรองอยู่
+ * แก้ไขล่าสุด = เฉพาะโพยที่คนแก้แล้ว ใบที่เพิ่งแก้อยู่บนสุด (?edited=1) — ปุ่มบอกจำนวนโพยที่แก้แล้วของงวดที่กรองอยู่
  * ยอดกีบแปลก = มีรายการกีบไม่ลงท้าย 000 (เช่น 12,112) มักเป็นอ่านรูป/พิมพ์ผิด — ปุ่มบอกจำนวนให้รู้ว่ามีต้องตรวจไหม
  */
 export function TicketFilters({
@@ -32,12 +33,14 @@ export function TicketFilters({
   filters,
   oddLakCount,
   imageCount,
+  editedCount,
   disabled,
 }: {
   draws: DrawOption[];
   filters: TicketFilterValues;
   oddLakCount: number;
   imageCount: number;
+  editedCount: number;
   disabled?: boolean;
 }) {
   const { t } = useI18n();
@@ -64,11 +67,11 @@ export function TicketFilters({
 
   // ตัวกรองที่ผู้ใช้ตั้งเอง (ไม่นับกลุ่ม — กลุ่มถูกเลือกให้เสมอ)
   const hasFilters =
-    searchParams.has("draw") || !!searchParams.get("q") || !!filters.status || filters.oddLak || !!filters.amount || !!filters.image;
+    searchParams.has("draw") || !!searchParams.get("q") || !!filters.status || filters.oddLak || !!filters.amount || !!filters.image || !!filters.edited;
 
   return (
-    // มือถือ: ตาราง 2 คอลัมน์ (งวด | สถานะ · ยอด | มีรูป · ยอดกีบแปลก | ล้าง) — ไม่ต้องเลื่อนผ่านปุ่มเต็มจอทีละแถว
-    // จอใหญ่: [งวด สถานะ ยอดต่อตัว] | [มีรูป ยอดกีบแปลก] … [ล้าง] ชิดขวา — ขึ้นบรรทัดใหม่เองเมื่อจอแคบ
+    // มือถือ: ตาราง 2 คอลัมน์ (งวด | สถานะ · ยอด | มีรูป · แก้ไขล่าสุด | ยอดกีบแปลก · ล้าง) — ไม่ต้องเลื่อนผ่านปุ่มเต็มจอทีละแถว
+    // จอใหญ่: [งวด สถานะ ยอดต่อตัว] | [มีรูป แก้ไขล่าสุด ยอดกีบแปลก] … [ล้าง] ชิดขวา — ขึ้นบรรทัดใหม่เองเมื่อจอแคบ
     <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
       {/* "ทุกงวด" ต้องเขียน draw=all ลง URL เพราะไม่ระบุ = งวดที่เปิดรับล่าสุด · เปลี่ยนงวด = กลับไปกลุ่มเริ่มต้นของงวดนั้น (กลุ่มที่มีโพยล่าสุด) */}
       <Select
@@ -142,6 +145,19 @@ export function TicketFilters({
 
       <Button
         type="button"
+        variant={filters.edited ? "default" : "outline"}
+        aria-pressed={!!filters.edited}
+        className="min-w-0 sm:w-auto"
+        disabled={disabled || isPending || (!filters.edited && editedCount === 0)}
+        title={t("tickets.filterEditedHint")}
+        onClick={() => apply({ edited: filters.edited ? null : "1" })}
+      >
+        <History />
+        <span className="truncate">{t("tickets.filterEdited", { count: editedCount })}</span>
+      </Button>
+
+      <Button
+        type="button"
         variant={filters.oddLak ? "default" : "outline"}
         aria-pressed={filters.oddLak}
         className="min-w-0 sm:w-auto"
@@ -160,7 +176,7 @@ export function TicketFilters({
           variant="ghost"
           className="min-w-0 sm:ml-auto sm:w-auto"
           disabled={disabled || isPending}
-          onClick={() => apply({ draw: null, group: null, status: null, odd: null, amount: null, image: null, q: null })}
+          onClick={() => apply({ draw: null, group: null, status: null, odd: null, amount: null, image: null, edited: null, q: null })}
         >
           <FilterX />
           <span className="truncate">{t("tickets.clearFilters")}</span>

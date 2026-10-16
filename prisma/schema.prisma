@@ -358,6 +358,10 @@ model Ticket {
   /// ผู้ใช้ที่เปิดดูโพยนี้แล้ว (ตัวนับยังไม่ได้ดูของหน้าโพย)
   reads       TicketRead[]
 
+  /// เวลาที่คนแก้โพยครั้งล่าสุด (แก้ข้อความ / ย้อนกลับไปรอตรวจ / แก้รูป) — null = ยังไม่เคยแก้
+  /// ไม่ใช้ updatedAt เพราะบอทอ่านรูป/ข้อความเสร็จก็เปลี่ยนด้วย · ปุ่ม "แก้ไขล่าสุด" ของหน้าโพย (?edited=1)
+  editedAt  DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -365,6 +369,7 @@ model Ticket {
   @@index([customerId])
   @@index([createdAt])
   @@index([senderId, createdAt])
+  @@index([drawId, editedAt])
   @@index([drawId, groupId, createdAt])
   @@map("tickets")
 }

@@ -68,6 +68,7 @@ export const REMEMBERED_TICKET_PARAMS = [
   "odd",
   "amount",
   "image",
+  "edited",
   "q",
   "pageSize",
   "sort",
@@ -104,6 +105,8 @@ export type TicketFilterValues = {
   oddLak: boolean;
   amount?: number | null;
   image?: boolean;
+  /** ?edited=1 = เฉพาะโพยที่คนแก้แล้ว เรียงตามเวลาที่แก้ล่าสุดก่อน */
+  edited?: boolean;
   /** กลุ่มที่ดูอยู่ (TicketGroupOption.key) — null/ไม่มี = ทุกกลุ่ม */
   groups?: string[] | null;
 };
@@ -156,15 +159,18 @@ export const issueKey: Record<ParseIssueCode, string> = {
 };
 
 /**
- * รูปโพย — เสิร์ฟจาก tickets/image/[id]/route.ts · original = รูปต้นฉบับก่อนแก้ (ปรับแสงอัตโนมัติแล้ว)
- * raw = ไฟล์ต้นฉบับตามที่ได้รับ ไม่ปรับแสง (ปุ่มดูต้นฉบับในหน้าตรวจ)
+ * รูปโพย — เสิร์ฟจาก tickets/image/[id]/route.ts · original = รูปต้นฉบับก่อนคนแก้
+ * bold = ตัวอักษรเข้ม/หนาขึ้น (ปุ่ม "ดูตัวอักษรเข้ม" ในหน้าตรวจ) · ไม่ระบุ = ไฟล์ตามที่เก็บไว้
  * editedAt ต่อท้าย URL: แก้รูปแล้ว URL เปลี่ยน เบราว์เซอร์จึงไม่ใช้รูปเก่าที่ cache ไว้
  */
 export function ticketImageUrl(
   ticketId: string,
-  { editedAt = null, original = false, raw = false }: { editedAt?: string | null; original?: boolean; raw?: boolean } = {},
+  { editedAt = null, original = false, bold = false }: { editedAt?: string | null; original?: boolean; bold?: boolean } = {},
 ) {
-  if (raw) return `/tickets/image/${ticketId}?original=1&raw=1`;
   if (original) return `/tickets/image/${ticketId}?original=1`;
-  return editedAt ? `/tickets/image/${ticketId}?v=${new Date(editedAt).getTime()}` : `/tickets/image/${ticketId}`;
+  const params = new URLSearchParams();
+  if (editedAt) params.set("v", String(new Date(editedAt).getTime()));
+  if (bold) params.set("bold", "1");
+  const query = params.toString();
+  return query ? `/tickets/image/${ticketId}?${query}` : `/tickets/image/${ticketId}`;
 }

@@ -60,6 +60,7 @@ export function TicketsView({
   filters,
   oddLakCount,
   imageTicketCount,
+  editedTicketCount,
   rereadDraw,
   groupOptions,
   renderedAt,
@@ -75,6 +76,7 @@ export function TicketsView({
   /** จำนวนโพยที่มียอดกีบแปลก (ไม่ลงท้าย 000) ในงวดที่กรองอยู่ */
   oddLakCount: number;
   imageTicketCount: number;
+  editedTicketCount: number;
   /** ผู้ดูแลระบบ + กรองงวดที่เปิดรับอยู่ = ปุ่มอ่านรูปโพยรอตรวจทั้งงวดใหม่ (null = ไม่แสดงปุ่ม) */
   rereadDraw: RereadDrawTarget | null;
   /** กลุ่มของงวดที่กรองอยู่ + จำนวนที่ยังไม่ได้ดู */
@@ -348,7 +350,14 @@ export function TicketsView({
 
       {/* แถบตัวกรองแยกจากแถบปุ่มของตาราง: กลุ่ม (ของใคร) → ตัวกรอง (ดูอะไร) → ตาราง + ปุ่มทำงาน */}
       <div className="mb-4 rounded-xl border bg-muted/30 p-2">
-        <TicketFilters draws={draws} filters={filters} oddLakCount={oddLakCount} imageCount={imageTicketCount} disabled={isPending} />
+        <TicketFilters
+          draws={draws}
+          filters={filters}
+          oddLakCount={oddLakCount}
+          imageCount={imageTicketCount}
+          editedCount={editedTicketCount}
+          disabled={isPending}
+        />
       </div>
 
       {/* กดที่แถว = เปิดหน้าตรวจโพย (ตารางกลางรับ onClick ของแถวไม่ได้ จึงดักที่กรอบนอก) · แถวที่ยังไม่ได้ดูมีพื้นเน้น */}

@@ -16,7 +16,7 @@ import { dealerUnreadCounts } from "@/lottery/unread";
 import { NoDealer } from "@/lottery/components/no-dealer";
 import type { PageProps } from "@/types";
 import { TicketsView } from "./_components/tickets-view";
-import { readTicketFilters, REREAD_DRAW_MAX, rereadableWhere, ticketWhere, withImageWhere } from "./filters";
+import { editedWhere, readTicketFilters, REREAD_DRAW_MAX, rereadableWhere, ticketWhere, withImageWhere } from "./filters";
 import {
   groupKeyOf,
   groupWhere,
@@ -101,10 +101,12 @@ export default async function TicketsPage({ searchParams }: PageProps) {
     ...(filters.drawId ? [{ drawId: filters.drawId }] : []),
     ...(filters.groups ? [groupWhere(filters.groups)] : []),
   ];
+  // + จำนวนโพยที่คนแก้แล้ว — แสดงบนปุ่ม "แก้ไขล่าสุด"
   // + โพยที่ยังไม่ได้ดูของแม่หวยอื่น — ป้ายบนตัวเลือกแม่หวย (แม่หวยที่ใช้อยู่ดูจากแถบกลุ่ม)
-  const [oddLakIds, imageCount, dealerUnread] = await Promise.all([
+  const [oddLakIds, imageCount, editedCount, dealerUnread] = await Promise.all([
     oddLakTicketIds(prisma, current.id, filters.drawId),
     prisma.ticket.count({ where: { AND: [...scope, withImageWhere] } }),
+    prisma.ticket.count({ where: { AND: [...scope, editedWhere] } }),
     dealerUnreadCounts(
       prisma,
       access.userId,
@@ -161,8 +163,10 @@ export default async function TicketsPage({ searchParams }: PageProps) {
     params,
     where,
     // เรียงตามเวลา: โพยที่เวลาตรงกันถึงวินาทีเรียงต่อด้วยเลขบิล (ลำดับที่เข้ามา) — ลำดับจึงตรงกับแชท WhatsApp
-    orderBy:
-      params.sort === "createdAt"
+    // ?edited=1 (ปุ่ม "แก้ไขล่าสุด") = ใบที่เพิ่งแก้อยู่บนสุดเสมอ ไม่สนการเรียงของตาราง
+    orderBy: filters.edited
+      ? [{ editedAt: "desc" }, { billNo: "desc" }]
+      : params.sort === "createdAt"
         ? [{ createdAt: params.order }, { billNo: params.order }]
         : (buildOrderBy(params) ?? [{ createdAt: "desc" }, { billNo: "desc" }]),
     select: {
@@ -220,6 +224,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
         filters={filters}
         oddLakCount={oddLakCount}
         imageTicketCount={imageCount}
+        editedTicketCount={editedCount}
         rereadDraw={rereadDraw}
         groupOptions={groupOptions}
         renderedAt={renderedAt.toISOString()}
