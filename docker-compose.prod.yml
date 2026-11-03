@@ -21,6 +21,7 @@ x-app: &app
     TZ: Asia/Vientiane
     # Ollama Cloud — เว็บเช็กว่ารุ่นไหนใช้ฟรีได้ (ป้ายในหน้าแม่หวย) · บอทใช้อ่านรูปโพย
     OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+    OLLAMA_FREE_API_KEY: ${OLLAMA_FREE_API_KEY:-}
     OLLAMA_HOST: ${OLLAMA_HOST:-}
   # รูปโพยเป็นไฟล์ (ฐานข้อมูลเก็บแค่ path) — migrate ย้ายรูปเก่า · app เสิร์ฟ · worker บันทึก
   # อยู่ที่ <DEPLOY_PATH>/uploads บนเซิร์ฟเวอร์ — สำรองข้อมูลต้องสำรองโฟลเดอร์นี้ด้วย

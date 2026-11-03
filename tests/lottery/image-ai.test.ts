@@ -326,6 +326,80 @@ describe("readSlipImage — Ollama Cloud", () => {
   });
 });
 
+describe("readSlipImage — Ollama สองบัญชี (ฟรี + เสียเงิน)", () => {
+  const twoModels = { model: "gemma4:31b", strongModel: "kimi-k3" };
+
+  test("บัญชีฟรีอ่านผ่าน → ไม่เรียกบัญชีเสียเงิน", async () => {
+    const free = fakeOllama({ text: "612=5\nລວມ5000" });
+    const paid = fakeOllama({ text: "x" });
+
+    const read = await readSlipImage({ ollama: paid.client, ollamaFree: free.client }, jpeg, "image/jpeg", {
+      models: twoModels,
+    });
+
+    expect(read).toEqual({ engine: "ollama", model: "gemma4:31b", text: "612=5\nລວມ5000", free: true });
+    expect(paid.requests).toHaveLength(0);
+  });
+
+  test("บัญชีฟรีอ่านไม่ผ่าน (รูปไม่ชัด) → รุ่นอ่านซ้ำใช้บัญชีเสียเงิน", async () => {
+    const free = fakeOllama({ text: "2?=3*3" });
+    const paid = fakeOllama({ text: "29=3*3" });
+
+    const read = await readSlipImage({ ollama: paid.client, ollamaFree: free.client }, jpeg, "image/jpeg", {
+      models: twoModels,
+    });
+
+    expect(read).toEqual({
+      engine: "ollama",
+      model: "kimi-k3",
+      text: "29=3*3",
+      escalated: { model: "gemma4:31b", reason: "BAD_NUMBER", text: "2?=3*3" },
+    });
+    expect(free.requests).toHaveLength(1);
+    expect(paid.requests.map((request) => request.model)).toEqual(["kimi-k3"]);
+  });
+
+  test("โควตาบัญชีฟรีหมด → บัญชีเสียเงินอ่านรอบแรกแทน และแจ้ง onFreeFailure", async () => {
+    const free = fakeOllama(new OllamaError("you have reached your usage limit", 429, "gemma4:31b"));
+    const paid = fakeOllama({ text: "612=5\nລວມ5000" });
+    const failures: OllamaError[] = [];
+
+    const read = await readSlipImage({ ollama: paid.client, ollamaFree: free.client }, jpeg, "image/jpeg", {
+      models: twoModels,
+      onFreeFailure: (error) => failures.push(error),
+    });
+
+    expect(read).toEqual({ engine: "ollama", model: "gemma4:31b", text: "612=5\nລວມ5000" });
+    expect(paid.requests.map((request) => request.model)).toEqual(["gemma4:31b"]);
+    expect(failures).toHaveLength(1);
+  });
+
+  test("รูปเสีย (400) ในบัญชีฟรี → ไม่ลองบัญชีเสียเงินซ้ำ", async () => {
+    const free = fakeOllama(new OllamaError("invalid image", 400, "gemma4:31b"));
+    const paid = fakeOllama({ text: "x" });
+
+    await expect(
+      readSlipImage({ ollama: paid.client, ollamaFree: free.client }, jpeg, "image/jpeg", {
+        models: { model: "gemma4:31b", strongModel: "" },
+      }),
+    ).rejects.toBeInstanceOf(OllamaError);
+    expect(paid.requests).toHaveLength(0);
+  });
+
+  test("คนสั่งอ่านใหม่ (strong) → บัญชีเสียเงินเลย", async () => {
+    const free = fakeOllama({ text: "x" });
+    const paid = fakeOllama({ text: "612=5" });
+
+    await readSlipImage({ ollama: paid.client, ollamaFree: free.client }, jpeg, "image/jpeg", {
+      strong: true,
+      models: { model: "gemma4:31b", strongModel: "" },
+    });
+
+    expect(free.requests).toHaveLength(0);
+    expect(paid.requests).toHaveLength(1);
+  });
+});
+
 describe("aiFailure / failureProvider — Ollama", () => {
   test("key ผิด / เครดิตหมด / ชื่อรุ่นผิด → account", () => {
     expect(aiFailure(new OllamaError("unauthorized", 401))).toBe("account");

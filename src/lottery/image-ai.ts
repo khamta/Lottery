@@ -21,6 +21,10 @@
  *   ไม่ผ่าน = มีบรรทัดที่ parser อ่านไม่ออก (? / ไม่มียอด) · ยอดรวมไม่ตรง · ไม่เจอโพย · โพยยาวที่ไม่มียอดรวมให้เทียบ
  *   คนสั่งอ่านใหม่ด้วย AI จากหน้าโพย → ใช้รุ่นแม่นเลย (strong)
  *   แม่หวยเลือกรุ่นเองได้ที่หน้าแม่หวย (ดู ai-models.ts) — ไม่เลือก = ใช้ค่าจาก env
+ *
+ * Ollama สองบัญชี: ตั้ง OLLAMA_FREE_API_KEY (บัญชีฟรี) คู่กับ OLLAMA_API_KEY (บัญชีเสียเงิน)
+ *   รอบแรกของรุ่น Ollama อ่านด้วยบัญชีฟรี · อ่านซ้ำ / คนสั่งอ่านใหม่ ใช้บัญชีเสียเงิน
+ *   บัญชีฟรีใช้ไม่ได้ (โควตาหมด / rate limit / ล่ม) → บัญชีเสียเงินอ่านรูปนั้นแทนทันที (worker พักบัญชีฟรีไว้สักพัก)
  */
 import Anthropic from "@anthropic-ai/sdk";
 
@@ -40,12 +44,17 @@ export type AiRead = {
   model: string;
   text: string;
   escalated?: { model: string; reason: string; text: string };
+  /** อ่านด้วยบัญชีฟรีของ Ollama (OLLAMA_FREE_API_KEY) */
+  free?: true;
 };
 
 /** โพยที่ยาวเท่านี้ขึ้นไปและไม่มียอดรวมให้เทียบ → ให้รุ่นแม่นอ่านซ้ำ (ผิดตัวเดียวก็ไม่มีอะไรจับได้) */
 const LONG_SLIP_LINES = 30;
-/** client ของแต่ละผู้ให้บริการ — ไม่ได้ตั้ง key = null (รุ่นของผู้ให้บริการนั้นอ่านไม่ได้) */
-export type AiClients = { claude?: Anthropic | null; ollama?: OllamaClient | null };
+/**
+ * client ของแต่ละผู้ให้บริการ — ไม่ได้ตั้ง key = null (รุ่นของผู้ให้บริการนั้นอ่านไม่ได้)
+ * ollamaFree = บัญชีฟรีของ Ollama อ่านรอบแรกก่อนบัญชีเสียเงิน (ollama) · null = ใช้บัญชีเสียเงินอย่างเดียว
+ */
+export type AiClients = { claude?: Anthropic | null; ollama?: OllamaClient | null; ollamaFree?: OllamaClient | null };
 
 /** ใบใหญ่หลายคอลัมน์มีเกือบร้อยบรรทัด + เวลาคิดของโมเดล — เผื่อไว้ */
 const MAX_TOKENS = 32_000;
@@ -212,6 +221,7 @@ function mediaTypeOf(mimeType: string): MediaType {
  * รุ่นแม่นติดต่อไม่ได้ชั่วคราว → ใช้ผลของรุ่นแรก (โพยรอคนตรวจตามเดิม) ดีกว่าทิ้งไปอ่านด้วยบริการ OCR
  * models = รุ่นที่แม่หวยเลือก (resolveOcrModels) — ไม่ส่ง = ค่าเริ่มต้นจาก env · สองรุ่นเป็นคนละผู้ให้บริการได้
  * ส่งรูปต้นฉบับ ไม่ปรับ (ใหญ่เกินจึงย่อ) (image-enhance.ts) — ทั้งสองรุ่นอ่านรูปเดียวกัน
+ * onFreeFailure = บัญชีฟรีของ Ollama ใช้ไม่ได้ (บัญชีเสียเงินอ่านแทนแล้ว) — worker พักบัญชีฟรีไว้
  */
 export async function readSlipImage(
   clients: AiClients,
@@ -220,24 +230,39 @@ export async function readSlipImage(
   {
     strong = false,
     onModel,
+    onFreeFailure,
     models = { model: AI_MODEL, strongModel: AI_STRONG_MODEL },
-  }: { strong?: boolean; onModel?: (model: string) => unknown; models?: OcrModels } = {},
+  }: {
+    strong?: boolean;
+    onModel?: (model: string) => unknown;
+    onFreeFailure?: (error: OllamaError) => unknown;
+    models?: OcrModels;
+  } = {},
 ): Promise<AiRead> {
   mediaTypeOf(mimeType);
   const enhanced = await enhanceSlipImage(data, mimeType);
   const image = { mediaType: mediaTypeOf(enhanced.mimeType), data: Buffer.from(enhanced.data).toString("base64") };
-  const read = async (model: string) => {
+  // first = รอบแรกที่คนไม่ได้สั่งอ่านใหม่ → บัญชีฟรีอ่านก่อนได้
+  const read = async (model: string, first = false) => {
     await onModel?.(model);
-    return readWith(clients, model, image);
+    if (!first || !clients.ollamaFree || providerOf(model) !== "ollama") return readWith(clients, model, image);
+    try {
+      return { ...(await readWithOllama(clients.ollamaFree, model, image)), free: true as const };
+    } catch (error) {
+      // รูปนี้เองมีปัญหา (ยาวเกิน / รูปเสีย) → บัญชีเสียเงินก็อ่านไม่ได้เหมือนกัน
+      if (!(error instanceof OllamaError) || aiFailure(error) === "image" || !clients.ollama) throw error;
+      await onFreeFailure?.(error);
+      return readWith(clients, model, image);
+    }
   };
   const { model } = models;
   const strongModel = models.strongModel && models.strongModel !== model ? models.strongModel : null;
-  if (!strongModel) return read(model);
+  if (!strongModel) return read(model, !strong);
   if (strong) return read(strongModel);
 
   let first: AiRead;
   try {
-    first = await read(model);
+    first = await read(model, true);
   } catch (error) {
     // ปฏิเสธ / ข้อความยาวเกิน → รุ่นแม่นลองอีกที
     if (!(error instanceof AiImageError)) throw error;

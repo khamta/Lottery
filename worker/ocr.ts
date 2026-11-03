@@ -7,6 +7,7 @@
  * อ่านรูปด้วย AI อย่างเดียว — Claude (ANTHROPIC_API_KEY) และ/หรือ Ollama Cloud (OLLAMA_API_KEY)
  *   ไม่ได้ตั้ง key ของรุ่นที่ใช้ = รูปนั้นอ่านไม่ได้ ให้คนดูรูปเอง
  *   รุ่นหลัก (OCR_MODEL) อ่านก่อน อ่านไม่ผ่านจึงให้รุ่นอ่านซ้ำ (OCR_STRONG_MODEL) อ่านอีกครั้ง
+ *   OLLAMA_FREE_API_KEY (บัญชีฟรี) → รอบแรกของรุ่น Ollama ใช้บัญชีฟรี · ใช้ไม่ได้ = พักบัญชีฟรี (pauseFree) บัญชีเสียเงินอ่านแทน
  *   แม่หวยเลือกเองได้ที่หน้าแม่หวย (dealers.ocrModel / ocrStrongModel) — อ่านทุกรูปใหม่ ไม่ต้องรีสตาร์ตบอท
  *   อ่านพร้อมกันได้หลายรูป (OCR_CONCURRENCY ค่าเริ่มต้น 4) เพราะรอเครือข่าย ไม่ได้ใช้ CPU เครื่องนี้
  *   AI อ่านรูปไหนไม่ได้ (ปฏิเสธ/รูปเสีย) → รูปนั้นอ่านไม่ได้ ให้คนดูรูปแล้วพิมพ์เองในโพยรอตรวจ
@@ -40,10 +41,17 @@ import { readTicketImage } from "@/lottery/image-store";
 import { applyOcr } from "@/lottery/ingest";
 import { createOllamaClient } from "@/lottery/ollama";
 
+const ollamaOf = (key: string | undefined) => (key ? createOllamaClient(key, process.env.OLLAMA_HOST || undefined) : null);
+// ใส่แค่ key ฟรี = ใช้บัญชีฟรีเป็นบัญชีหลัก (ไม่มีบัญชีเสียเงินให้สลับไป)
+const ollamaPaid = ollamaOf(process.env.OLLAMA_API_KEY);
+const ollamaFree = ollamaOf(process.env.OLLAMA_FREE_API_KEY);
 const clients: AiClients = {
   claude: process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null,
-  ollama: process.env.OLLAMA_API_KEY ? createOllamaClient(process.env.OLLAMA_API_KEY, process.env.OLLAMA_HOST || undefined) : null,
+  ollama: ollamaPaid ?? ollamaFree,
+  ollamaFree: ollamaPaid ? ollamaFree : null,
 };
+/** บัญชีฟรีของ Ollama ใช้ไม่ได้ → กลับไปลองบัญชีฟรีเวลานี้ (ระหว่างนั้นบัญชีเสียเงินอ่านทุกรูป) */
+let freePausedUntil = 0;
 /** จำนวนรูปที่อ่านพร้อมกัน */
 const CONCURRENCY = Math.max(1, Number(process.env.OCR_CONCURRENCY) || 4);
 const AUTO = AI_STRONG_MODEL && AI_STRONG_MODEL !== AI_MODEL ? `${AI_MODEL} → ${AI_STRONG_MODEL}` : AI_MODEL;
@@ -82,7 +90,9 @@ const isPaused = (model: string) => Date.now() < pauseEnd(model);
 
 /** ชื่อตัวอ่านใน log — รุ่นที่อ่านจริง และรุ่นแรกที่อ่านไม่ผ่าน (ถ้ามี) */
 const readerOf = (read: AiRead) =>
-  read.escalated ? `AI (${read.escalated.model} อ่านไม่ผ่าน: ${read.escalated.reason} → ${read.model})` : `AI (${read.model})`;
+  read.escalated
+    ? `AI (${read.escalated.model} อ่านไม่ผ่าน: ${read.escalated.reason} → ${read.model})`
+    : `AI (${read.model}${read.free ? " บัญชีฟรี" : ""})`;
 
 function pauseModel(model: string, message: string) {
   const wasPaused = Date.now() < (modelPausedUntil.get(model) ?? 0);
@@ -98,6 +108,17 @@ function pauseProvider(provider: AiProvider, failure: Exclude<AiFailure, "image"
   const name = AI_PROVIDER_LABELS[provider];
   const why = failure === "account" ? "เครดิตหมดหรือ key ใช้ไม่ได้" : "ติดต่อไม่ได้";
   console.warn(`[OCR] ! ${name} ${why} (${message}) — พัก ${name} ${PAUSE_MS[failure] / 60_000} นาที`);
+}
+
+/** บัญชีฟรีของ Ollama โควตาหมด / ติด rate limit / ล่ม → พักบัญชีฟรี บัญชีเสียเงินอ่านแทน */
+function pauseFree(error: unknown) {
+  const failure = aiFailure(error) === "account" ? "account" : "outage";
+  const wasPaused = Date.now() < freePausedUntil;
+  freePausedUntil = Date.now() + PAUSE_MS[failure];
+  if (wasPaused) return;
+  console.warn(
+    `[OCR] ! บัญชีฟรีของ Ollama ใช้ไม่ได้ (${messageOf(error)}) — ใช้บัญชีเสียเงินแทน ${PAUSE_MS[failure] / 60_000} นาที`,
+  );
 }
 
 /** ตัดรุ่นของผู้ให้บริการที่พักอยู่ออก — รุ่นหลักถูกพัก = รุ่นอ่านซ้ำอ่านแทน · ไม่เหลือรุ่น = null */
@@ -119,7 +140,8 @@ async function readWithAi(
   const usable = usableModels(models);
   if (!usable) throw new PausedError(`AI paused (${models.model})`);
   try {
-    return await readSlipImage(clients, data, mimeType, { strong, onModel, models: usable });
+    const active = Date.now() < freePausedUntil ? { ...clients, ollamaFree: null } : clients;
+    return await readSlipImage(active, data, mimeType, { strong, onModel, onFreeFailure: pauseFree, models: usable });
   } catch (error) {
     const failure = aiFailure(error);
     const provider = failureProvider(error);
@@ -235,6 +257,7 @@ export async function resumeOcr(logger: Log) {
   if (ready.length > 0) {
     const names = ready.map((provider) => AI_PROVIDER_LABELS[provider]).join(" + ");
     log(`[OCR] อ่านรูปด้วย ${names} (ค่าเริ่มต้น ${AUTO}) พร้อมกัน ${CONCURRENCY} รูป`);
+    if (clients.ollamaFree) log("[OCR] Ollama: บัญชีฟรีอ่านรอบแรก · อ่านซ้ำ / บัญชีฟรีใช้ไม่ได้ → บัญชีเสียเงิน");
   } else {
     console.warn("[OCR] ! ไม่ได้ตั้ง ANTHROPIC_API_KEY หรือ OLLAMA_API_KEY — อ่านรูปโพยไม่ได้ รูปที่เข้าคิวต้องให้คนตรวจเอง");
   }
