@@ -90,6 +90,8 @@ services:
       CLAUDE_OCR_MODEL: ${CLAUDE_OCR_MODEL:-}
       # Ollama Cloud: key อยู่ใน app-env (เว็บใช้เช็กป้ายรุ่น · บอทใช้อ่านรูป) · OCR_MODEL = รุ่นหลักของโหมดอัตโนมัติ
       OCR_MODEL: ${OCR_MODEL:-}
+      # รุ่นอ่านซ้ำของโหมดอัตโนมัติ — ไม่ตั้ง = claude-opus-5-5 · บัญชีฟรีของ Ollama (OLLAMA_FREE_API_KEY) อ่านรอบแรก รุ่นนี้ใช้บัญชีเสียเงิน
+      OCR_STRONG_MODEL: ${OCR_STRONG_MODEL-claude-opus-5-5}
       OCR_CONCURRENCY: ${OCR_CONCURRENCY:-}
     volumes:
       - wa-auth:/data/wa-auth
