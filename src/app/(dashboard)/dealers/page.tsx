@@ -7,7 +7,7 @@ import { getTranslations } from "@/i18n/server";
 import { ownerScope } from "@/lottery/access";
 import { AI_MODEL, AI_STRONG_MODEL, OLLAMA_FALLBACK_MODELS, ocrModelField, ocrStrongModelField } from "@/lottery/ai-models";
 import { getDealerContext } from "@/lottery/dealer";
-import { listOllamaVisionModels, ollamaModelAccess } from "@/lottery/ollama";
+import { listOllamaVisionModels } from "@/lottery/ollama";
 import type { PageProps } from "@/types";
 import { DealersView } from "./_components/dealers-view";
 import { DEALER_SORTABLE, type DealerRow } from "./types";
@@ -87,8 +87,9 @@ export default async function DealersPage({ searchParams }: PageProps) {
   // รุ่นของ Ollama Cloud ที่อ่านรูปได้ (ดึงสด เก็บไว้ 1 ชั่วโมง · ดึงไม่ได้ = รายการที่รู้จัก)
   const ollamaHost = process.env.OLLAMA_HOST || undefined;
   const ollamaModels = await listOllamaVisionModels(OLLAMA_FALLBACK_MODELS, { host: ollamaHost });
-  // รุ่นไหนใช้ได้กับแผนของ key (แผน Free = ใช้ฟรี) — ลองเรียกจริง เก็บผลไว้ 1 ชั่วโมง
-  const ollamaAccess = await ollamaModelAccess(process.env.OLLAMA_API_KEY, ollamaModels, { host: ollamaHost });
+  // ไม่ลองเรียกทุกรุ่นเพื่อดูสิทธิ์ (ollamaModelAccess) แล้ว — Ollama คิดเงินทุกคำขอตั้งแต่ 31/08/2026
+  // เปิดหน้านี้ทีไรเสียเงินค่ารุ่นที่ไม่ได้ใช้ ~20 รุ่น · รุ่นที่ใช้ไม่ได้จริงจะแจ้ง error ตอนอ่านรูปอยู่แล้ว
+  const ollamaAccess = {};
 
   return (
     <>
