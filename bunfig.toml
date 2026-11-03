@@ -1,4 +1,4 @@
 [test]
 # โหลด DOM + matcher ก่อนรันทุกไฟล์เทสต์
-preload = ["./tests/setup.ts"]
+preload = ["./tests/setup.ts", "./tests/next-navigation-mock.ts"]
 coverageThreshold = 0.6
