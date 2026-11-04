@@ -155,6 +155,9 @@ const SUFFIX_TOKENS: SuffixToken[] = [
   { text: "ເລກບນ", position: "TOP" },
   { text: "ລາວ" },
   { text: "ลาว" },
+  // ເງິນ / เงิน หน้าสกุลเงิน ("ເງິນບາດ") ไม่มีผล
+  { text: "ເງິນ" },
+  { text: "เงิน" },
   // ໄທ / ไทย ท้ายยอด = บอกว่าเป็นหวยไทย ("100฿เลขบนไทย") ไม่มีผลกับรายการ
   { text: "ໄທ" },
   { text: "ไทย" },
@@ -255,9 +258,10 @@ const THB_WORD =/฿|บาท|บาด|ບາດ|thb|baht/i;
 const LAK_WORD = /₭|ກີບ|ກິບ|กีบ|กิบ|\bkip\b|\blak\b/i;
 /**
  * บรรทัดที่มีแต่คำบอกบาท: B / b / ฿ / บาท / บาด / ບາດ (วงเล็บ จุด ขีด / เว้นวรรค ไม่มีผล)
- * มีคำประกอบได้: "ລາວ/ເງິນບາດ฿" = หวยลาว จ่ายเงินบาท
+ * มีคำประกอบได้: "ລາວ/ເງິນບາດ฿" = หวยลาว จ่ายเงินบาท · "บนล่างเงินบาด฿" = ฝั่ง + เงินบาท (ฝั่งอ่านแยกตอนอ่านบรรทัด)
  */
-const THB_ONLY_LINE = /^(?:ລາວ|ลาว|ຫວຍ|หวย|ເງິນ|เงิน|ຈ່າຍ|จ่าย|ເປັນ|เป็น)*(?:b|฿|บาท|บาด|ບາດ|baht|thb)+$/i;
+const THB_ONLY_LINE =
+  /^(?:ລາວ|ลาว|ຫວຍ|หวย|ເງິນ|เงิน|ຈ່າຍ|จ่าย|ເປັນ|เป็น|ບົນ|ລ່າງ|ບລ|บน|ล่าง|บล)*(?:b|฿|บาท|บาด|ບາດ|baht|thb)+$/i;
 
 /**
  * มีบรรทัด B (หรือ ฿ / บาท / ບາດ) เดี่ยว ๆ อยู่ด้านบนก่อนบรรทัดตัวเลขแรก หรือด้านล่างหลังบรรทัดตัวเลขสุดท้าย = ทั้งโพยเป็นเงินบาท
@@ -535,7 +539,8 @@ function readSuffix(text: string) {
       position = token.position;
     }
     if (token.currency) {
-      if (currency) return null;
+      // สกุลเดียวกันซ้ำ ("บาด฿") ไม่กำกวม · คนละสกุล = อ่านไม่ออก
+      if (currency && currency !== token.currency) return null;
       currency = token.currency;
     }
     rest = rest.slice(token.text.length);
@@ -1130,7 +1135,8 @@ function readTicket(message: string, options: ParseOptions, wide: boolean): Pars
     const mark = text && !/\d/.test(text) ? readSuffix(text) : null;
     const afterGap = gap;
     gap = false;
-    if (mark?.position && !mark.currency) {
+    // สกุลเงินในบรรทัดฝั่งต้องตรงกับสกุลเงินของทั้งโพยอยู่แล้ว: "บนล่างเงินบาด฿" ท้ายโพยบาท
+    if (mark?.position && (!mark.currency || mark.currency === fallback)) {
       // เว้นบรรทัดแต่ไม่มีบรรทัดเลขด้านล่างแล้ว = ฝั่งท้ายโพย (ไม่ใช่หัวฝั่ง) → ใช้กับรายการด้านบน
       const last = segments.slice(index + 1).every((segment) => !/\d/.test(segment.original));
       const target = !afterGap || last ? (unmarked.length > 0 ? unmarked : totalled) : [];

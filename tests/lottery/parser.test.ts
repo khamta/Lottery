@@ -1466,6 +1466,16 @@ describe("บรรทัด B เดี่ยว ๆ ด้านบน/ด้�
     expect(brief2("55=10\nເງິນກີບ")).toEqual(["55 LAK 10000"]);
   });
 
+  test("บนล่างเงินบาด฿ ท้ายโพย → ทุกรายการบนล่าง เป็นบาท", () => {
+    const ticket = parseTicket("01  300\n41  1000\n81  300\n11  200\n51  300\n91  1000\nบนล่างเงินบาด฿");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.typedTotal).toBe(6200);
+    expect(ticket.bets.map((b) => `${b.number}${b.position[0]} ${b.currency} ${b.amount}`)).toEqual([
+      "01T THB 300", "01B THB 300", "41T THB 1000", "41B THB 1000", "81T THB 300", "81B THB 300",
+      "11T THB 200", "11B THB 200", "51T THB 300", "51B THB 300", "91T THB 1000", "91B THB 1000",
+    ]);
+  });
+
   test("ชื่อลูกค้าก่อนบรรทัด B ยังนับเป็นด้านบน", () => {
     expect(brief2("ນ້ອຍ\nB\n32=100")).toEqual(["32 THB 100"]);
   });
