@@ -2122,3 +2122,61 @@ describe("ฝั่ง + ยอด ไม่มี = (บน ล่าง 50×50
     expect(brief(parseTicket("ລ່າງ 20\n12\n34").bets)).toEqual(["12 BOTTOM LAK 20000", "34 BOTTOM LAK 20000"]);
   });
 });
+
+describe("เลข ยอด ฝั่ง เว้นวรรค (29 100 ล่าง)", () => {
+  test("ตัวท้ายก่อนคำบอกฝั่งคือยอด", () => {
+    const ticket = parseTicket("29 100 ล่าง\n39 50 ล่าง", { defaultCurrency: "THB" });
+    expect(ticket.issues).toEqual([]);
+    expect(brief(ticket.bets)).toEqual(["29 BOTTOM THB 100", "39 BOTTOM THB 50"]);
+  });
+
+  test("หลายเลข · ภาษาลาว · ติดกัน", () => {
+    expect(parseTicket("29 39 100 ล่าง").bets.map((bet) => bet.number)).toEqual(["29", "39"]);
+    expect(brief(parseTicket("29 100ລ່າງ").bets)).toEqual(["29 BOTTOM LAK 100000"]);
+  });
+});
+
+describe("ตรง = ป่อง · จำนวนประตูก่อนยอด", () => {
+  test("889 = ตรง 20 → 889 บน 20", () => {
+    expect(brief(parseTicket("889 = ตรง 20", { defaultCurrency: "THB", threeDigitBottom: true }).bets)).toEqual([
+      "889 TOP THB 20",
+    ]);
+  });
+
+  test("988 *3 ประตู ตัวละ430 = 988=430*3ประตู", () => {
+    expect(brief(parseTicket("988 *3 ประตู ตัวละ430", { defaultCurrency: "THB" }).bets)).toEqual([
+      "988 TOP THB 430",
+      "898 TOP THB 430",
+      "889 TOP THB 430",
+    ]);
+  });
+
+  test("โพยเต็มในรูป ยอดรวม 2350 ตรง", () => {
+    const text =
+      "88 = 260*260\n29 92 =70*70\n29 = 20*20\n889 = ตรง 20\n988  = ตรง 30\n688 = ตรง 20\n" +
+      "988 *3 ประตู ตัวละ430\n688 *3 ประตู ตัวละ50\n\nรวม 2350";
+    const ticket = parseTicket(text, { defaultCurrency: "THB", threeDigitBottom: true });
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.typedTotal).toBe(2350);
+  });
+});
+
+describe("ปต = ประตู (ตัวย่อ)", () => {
+  test("688 =800*3ปต → กลับเลข 3 แบบ แบบละ 800 (บนอย่างเดียว)", () => {
+    const ticket = parseTicket("688 =800*3ปต", { defaultCurrency: "THB", threeDigitBottom: true });
+    expect(ticket.issues).toEqual([]);
+    expect(brief(ticket.bets)).toEqual(["688 TOP THB 800", "868 TOP THB 800", "886 TOP THB 800"]);
+  });
+
+  test("ป.ต. / ປຕ ก็ได้", () => {
+    expect(parseTicket("988 =500*3ป.ต.").bets).toHaveLength(3);
+    expect(parseTicket("988 =500*3ປຕ").bets).toHaveLength(3);
+  });
+
+  test("โพยเต็มในรูป: คิดได้ 4,220 บาท (ยอดรวมที่แจ้ง 3,900 ไม่ตรง → รอตรวจ)", () => {
+    const text = "688  886  868 =20\n\n498 =50*50\n\n688=20*3ประตู\n\n988=50*50\n\n688 =800*3ปต\n988 =500*3ปต\n\n\n=3900฿";
+    const ticket = parseTicket(text, { defaultCurrency: "THB", threeDigitBottom: true });
+    expect(ticket.typedTotal).toBe(4220);
+    expect(ticket.issues.map((i) => i.code)).toEqual(["TOTAL_MISMATCH"]);
+  });
+});
