@@ -850,3 +850,68 @@ export async function rereadTickets(
   }
   return changed;
 }
+
+/**
+ * ผู้ดูแลเปลี่ยนตั้งค่าการอ่านของกลุ่ม (สกุลเงินเริ่มต้น / 3 ตัว บน-ล่าง — group-read.ts) → อ่านโพยของกลุ่มนั้นใหม่ทันที
+ * เฉพาะงวดที่ยังเปิดรับ (งวดที่ปิดแล้วยอดต้องนิ่ง) · โพยข้อความว่าง (ถอดรหัสไม่ได้) ไม่แตะ
+ *  - โพยที่นับยอดแล้ว: ยังนับยอดเหมือนเดิม (นับเฉพาะบรรทัดที่อ่านได้ เหมือนคนกดยืนยัน) แต่ใช้ตั้งค่าใหม่
+ *    เช่น เปลี่ยนเป็นบาท → รายการที่โพยไม่ได้ระบุสกุลเงินกลายเป็นบาท · โพยที่ระบุ ກີບ / ບາດ เองไม่เปลี่ยน
+ *  - โพยรอตรวจ: อ่านใหม่ตามปกติ (อ่านได้ครบ = นับยอด) · รอรูป / AI_HOLD คงสถานะเดิม
+ * audit ในนามคนที่เปลี่ยนตั้งค่า · คืนจำนวนโพยที่ผลเปลี่ยน
+ */
+export async function rereadGroupTickets(db: PrismaClient, groupId: string, user: AuditActor): Promise<number> {
+  const group = await db.whatsappGroup.findUnique({ where: { id: groupId }, select: GROUP_READ_SELECT });
+  if (!group) return 0;
+  const tickets = await db.ticket.findMany({
+    where: { groupId, draw: { status: "OPEN" }, rawText: { not: "" } },
+    include: {
+      image: { select: { id: true } },
+      draw: { select: { dealerId: true, status: true, closesAt: true } },
+    },
+  });
+
+  const rulesByDealer = new Map<string, ReadRuleSpec[]>();
+  let changed = 0;
+  for (const { image, draw, ...ticket } of tickets) {
+    if (!acceptsTickets(draw)) continue;
+    if (!rulesByDealer.has(draw.dealerId)) rulesByDealer.set(draw.dealerId, await rulesOf(db, draw.dealerId));
+    const options: ReadOptions = {
+      lakMultiplier: ticket.lakMultiplier,
+      rules: rulesByDealer.get(draw.dealerId),
+      ...groupParseOptions(group),
+    };
+    const imagePending = !!image && hasIssue(ticket.issues, "FROM_IMAGE");
+    const next =
+      ticket.status === "CONFIRMED"
+        ? readTicketText(ticket.rawText, options, true)
+        : reread(ticket.rawText, options, imagePending, ticket.issues);
+    if (!next) continue;
+
+    const bets = await db.bet.findMany({
+      where: { ticketId: ticket.id },
+      orderBy: { id: "asc" },
+      select: { number: true, position: true, currency: true, amount: true },
+    });
+    const betKey = (list: { number: string; position: string; currency: string; amount: unknown }[]) =>
+      list
+        .map((bet) => `${bet.number}|${bet.position}|${bet.currency}|${Number(bet.amount)}`)
+        .sort()
+        .join(",");
+    if (sameAsStored(ticket, next) && betKey(bets) === betKey(next.bets)) continue;
+
+    await db.$transaction(async (tx) => {
+      const updated = await rewriteTicket(tx, ticket, next.fields, next.bets);
+      await logAudit(tx, {
+        action: "UPDATE",
+        entity: "Ticket",
+        entityId: ticket.id,
+        summary: summaryOf(ticket.rawText),
+        before: ticket,
+        after: updated,
+        user,
+      });
+    });
+    changed++;
+  }
+  return changed;
+}

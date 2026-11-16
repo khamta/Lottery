@@ -8,6 +8,7 @@ import { requireRole } from "@/lib/auth";
 import { createAction } from "@/lib/action";
 import { logAudit } from "@/lib/audit";
 import { requireAdminAccess } from "@/lottery/access";
+import { rereadGroupTickets } from "@/lottery/ingest";
 import {
   assignWhatsappGroupSchema,
   createWhatsappAccountSchema,
@@ -203,7 +204,7 @@ export const assignWhatsappGroup = createAction(
     const user = await requireRole(["ADMIN"]);
     await requireAdminAccess(user.id);
 
-    const group = await prisma.$transaction(async (tx) => {
+    const { group, before } = await prisma.$transaction(async (tx) => {
       const before = await tx.whatsappGroup.findFirst({
         where: { id },
         include: { account: { select: { ownerId: true } } },
@@ -251,11 +252,19 @@ export const assignWhatsappGroup = createAction(
         user,
       });
 
-      return group;
+      return { group, before };
     });
 
+    // เปลี่ยนสกุลเงินเริ่มต้น / 3 ตัวล่าง → โพยของกลุ่มในงวดที่เปิดรับ (รวมที่นับยอดแล้ว) อ่านใหม่ตามตั้งค่าใหม่ทันที
+    const readChanged =
+      group.currency !== before.currency || group.threeDigitBottom !== before.threeDigitBottom;
+    const reread = readChanged ? await rereadGroupTickets(prisma, group.id, user) : 0;
+    if (reread > 0) {
+      for (const path of ["/tickets", "/reports", "/dashboard", "/customers"]) revalidatePath(path);
+    }
+
     revalidateWhatsapp(group.accountId);
-    return { id: group.id };
+    return { id: group.id, reread };
   },
   { successMessage: "whatsapp.groupAssigned" },
 );

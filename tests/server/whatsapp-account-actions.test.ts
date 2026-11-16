@@ -49,6 +49,8 @@ const tx = {
       db.groups.set(where.id, updated);
       return updated;
     },
+    // เปลี่ยนสกุลเงิน / 3 ตัวล่าง → อ่านโพยของกลุ่มใหม่ (rereadGroupTickets — เทสต์ละเอียดที่ tests/lottery/group-reread.test.ts)
+    findUnique: async ({ where }: { where: { id: string } }) => db.groups.get(where.id) ?? null,
     updateMany: async ({ where, data }: { where: { accountId: string }; data: Row }) => {
       let count = 0;
       for (const [id, group] of db.groups) {
@@ -59,6 +61,8 @@ const tx = {
       return { count };
     },
   },
+  /** โพยของกลุ่มที่ต้องอ่านใหม่ — เทสต์นี้ไม่มีโพย */
+  ticket: { findMany: async () => [] },
   dealer: {
     findFirst: async ({ where }: { where: { id: string; ownerId: string } }) => {
       const dealer = db.dealers.get(where.id);
