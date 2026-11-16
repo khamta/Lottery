@@ -197,6 +197,16 @@ const BARE_TOTAL_LINE = /^(\d{1,3}(?:[.,]000)+)([^\d]*)$/u;
  * (ไม่คั่นหลักพันต้องลงท้าย 000 และไม่ต่ำกว่า 10,000 — "=5" / "=500" ยังเป็นยอดเลขละ)
  */
 const EQUALS_TOTAL_LINE = /^[=:]\s*(\d{1,3}(?:[.,]000)+|[1-9]\d+000)([^\d]*)$/u;
+/**
+ * =250บาท / =30ກີບ = ยอดรวม (ยอด + สกุลเงิน) — ใช้เฉพาะเมื่อด้านบนมีรายการแล้วและไม่มีเลขรอยอด
+ * (มีเลขรอ = ยอดเลขละของเลขเหล่านั้นตามเดิม)
+ */
+const EQUALS_CURRENCY_TOTAL_LINE = new RegExp(
+  String.raw`^[=:]\s*(${AMOUNT})\s*(฿|บาท|บาด|ບາດ|baht|thb|₭|ກີບ|ກິບ|กีบ|กิบ|kip|lak)\s*$`,
+  "iu",
+);
+/** ป3 / ອ.5 — ป้ายสั้น (ตัวหนังสือ 1–4 ตัว + เลข 1–2 หลัก) เหนือรายการแรก = หมายเหตุ ถ้าอ่านเป็นอย่างอื่นไม่ได้ */
+const LABEL_LINE = /^([\p{L}\p{M}]{1,4})\s*\.?\s*\d{1,2}$/u;
 
 /** บรรทัดยอดรวม → [ข้อความทั้งบรรทัด, ยอด] · null = ไม่ใช่บรรทัดยอดรวม */
 function totalOf(text: string): RegExpMatchArray | null {
@@ -391,13 +401,24 @@ const PHONE = /\+?(?<!\d)(?:\d{8,}|\d{2,4}[\s-]\d{3,4}[\s-]\d{4})(?!\d)/g;
  * ("30.10.26" อาจเป็นเลข 30 10 26 จึงไม่ถือเป็นวันที่) — มีตัวหนังสือในบรรทัดด้วย ("ຊື້ເລກ…02/10/26") = วันที่แน่นอน
  */
 function isDateOrPhoneLine(text: string) {
-  const words = /\p{L}/u.test(text);
+  // ธงชาติ (🇹🇭16/11/26🇹🇭 — Windows แสดงเป็น "TH") บอกว่าเป็นหัวโพยเหมือนตัวหนังสือ
+  const words = /[\p{L}\p{Regional_Indicator}]/u.test(text);
   const rest = text
     .replace(DATE, (match, day?: string, month?: string, year?: string) =>
       day === undefined || year!.length === 4 || day.length === 1 || month!.length === 1 || words ? "" : match,
     )
     .replace(PHONE, "");
   return rest !== text && !/\d/.test(rest);
+}
+/** บรรทัดที่เป็นวันที่ d/m/yy หรือ d-m-yy อย่างเดียว และเป็นวันที่จริงในปฏิทิน */
+function isStandaloneDate(text: string) {
+  const match = text.trim().match(/^(\d{1,2})\s*([/-])\s*(\d{1,2})\s*\2\s*(\d{2})$/);
+  if (!match) return false;
+  const day = Number(match[1]);
+  const month = Number(match[3]);
+  const year = 2000 + Number(match[4]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return month >= 1 && month <= 12 && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 /** วันที่/เดือนไม่มีปี ที่วันเป็นเลขตัวเดียว (ไม่ใช่เลขแทง): "7/10" = 7 ต.ค. */
 const SHORT_DATE_LINE = /^[1-9]\s*\/\s*(?:0?[1-9]|1[0-2])$/u;
@@ -492,6 +513,10 @@ function normalize(text: string) {
     // ລາ່ງ / ลา่ง = ລ່າງ / ล่าง ที่วางไม้เอกหลังสระอา
     .replace(/ລາ່ງ/g, "ລ່າງ")
     .replace(/ลา่ง/g, "ล่าง")
+    // ₿ (Bitcoin) / Ƀ หน้าตาเหมือน ฿ บนคีย์บอร์ดมือถือ = บาท: "=1100₿" = "=1100฿"
+    .replace(/[₿Ƀ]/gu, "฿")
+    // ฮู (ฮ นกฮูก ของไทย) หน้ายอด = ຮູ: "ฮู100*50฿" = "ຮູ100*50฿" (เฉพาะหน้ายอด — ไม่แตะชื่อที่มี ฮู)
+    .replace(/ฮู(?=\s*(?:ລະ|ละ)?\s*(?:\d|ພັນ|พัน))/g, "ຮູ")
     // ' ’ ‘ ` ´ " “ ” ″ ระหว่างตัวเลข = ตัวคั่นเลข: "19'59'99" = "032"072"932" = "19.59.99"
     .replace(/(?<=\d)['’‘`´"“”″]+(?=\d)/g, ".")
     // ตัวคล้าย : (∶ ː ꞉ ׃ ﹕) จากคีย์บอร์ด/ผลอ่านรูป = :
@@ -662,8 +687,8 @@ function parseAmount(text: string, fallback: Currency = "LAK"): Amount | { issue
   const suffix = readSuffix(amount[3]) ?? readSuffixWithoutName(amount[3]);
   if (first === null || second === null || !suffix) return { issue: "UNREADABLE" };
 
-  // "1000*1000" = บน × ล่าง อยู่แล้ว จึงห้ามมีคำกำกับฝั่งซ้ำ
-  if (second !== undefined && suffix.position) return { issue: "UNREADABLE" };
+  // "1000*1000" = บน × ล่าง อยู่แล้ว จึงห้ามมีคำกำกับฝั่งซ้ำ — ยกเว้น บนล่าง ซึ่งความหมายเดียวกัน ("130*120บน-ล่าง")
+  if (second !== undefined && suffix.position && suffix.position !== "BOTH") return { issue: "UNREADABLE" };
   return {
     first,
     second,
@@ -916,7 +941,10 @@ function readTicket(message: string, options: ParseOptions, wide: boolean): Pars
   const normalized = message.split(/\r?\n/).map(normalize);
   const fallback: Currency =
     hasThbMarkLine(normalized) ||
-    (normalized.some((text) => totalOf(text) !== null && THB_WORD.test(text)) && !normalized.some((text) => LAK_WORD.test(text)))
+    (normalized.some(
+      (text) => (totalOf(text) !== null || EQUALS_CURRENCY_TOTAL_LINE.test(text.replace(EMOJI, "").trim())) && THB_WORD.test(text),
+    ) &&
+      !normalized.some((text) => LAK_WORD.test(text)))
       ? "THB"
       : "LAK";
   const bahtTicket = normalized.some((text) => THB_WORD.test(text)) && !normalized.some((text) => LAK_WORD.test(text));
@@ -1155,7 +1183,9 @@ function readTicket(message: string, options: ParseOptions, wide: boolean): Pars
     const closed = totalled;
     totalled = [];
     // ไม่มีตัวเลข (ชื่อ คำทักทาย) · เอาแต่3โต · วันที่ / เบอร์โทร (03/10/2026🇱🇦 · ນາງ ແອ໋ມ 02055551234) = หมายเหตุ
-    if (!text || !/\d/.test(text) || ONLY_THREE_LINE.test(text) || DEBT_NOTE.test(text) || (!totalOf(text) && isDateOrPhoneLine(text)) || SHORT_DATE_LINE.test(text)) {
+    // ธงชาติถูกตัดออกจาก text แล้ว — ตรวจวันที่กับบรรทัดเดิมที่ยังมีธง (🇹🇭16/11/26🇹🇭 = หัวโพย)
+    const flaggedDate = /\p{Regional_Indicator}/u.test(ruled) && isDateOrPhoneLine(ruled);
+    if (!text || !/\d/.test(text) || ONLY_THREE_LINE.test(text) || DEBT_NOTE.test(text) || (!totalOf(text) && (isDateOrPhoneLine(text) || flaggedDate)) || SHORT_DATE_LINE.test(text)) {
       notes.push(original);
       if (DIVIDER_LINE.test(text)) afterDivider = true;
       return;
@@ -1220,7 +1250,11 @@ function readTicket(message: string, options: ParseOptions, wide: boolean): Pars
     }
 
     // =15.000 ที่ไม่มีเลขรอยอดด้านบน = ยอดรวม (มีเลขรอ = ยอดเลขละของเลขเหล่านั้น ดู each ด้านล่าง)
-    const equalsTotal = pending.length === 0 && groups.length === 0 ? text.match(EQUALS_TOTAL_LINE) : null;
+    // =250บาท (ยอด + สกุลเงิน) ใต้รายการที่มียอดครบแล้ว = ยอดรวมเช่นกัน
+    const equalsTotal =
+      pending.length === 0 && groups.length === 0
+        ? (text.match(EQUALS_TOTAL_LINE) ?? (bets.length > 0 ? text.match(EQUALS_CURRENCY_TOTAL_LINE) : null))
+        : null;
     const total = totalOf(text) ?? (equalsTotal && readSuffix(equalsTotal[2]!) ? equalsTotal : null);
     if (total) {
       afterTotal = true;
@@ -1418,6 +1452,31 @@ function readTicket(message: string, options: ParseOptions, wide: boolean): Pars
   });
   // ยอดเต็มจำนวนที่หารกลับเป็นหน่วยย่ออาจมีทศนิยม (15,500 = 15.5) — ปัดกันเศษทศนิยมของ float
   closeHeading();
+  // วันที่ d/m/yy (คั่นด้วย / หรือ -) ที่ไม่มีบรรทัดยอดมารับจนจบโพย = วันที่ ไม่ใช่เลขแทง ("16/11/26" ท้ายโพย)
+  // ("30.10.26" คั่นด้วย . ยังถือเป็นเลขแทงที่ไม่มียอด)
+  for (const issue of [...issues]) {
+    if (issue.code === "NO_AMOUNT" && isStandaloneDate(issue.text)) {
+      dropIssues([issue]);
+      notes.push(issue.text);
+    }
+  }
+  // ป้ายสั้นเหนือรายการแรก ("ป3") ที่ไม่ใช่คำกำกับ/ยอดเลขละ/ยอดรวม = หมายเหตุ
+  const firstBetLine = bets.length > 0 ? Math.min(...bets.map((bet) => bet.line)) : 0;
+  for (const issue of [...issues]) {
+    const label = issue.text.replace(EMOJI, "").trim().match(LABEL_LINE);
+    if (
+      issue.code === "UNREADABLE" &&
+      label &&
+      issue.line < firstBetLine &&
+      readSuffix(label[1]!) === null &&
+      !AMOUNT_EACH_PREFIX.test(`${label[1]}1`) &&
+      !totalOf(issue.text) &&
+      !/^(?:ລ|ล|ຫລັກ|ຫຼັກ|ລັກ|หลัก|ลัก)$/u.test(label[1]!)
+    ) {
+      dropIssues([issue]);
+      notes.unshift(issue.text);
+    }
+  }
   typedTotal = Math.round(typedTotal * 1000) / 1000;
   // ยอดรวม 1,000–9,999 กำกวม: 9.000 = 9,000 กีบเต็ม (ย่อ 9) หรือ ລວມ1.800 = ย่อ 1,800 — เลือกแบบที่ตรงกับยอดที่คิดได้
   if (declaredTotal !== null && ambiguousTotal > 0 && lakMultiplier > 0) {

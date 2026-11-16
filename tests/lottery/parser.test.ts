@@ -1319,6 +1319,54 @@ describe("parseTicket — กติกา", () => {
     expect(parseNative("30/10/26=10").bets).toHaveLength(3);
   });
 
+  test("ป3 / 88=130*120บน-ล่าง / =250บาท🅱️ → ป้ายเป็นหมายเหตุ · บนล่างซ้ำได้ · =ยอด+สกุลเงิน = ยอดรวม", () => {
+    const ticket = parseTicket("ป3\n88=130*120บน-ล่าง\n=250บาท🅱️");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.notes).toEqual(["ป3"]);
+    expect(ticket.declaredTotal).toBe(250);
+    expect(ticket.bets.map((b) => `${b.number} ${b.position} ${b.currency} ${b.amount}`)).toEqual(["88 TOP THB 130", "88 BOTTOM THB 120"]);
+    // มีเลขรอยอด → =20บาท ยังเป็นยอดเลขละ
+    expect(parseTicket("12\n52\n=20บาท").bets.map((b) => `${b.number} ${b.currency} ${b.amount}`)).toEqual(["12 THB 20", "52 THB 20"]);
+    // ฝั่งเดียวหลัง บน×ล่าง ยังอ่านไม่ออก
+    expect(parseTicket("88=130*120ล่าง").issues.map((i) => i.code)).toEqual(["UNREADABLE"]);
+    // คำกำกับ (ลัก3) เหนือรายการไม่ใช่ป้าย
+    expect(parseTicket("ลัก3\n88=10").issues.map((i) => i.code)).toEqual(["UNREADABLE"]);
+  });
+
+  test("ฮู (ฮ ไทย) = ຮູ: 12- / 52- / 92- / ฮู100*50฿ → บน 100 ล่าง 50 บาท", () => {
+    const ticket = parseTicket("12-\n52-\n92-\nฮู100*50฿");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.map((b) => `${b.number} ${b.position} ${b.currency} ${b.amount}`)).toEqual([
+      "12 TOP THB 100", "12 BOTTOM THB 50", "52 TOP THB 100", "52 BOTTOM THB 50", "92 TOP THB 100", "92 BOTTOM THB 50",
+    ]);
+  });
+
+  test("วันที่ d/m/yy ท้ายโพยที่ไม่มียอดมารับ = หมายเหตุ ไม่ใช่ปัญหา (16/11/26)", () => {
+    const ticket = parseTicket("688=30*30\n88=50*50\n28=20*20\nບັນລ່າງຊິ\n16/11/26\nໄທຍ");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.notes).toContain("16/11/26");
+    // ยังมียอดมารับด้านล่าง = เลขแทง
+    expect(parseTicket("16/11/26\n=10").bets).toHaveLength(3);
+    // ไม่ใช่วันที่จริง = ยังเป็นเลขไม่มียอด
+    expect(parseTicket("16/31/26").issues.map((i) => i.code)).toEqual(["NO_AMOUNT"]);
+  });
+
+  test("วันที่มีธงชาติกำกับ (🇹🇭16/11/26🇹🇭) = หัวโพย ไม่ใช่เลขไม่มียอด", () => {
+    const ticket = parseTicket("🇹🇭16/11/26🇹🇭\n28=200*200\n82=100*100\n88=250*250บาท");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.notes).toEqual(["🇹🇭16/11/26🇹🇭"]);
+    expect(ticket.bets).toHaveLength(6);
+  });
+
+  test("₿ / Ƀ (หน้าตาเหมือน ฿) = บาท: =1100₿ ท้ายโพย = ยอดรวมบาท", () => {
+    for (const mark of ["₿", "Ƀ"]) {
+      const ticket = parseTicket(`88=350*350\n\n688=200*200\n\n=900${mark}`);
+      expect(ticket.issues).toEqual([]);
+      expect(ticket.declaredTotal).toBe(900);
+      expect(ticket.bets.map((b) => b.currency)).toEqual(["THB", "THB", "THB"]);
+    }
+  });
+
   test("บรรทัดที่ไม่มีตัวเลขเก็บเป็นหมายเหตุ ไม่นับเป็นปัญหา", () => {
     const ticket = parseTicket("ເອື້ອຍນ້ອຍ\n32=100");
     expect(ticket.notes).toEqual(["ເອື້ອຍນ້ອຍ"]);
