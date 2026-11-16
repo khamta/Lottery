@@ -304,6 +304,32 @@ describe("assignWhatsappGroup", () => {
     expect(db.groups.get("group-1")).toMatchObject({ readImages: false });
   });
 
+  test("ตั้ง 3 ตัวบน-ล่าง และสกุลเงินเริ่มต้นของกลุ่มได้ พร้อม audit log — ไม่ส่งมา = คงค่าเดิม", async () => {
+    db.groups.set("group-1", {
+      ...db.groups.get("group-1")!,
+      dealerId: "dealer-1",
+      threeDigitBottom: false,
+      currency: "LAK",
+    });
+
+    const result = await assignWhatsappGroup({ id: "group-1", dealerId: "dealer-1", threeDigitBottom: true, currency: "THB" });
+    expect(result.ok).toBe(true);
+    expect(db.groups.get("group-1")).toMatchObject({ threeDigitBottom: true, currency: "THB" });
+    expect(db.auditRows[0]).toMatchObject({
+      changes: { threeDigitBottom: { from: false, to: true }, currency: { from: "LAK", to: "THB" } },
+    });
+
+    expect((await assignWhatsappGroup({ id: "group-1", dealerId: "dealer-1" })).ok).toBe(true);
+    expect(db.groups.get("group-1")).toMatchObject({ threeDigitBottom: true, currency: "THB" });
+  });
+
+  test("สกุลเงินที่ไม่รู้จัก → VALIDATION", async () => {
+    const result = await assignWhatsappGroup({ id: "group-1", dealerId: null, currency: "USD" as never });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("VALIDATION");
+  });
+
   test("ค่าอ่านรูปที่ไม่ใช่ true/false → VALIDATION", async () => {
     const result = await assignWhatsappGroup({ id: "group-1", dealerId: null, readImages: "AI" as never });
 

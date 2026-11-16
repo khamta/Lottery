@@ -52,7 +52,7 @@ export function DrawDialog({ open, onOpenChange, draw, closeTimes, onSubmit }: D
 
   const form = useForm<DrawInput>({
     resolver: zodResolver(drawSchema),
-    defaultValues: { name: "", lottery: "LAO", drawDate: "", closeTime: "", topResult: "", bottomResult: "" },
+    defaultValues: { name: "", lottery: "LAO", drawDate: "", closeTime: "", topResult: "", bottomResult: "", bottom3Result: "" },
   });
 
   /** ชื่อตั้งต้นของงวด — หวยเวียดนามวันเดียวมีหลายงวด จึงมีรหัสรอบนำหน้า (ชื่องวดห้ามซ้ำในแม่หวยเดียวกัน) */
@@ -89,6 +89,7 @@ export function DrawDialog({ open, onOpenChange, draw, closeTimes, onSubmit }: D
             closeTime: draw.closeTime ?? "",
             topResult: draw.topResult ?? "",
             bottomResult: draw.bottomResult ?? "",
+            bottom3Result: draw.bottom3Result ?? "",
           }
         : {
             name: autoName("LAO", today),
@@ -97,6 +98,7 @@ export function DrawDialog({ open, onOpenChange, draw, closeTimes, onSubmit }: D
             closeTime: closeTimes.LAO ?? "",
             topResult: "",
             bottomResult: "",
+            bottom3Result: "",
           },
     );
   }, [open, draw, form, autoName, closeTimes]);
@@ -223,6 +225,20 @@ export function DrawDialog({ open, onOpenChange, draw, closeTimes, onSubmit }: D
                     <FormControl>
                       <Input inputMode="numeric" maxLength={2} placeholder="00" className="tabular-nums" {...field} />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="bottom3Result"
+                render={({ field }) => (
+                  <FormItem className="sm:col-span-2">
+                    <FormLabel>{t("draws.bottom3Result")}</FormLabel>
+                    <FormControl>
+                      <Input inputMode="numeric" maxLength={3} className="tabular-nums" {...field} />
+                    </FormControl>
+                    <FormDescription>{t("draws.bottom3ResultHint")}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

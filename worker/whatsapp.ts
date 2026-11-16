@@ -48,7 +48,7 @@ import makeWASocket, {
   type WAMessage,
   type WASocket,
 } from "@whiskeysockets/baileys";
-import type { LotteryType, Prisma } from "@prisma/client";
+import type { Currency, LotteryType, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { removeTicketImage, saveTicketImage, sweepTicketImages, UPLOAD_ROOT } from "@/lottery/image-store";
@@ -116,9 +116,16 @@ function makeLogger(label: string) {
 
 /**
  * กลุ่มที่อ่าน: แม่หวยที่ผูกไว้ + id ของกลุ่ม (โพยจำว่ามาจากกลุ่มไหน) + ประเภทหวย (ลงงวดของประเภทนี้)
- * + อ่านรูปโพยด้วย AI ไหม (false = เก็บรูปไว้รอคนตรวจ)
+ * + อ่านรูปโพยด้วย AI ไหม (false = เก็บรูปไว้รอคนตรวจ) + ตั้งค่าการอ่านโพยของกลุ่ม (3 ตัวล่าง / สกุลเงินเริ่มต้น)
  */
-type GroupTarget = { dealerId: string; groupId: string; lottery: LotteryType; readImages: boolean };
+type GroupTarget = {
+  dealerId: string;
+  groupId: string;
+  lottery: LotteryType;
+  readImages: boolean;
+  threeDigitBottom: boolean;
+  currency: Currency;
+};
 
 type Session = {
   id: string;
@@ -370,6 +377,8 @@ async function loadGroupMap(accountIds: string[]) {
       dealerId: true,
       lottery: true,
       readImages: true,
+      threeDigitBottom: true,
+      currency: true,
       dealer: { select: { readImages: true } },
     },
   });
@@ -382,6 +391,8 @@ async function loadGroupMap(accountIds: string[]) {
       lottery: row.lottery,
       // แม่หวยปิด AI (สวิตช์หลักในหน้าแม่หวย) = ไม่อ่านทุกกลุ่ม ไม่ว่ากลุ่มจะตั้งไว้อย่างไร
       readImages: row.readImages && row.dealer?.readImages !== false,
+      threeDigitBottom: row.threeDigitBottom,
+      currency: row.currency,
     });
   }
   return map;

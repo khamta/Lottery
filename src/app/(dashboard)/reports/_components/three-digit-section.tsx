@@ -13,26 +13,30 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { getTranslations } from "@/i18n/server";
 import { resolveLimit, type LimitRule, type ThreeDigitRow } from "@/lottery/report";
 import { formatNumber } from "@/lottery/format";
+import type { Position } from "@/lottery/parser";
 
 const COLUMNS = [
   { key: "lak", currency: "LAK", labelKey: "lottery.currencyLAK" },
   { key: "thb", currency: "THB", labelKey: "lottery.currencyTHB" },
 ] as const;
 
-/** ตารางเลข 3 ตัวบน — แยกจากเลข 2 ตัว ไม่นำยอดไปรวมกัน */
+/** ตารางเลข 3 ตัว (บน หรือ ล่าง — position) — แยกจากเลข 2 ตัว ไม่นำยอดไปรวมกัน */
 export async function ThreeDigitSection({
   rows,
   top,
   limits,
   winning,
+  position = "TOP",
 }: {
   /** ทุกเลขที่มียอด เรียงมาแล้ว */
   rows: ThreeDigitRow[];
   /** จำนวนอันดับที่แสดง (0 = ทั้งหมด) */
   top: number;
   limits: LimitRule[];
-  /** เลข 3 ตัวบนที่ออก */
+  /** เลข 3 ตัวที่ออกของฝั่งนี้ */
   winning: string | null;
+  /** ฝั่งของตาราง — ล่างมีเฉพาะโพยจากกลุ่มที่เปิด 3 ตัวล่าง */
+  position?: Position;
 }) {
   const { t, intl } = await getTranslations();
 
@@ -65,7 +69,7 @@ export async function ThreeDigitSection({
                 <span className="text-base font-semibold tabular-nums">{row.number}</span>
                 {winning === row.number ? (
                   <Badge variant="success" className="ml-2">
-                    {t("lottery.winTop")}
+                    {t(position === "TOP" ? "lottery.winTop" : "lottery.winBottom")}
                   </Badge>
                 ) : null}
               </TableCell>
@@ -74,7 +78,7 @@ export async function ThreeDigitSection({
                 const limit = resolveLimit(limits, {
                   number: row.number,
                   digits: 3,
-                  position: "TOP",
+                  position,
                   currency: column.currency,
                 });
                 const over = limit !== null && amount > limit;

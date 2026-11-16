@@ -13,6 +13,8 @@ export type DrawRow = {
   status: DrawStatusValue;
   topResult: string | null;
   bottomResult: string | null;
+  /** เลข 3 ตัวล่างที่ออก (ไม่บังคับ — ไม่มี = ไม่ได้กรอก) */
+  bottom3Result?: string | null;
   ticketCount: number;
   updatedAt: string;
 };

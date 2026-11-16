@@ -276,6 +276,8 @@ model Draw {
   topResult    String?
   /// เลข 2 ตัวล่างที่ออก
   bottomResult String?
+  /// เลข 3 ตัวล่างที่ออก (ไม่บังคับ) — ตรวจรางวัลของโพยจากกลุ่มที่เปิด 3 ตัวล่าง (whatsapp_groups.threeDigitBottom) · จ่ายเท่า 3 ตัวบน
+  bottom3Result String?
 
   /// อัตราจ่ายต่อ 1 หน่วย — ยังไม่ใช้ (ตอนนี้คิดตามยอดแทงจริงที่รับ) เก็บไว้ 0 เผื่อเปิดใช้ภายหลัง
   rate2Top    Decimal @default(0) @db.Decimal(8, 2)
@@ -543,6 +545,10 @@ model WhatsappGroup {
   lottery  LotteryType @default(LAO)
   /// อ่านรูปโพยของกลุ่มนี้ด้วย AI ไหม — false = เก็บรูปไว้เป็นโพยรอตรวจ (ocrStatus = SKIPPED) ไม่มีค่าใช้จ่าย
   readImages Boolean @default(true)
+  /// เลข 3 ตัวแทงล่าง / บนล่างได้ไหม — false = 3 ตัวลงได้เฉพาะบน (ບລ ลงบนอย่างเดียว · ล่างล้วน = รอตรวจ)
+  threeDigitBottom Boolean @default(false)
+  /// สกุลเงินเริ่มต้นของโพยจากกลุ่มนี้ — ใช้เมื่อทั้งใบไม่ระบุสกุลเงินเลย (ระบุ ກີບ / ບາດ ในโพย = ตามที่ระบุ)
+  currency Currency @default(LAK)
 
   tickets Ticket[]
 

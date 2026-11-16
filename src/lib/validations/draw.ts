@@ -24,12 +24,18 @@ const drawFields = z.object({
   topResult: z.string().regex(/^(\d{3})?$/, "draws.validation.topResult"),
   /** เลข 2 ตัวล่างที่ออก */
   bottomResult: z.string().regex(/^(\d{2})?$/, "draws.validation.bottomResult"),
+  /** เลข 3 ตัวล่างที่ออก (ไม่บังคับ) — ใช้กับโพยจากกลุ่มที่เปิด 3 ตัวล่าง · ว่าง = แทง 3 ตัวล่างไม่ถูก */
+  bottom3Result: z.string().regex(/^(\d{3})?$/, "draws.validation.bottom3Result").default(""),
 });
 
 type DrawFields = z.infer<typeof drawFields>;
 
 /** เลขที่ออกต้องกรอกครบทั้งคู่หรือว่างทั้งคู่ — กรอกครึ่งเดียวคิดรางวัลไม่ได้ */
 function requireResultPair(value: DrawFields, ctx: z.RefinementCtx) {
+  // 3 ตัวล่างกรอกได้เมื่อมีผลหลักแล้วเท่านั้น
+  if (value.bottom3Result && !value.topResult) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["topResult"], message: "draws.validation.resultPair" });
+  }
   if (!value.topResult === !value.bottomResult) return;
   const missing = value.topResult ? "bottomResult" : "topResult";
   ctx.addIssue({ code: z.ZodIssueCode.custom, path: [missing], message: "draws.validation.resultPair" });

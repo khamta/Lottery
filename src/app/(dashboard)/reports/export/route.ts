@@ -75,6 +75,7 @@ export async function GET(request: Request) {
     drawDate: true,
     topResult: true,
     bottomResult: true,
+    bottom3Result: true,
     rate2Top: true,
     rate2Bottom: true,
     rate3Top: true,

@@ -44,6 +44,7 @@ export default async function DrawsPage({ searchParams }: PageProps) {
       lottery: DrawRow["lottery"];
       drawDate: Date;
       closesAt: Date | null;
+      bottom3Result: string | null;
       status: DrawRow["status"];
       topResult: string | null;
       bottomResult: string | null;
@@ -63,6 +64,7 @@ export default async function DrawsPage({ searchParams }: PageProps) {
       status: true,
       topResult: true,
       bottomResult: true,
+      bottom3Result: true,
       updatedAt: true,
       _count: { select: { tickets: true } },
     },

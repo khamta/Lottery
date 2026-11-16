@@ -88,6 +88,7 @@ export function getDrawColumns({ t, intl, onEdit, onSetStatus, onDelete }: Colum
       cell: ({ row }) => (
         <span className="font-medium tabular-nums">
           {row.original.topResult ?? "–"} · {row.original.bottomResult ?? "–"}
+          {row.original.bottom3Result ? ` · ` : null}
         </span>
       ),
     },

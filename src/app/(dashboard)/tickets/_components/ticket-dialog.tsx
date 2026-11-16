@@ -35,6 +35,7 @@ import { ticketSchema, type TicketInput } from "@/lib/validations/ticket";
 import { useI18n } from "@/i18n/client";
 import { DEFAULT_LAK_MULTIPLIER, parseTicket } from "@/lottery/parser";
 import type { ReadRuleSpec } from "@/lottery/read-rules";
+import { groupParseOptions, type GroupReadSettings } from "@/lottery/group-read";
 import { isTicketMessage } from "@/lottery/ticket";
 import {
   canRereadImage,
@@ -62,6 +63,8 @@ type TicketDialogProps = {
   customers: CustomerOption[];
   /** เงื่อนไขอ่านโพยของแม่หวย — ตัวอย่างสดอ่านเหมือนที่ server บันทึก */
   rules: ReadRuleSpec[];
+  /** ตั้งค่าการอ่านของกลุ่ม WhatsApp (ตาม groupId) — โพยจากกลุ่มอ่านตัวอย่างด้วยตั้งค่าของกลุ่มนั้น */
+  groupReads: Record<string, GroupReadSettings>;
   /** งวดที่กำลังกรองอยู่ในตาราง — ใช้เป็นค่าตั้งต้นของโพยใหม่ */
   defaultDrawId: string | null;
   onSubmit: (values: TicketInput) => void;
@@ -86,6 +89,7 @@ export function TicketDialog({
   draws,
   customers,
   rules,
+  groupReads,
   defaultDrawId,
   onSubmit,
   onEditImage,
@@ -141,7 +145,11 @@ export function TicketDialog({
   const [text, customerId, drawId, force] = form.watch(["text", "customerId", "drawId", "force"]);
   const lakMultiplier =
     customers.find((customer) => customer.id === customerId)?.lakMultiplier ?? DEFAULT_LAK_MULTIPLIER;
-  const parsed = React.useMemo(() => parseTicket(text, { lakMultiplier, rules }), [text, lakMultiplier, rules]);
+  const groupRead = ticket?.groupId ? groupReads[ticket.groupId] : undefined;
+  const parsed = React.useMemo(
+    () => parseTicket(text, { lakMultiplier, rules, ...groupParseOptions(groupRead) }),
+    [text, lakMultiplier, rules, groupRead],
+  );
 
   const drawOpen = draws.find((draw) => draw.id === drawId)?.status === "OPEN";
   const hasIssues = parsed.issues.length > 0;

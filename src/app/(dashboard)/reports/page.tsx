@@ -19,6 +19,7 @@ import { TwoDigitTable } from "@/lottery/components/two-digit-table";
 import { DRAW_OPTIONS_MAX, getDrawStakes, getLimitRules, getTicketCounts } from "@/lottery/queries";
 import {
   findOverLimits,
+  bottom3Of,
   pivotThreeDigit,
   pivotTwoDigit,
   sumTwoDigit,
@@ -71,6 +72,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
       drawDate: true,
       topResult: true,
       bottomResult: true,
+      bottom3Result: true,
     },
   });
 
@@ -117,6 +119,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
   // ยอดของกลุ่มเดียวเทียบกับเพดานของทั้งงวดไม่ได้ — ดูกลุ่มอยู่ไม่ระบายสีเกินอั้นในตารางเลข
   const highlightLimits = group ? [] : limits;
   const twoDigit = pivotTwoDigit(stakes);
+  const threeBottom = pivotThreeDigit(stakes, "BOTTOM");
 
   const stats: Stat[] = [
     { label: t("lottery.stakeLak"), value: formatNumber(stake.lak, intl), icon: Banknote, hint: t("lottery.hintStake") },
@@ -170,6 +173,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
         {keys ? (
           <span className="font-medium tabular-nums">
             {t("reports.result", { top: keys[0]!.number, top2: keys[1]!.number, bottom: keys[2]!.number })}
+            {bottom3Of(keys) ? ` · ${t("lottery.digits3")} ${t("lottery.positionBOTTOM")} ${bottom3Of(keys)}` : null}
           </span>
         ) : (
           <span className="text-muted-foreground">{t("reports.noResultYet")}</span>
@@ -230,6 +234,21 @@ export default async function ReportsPage({ searchParams }: PageProps) {
           limits={highlightLimits}
           winning={keys ? keys[0]!.number : null}
         />
+      ) : null}
+      {/* 3 ตัวล่าง — มีเฉพาะงวดที่มีโพยจากกลุ่มที่เปิด 3 ตัวล่าง */}
+      {view === "three" && threeBottom.length > 0 ? (
+        <div className="space-y-2">
+          <h2 className="text-base font-semibold">
+            {t("lottery.digits3")} {t("lottery.positionBOTTOM")}
+          </h2>
+          <ThreeDigitSection
+            rows={threeBottom}
+            top={top}
+            limits={highlightLimits}
+            winning={bottom3Of(keys)}
+            position="BOTTOM"
+          />
+        </div>
       ) : null}
       {view === "customers" ? <CustomersSection drawId={draw.id} keys={keys} ticket={ticket} /> : null}
       {view === "bills" ? <BillsSection drawId={draw.id} ticket={ticket} /> : null}

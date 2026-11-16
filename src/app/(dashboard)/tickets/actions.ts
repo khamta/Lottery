@@ -14,6 +14,7 @@ import { requireDealerId } from "@/lottery/dealer";
 import { DEFAULT_LAK_MULTIPLIER } from "@/lottery/parser";
 import { removeTicketImage, saveTicketImage } from "@/lottery/image-store";
 import { releaseHeldTickets, replaceImageAndReread, requestImageReread, rulesOf, type RereadSkip } from "@/lottery/ingest";
+import { groupReadOf } from "@/lottery/group-read";
 import { readTicketText } from "@/lottery/ticket";
 import {
   createTicketSchema,
@@ -37,8 +38,11 @@ import { REREAD_DRAW_MAX, rereadableWhere } from "./filters";
  * โพย งวด และลูกค้า ต้องเป็นของแม่หวยที่เลือกอยู่ทั้งหมด (โพยเป็นของแม่หวยผ่านงวด)
  */
 
-/** ข้อความโพย → ข้อมูลที่จะบันทึก + รายการแทงที่นับยอด */
-async function readTicket(tx: Prisma.TransactionClient, input: TicketInput, dealerId: string) {
+/**
+ * ข้อความโพย → ข้อมูลที่จะบันทึก + รายการแทงที่นับยอด
+ * groupId = กลุ่ม WhatsApp ของโพยที่แก้ — อ่านด้วยตั้งค่าของกลุ่มนั้น (group-read.ts) · โพยคีย์เองไม่มีกลุ่ม
+ */
+async function readTicket(tx: Prisma.TransactionClient, input: TicketInput, dealerId: string, groupId: string | null = null) {
   const draw = await tx.draw.findFirst({ where: { id: input.drawId, dealerId }, select: { status: true, closesAt: true } });
   if (!draw) throw new Error("tickets.drawNotFound");
   if (!acceptsTickets(draw)) throw new Error("tickets.drawNotOpen");
@@ -53,7 +57,11 @@ async function readTicket(tx: Prisma.TransactionClient, input: TicketInput, deal
 
   // เงื่อนไขอ่านโพยที่ผู้ใช้กำหนดเองของแม่หวย (หน้า /read-rules)
   const rules = await rulesOf(tx, dealerId);
-  const read = readTicketText(input.text, { lakMultiplier: customer?.lakMultiplier ?? DEFAULT_LAK_MULTIPLIER, rules }, input.force);
+  const read = readTicketText(
+    input.text,
+    { lakMultiplier: customer?.lakMultiplier ?? DEFAULT_LAK_MULTIPLIER, rules, ...(await groupReadOf(tx, groupId)) },
+    input.force,
+  );
   if (!read) throw new Error("tickets.noBets");
 
   return {
@@ -125,7 +133,7 @@ export const updateTicket = createAction(
       const { draw, ...before } = existing;
       if (!acceptsTickets(draw)) throw new Error("tickets.drawNotOpen");
 
-      const { data, bets } = await readTicket(tx, input, dealerId);
+      const { data, bets } = await readTicket(tx, input, dealerId, before.groupId);
 
       await tx.bet.deleteMany({ where: { ticketId: id } });
       const ticket = await tx.ticket.update({ where: { id }, data: { ...data, editedAt: new Date() } });

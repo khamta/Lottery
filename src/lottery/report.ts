@@ -57,12 +57,12 @@ export function sumTwoDigit(rows: TwoDigitRow[]): Omit<TwoDigitRow, "number"> {
   );
 }
 
-/** เลข 3 ตัวบน: หนึ่งแถวต่อเลข เรียงตามยอดกีบ */
-export function pivotThreeDigit(groups: StakeGroup[]): ThreeDigitRow[] {
+/** เลข 3 ตัว (ฝั่งเดียว — บนเป็นค่าเริ่มต้น · ล่างมีเฉพาะกลุ่มที่เปิด 3 ตัวล่าง): หนึ่งแถวต่อเลข เรียงตามยอดกีบ */
+export function pivotThreeDigit(groups: StakeGroup[], position: Position = "TOP"): ThreeDigitRow[] {
   const rows = new Map<string, ThreeDigitRow>();
 
   for (const group of groups) {
-    if (group.digits !== 3) continue;
+    if (group.digits !== 3 || group.position !== position) continue;
     const row = rows.get(group.number) ?? { number: group.number, lak: 0, thb: 0 };
     row[group.currency === "LAK" ? "lak" : "thb"] += group.amount;
     rows.set(group.number, row);
@@ -107,17 +107,28 @@ export function findOverLimits(groups: StakeGroup[], limits: LimitRule[]): OverL
     );
 }
 
-export type DrawResult = { topResult: string | null; bottomResult: string | null };
+/** bottom3Result = เลข 3 ตัวล่าง (ไม่บังคับ — มีเฉพาะงวดที่มีกลุ่มเปิด 3 ตัวล่าง) */
+export type DrawResult = { topResult: string | null; bottomResult: string | null; bottom3Result?: string | null };
 export type WinningKey = { digits: number; position: Position; number: string };
 
-/** เลขที่ถูกรางวัลของงวด — ยังกรอกผลไม่ครบคืน null */
+/**
+ * เลขที่ถูกรางวัลของงวด — ยังกรอกผลไม่ครบคืน null
+ * ลำดับตายตัว: [3 ตัวบน, 2 ตัวบน, 2 ตัวล่าง] + 3 ตัวล่าง (ถ้ากรอกไว้) ต่อท้ายเป็นตัวที่ 4
+ * 3 ตัวล่างจ่ายอัตราเดียวกับ 3 ตัวบน (rate3Top — ดู buildSettlement)
+ */
 export function winningKeys(result: DrawResult): WinningKey[] | null {
   if (!result.topResult || !result.bottomResult) return null;
   return [
     { digits: 3, position: "TOP", number: result.topResult },
     { digits: 2, position: "TOP", number: result.topResult.slice(-2) },
     { digits: 2, position: "BOTTOM", number: result.bottomResult },
+    ...(result.bottom3Result ? [{ digits: 3, position: "BOTTOM" as const, number: result.bottom3Result }] : []),
   ];
+}
+
+/** เลข 3 ตัวล่างที่ออก (null = งวดนี้ไม่ได้กรอก) */
+export function bottom3Of(keys: WinningKey[] | null) {
+  return keys?.find((key) => key.digits === 3 && key.position === "BOTTOM")?.number ?? null;
 }
 
 export function isWinning(keys: WinningKey[], bet: Pick<StakeGroup, "number" | "digits" | "position">) {

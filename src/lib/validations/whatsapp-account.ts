@@ -24,12 +24,15 @@ export const whatsappCommandSchema = z.object({ id, command: z.enum(["connect", 
 /**
  * กลุ่มอ่านเข้าแม่หวยไหน (null = ไม่อ่าน) + ลงงวดของหวยประเภทไหน + อ่านรูปโพยด้วย AI ไหม (ไม่ส่ง = คงค่าเดิม)
  * readImages: true = อ่านรูปด้วย AI (มีค่าใช้จ่าย) · false = เก็บรูปไว้เป็นโพยรอตรวจ ไม่อ่าน
+ * threeDigitBottom: เลข 3 ตัวแทงล่าง / บนล่างได้ · currency: สกุลเงินเมื่อทั้งโพยไม่ระบุสกุลเงิน (ดู src/lottery/group-read.ts)
  */
 export const assignWhatsappGroupSchema = z.object({
   id,
   dealerId: z.string().min(1).nullable(),
   lottery: lotteryTypeEnum.optional(),
   readImages: z.boolean().optional(),
+  threeDigitBottom: z.boolean().optional(),
+  currency: z.enum(["LAK", "THB"]).optional(),
 });
 
 export type WhatsappAccountInput = z.infer<typeof whatsappAccountSchema>;

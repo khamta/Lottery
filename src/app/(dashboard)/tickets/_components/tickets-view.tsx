@@ -12,6 +12,7 @@ import { notify } from "@/lib/notify";
 import type { TicketInput } from "@/lib/validations/ticket";
 import { DEFAULT_LAK_MULTIPLIER, parseTicket } from "@/lottery/parser";
 import type { ReadRuleSpec } from "@/lottery/read-rules";
+import { groupParseOptions, type GroupReadSettings } from "@/lottery/group-read";
 import { summarizeTicket } from "@/lottery/ticket";
 import type { Paginated } from "@/types";
 import {
@@ -58,6 +59,7 @@ export function TicketsView({
   draws,
   customers,
   rules,
+  groupReads,
   filters,
   oddLakCount,
   imageTicketCount,
@@ -73,6 +75,8 @@ export function TicketsView({
   customers: CustomerOption[];
   /** เงื่อนไขอ่านโพยของแม่หวย (read-rules.ts) */
   rules: ReadRuleSpec[];
+  /** ตั้งค่าการอ่านของกลุ่ม WhatsApp ที่โพยในหน้านี้มาจาก (group-read.ts) — ตาม groupId */
+  groupReads: Record<string, GroupReadSettings>;
   filters: TicketFilterValues;
   /** จำนวนโพยที่มียอดกีบแปลก (ไม่ลงท้าย 000) ในงวดที่กรองอยู่ */
   oddLakCount: number;
@@ -226,7 +230,15 @@ export function TicketsView({
     // แยกข้อความฝั่ง client ด้วยตัวแยกชุดเดียวกับ server เพื่อให้แถวขึ้นยอดทันที
     const customer = customers.find((option) => option.id === values.customerId) ?? null;
     const lakMultiplier = customer?.lakMultiplier ?? DEFAULT_LAK_MULTIPLIER;
-    const summary = summarizeTicket(parseTicket(values.text, { lakMultiplier, rules }), values.force);
+    const summary = summarizeTicket(
+      parseTicket(values.text, {
+        lakMultiplier,
+        rules,
+        // แก้โพยจากกลุ่ม = อ่านด้วยตั้งค่าของกลุ่มนั้น (โพยใหม่ที่คีย์เองไม่มีกลุ่ม)
+        ...groupParseOptions(editing?.groupId ? groupReads[editing.groupId] : null),
+      }),
+      values.force,
+    );
 
     const shared = {
       drawId: values.drawId,
@@ -424,6 +436,7 @@ export function TicketsView({
         draws={draws}
         customers={customers}
         rules={rules}
+        groupReads={groupReads}
         defaultDrawId={filters.drawId}
         onSubmit={handleSave}
         onEditImage={setEditingImage}

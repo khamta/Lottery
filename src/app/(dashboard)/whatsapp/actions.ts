@@ -199,7 +199,7 @@ export const sendWhatsappCommand = createAction(
  */
 export const assignWhatsappGroup = createAction(
   assignWhatsappGroupSchema,
-  async ({ id, dealerId, lottery, readImages }) => {
+  async ({ id, dealerId, lottery, readImages, threeDigitBottom, currency }) => {
     const user = await requireRole(["ADMIN"]);
     await requireAdminAccess(user.id);
 
@@ -220,7 +220,13 @@ export const assignWhatsappGroup = createAction(
 
       const group = await tx.whatsappGroup.update({
         where: { id },
-        data: { dealerId, ...(lottery ? { lottery } : {}), ...(readImages !== undefined ? { readImages } : {}) },
+        data: {
+          dealerId,
+          ...(lottery ? { lottery } : {}),
+          ...(readImages !== undefined ? { readImages } : {}),
+          ...(threeDigitBottom !== undefined ? { threeDigitBottom } : {}),
+          ...(currency ? { currency } : {}),
+        },
       });
 
       await logAudit(tx, {
@@ -228,8 +234,20 @@ export const assignWhatsappGroup = createAction(
         entity: "WhatsappGroup",
         entityId: group.id,
         summary: group.name,
-        before: { dealerId: before.dealerId, lottery: before.lottery, readImages: before.readImages },
-        after: { dealerId: group.dealerId, lottery: group.lottery, readImages: group.readImages },
+        before: {
+          dealerId: before.dealerId,
+          lottery: before.lottery,
+          readImages: before.readImages,
+          threeDigitBottom: before.threeDigitBottom,
+          currency: before.currency,
+        },
+        after: {
+          dealerId: group.dealerId,
+          lottery: group.lottery,
+          readImages: group.readImages,
+          threeDigitBottom: group.threeDigitBottom,
+          currency: group.currency,
+        },
         user,
       });
 

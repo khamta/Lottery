@@ -90,6 +90,10 @@ export type ParseOptions = {
   rules?: readonly ReadRuleSpec[];
   /** false = ไม่ใช้เงื่อนไขที่ติดมากับระบบ (built-in-read-rules.ts) — ใช้ในเทสต์ไวยากรณ์ของตัวแยกเองเท่านั้น ระบบจริงใช้เสมอ */
   builtInRules?: boolean;
+  /** ตั้งค่าของกลุ่ม WhatsApp: เลข 3 ตัวแทงล่าง / บนล่างได้ (ไม่ระบุ = 3 ตัวลงได้เฉพาะบน) */
+  threeDigitBottom?: boolean;
+  /** ตั้งค่าของกลุ่ม WhatsApp: สกุลเงินเมื่อทั้งโพยไม่ระบุสกุลเงินเลย (ไม่ระบุ = กีบ) */
+  defaultCurrency?: Currency;
 };
 
 export const DEFAULT_LAK_MULTIPLIER = 1000;
@@ -698,8 +702,25 @@ function parseAmount(text: string, fallback: Currency = "LAK"): Amount | { issue
   };
 }
 
+/**
+ * กลุ่มที่เปิดให้เลข 3 ตัวแทงล่างได้ (ParseOptions.threeDigitBottom) — ตั้งค่าระหว่าง parseTicket ทำงานเท่านั้น
+ * ตัวแยกทำงานแบบ sync ล้วน ค่านี้จึงไม่ปนกันระหว่างโพย (คืนค่าเดิมใน finally เสมอ)
+ */
+let threeDigitBottom = false;
+
 function stakesFor(numbers: readonly string[], { first, second, position = "TOP", currency }: Amount): LineResult {
   const hasBottom = position !== "TOP";
+  // กลุ่มที่เปิดให้ 3 ตัวลงล่าง: เลข 3 ตัวลงบน/ล่างเหมือนเลข 2 ตัวทุกอย่าง
+  if (threeDigitBottom) {
+    const stakes = numbers.flatMap((number) => {
+      const base = { number, digits: number.length as 2 | 3, currency };
+      return [
+        ...(position !== "BOTTOM" ? [{ ...base, position: "TOP" as const, typed: first }] : []),
+        ...(hasBottom ? [{ ...base, position: "BOTTOM" as const, typed: second ?? first }] : []),
+      ];
+    });
+    return { stakes };
+  }
   // บนล่าง (ບລ / บนล่าง / บน×ล่าง) ใช้ได้เฉพาะเลข 2 ตัว → เลข 3 ตัวลงบนอย่างเดียวด้วยยอดบน · ล่างล้วนกับเลข 3 ตัว = พิมพ์ผิด
   const threeDigitTopOnly = position === "BOTH";
   if (hasBottom && !threeDigitTopOnly && numbers.some((n) => n.length === 3)) return { issue: "THREE_DIGIT_BOTTOM" };
@@ -903,7 +924,7 @@ function parseHundredsLine(
   const amount = parseAmount(parts[1], fallback);
   if ("issue" in amount) return amount;
   // ผลเป็นเลข 3 ตัว จึงลงได้เฉพาะบน — บนล่างลงบนอย่างเดียว (ดู stakesFor) · ล่างล้วน = พิมพ์ผิด
-  if (amount.position === "BOTTOM") return { issue: "THREE_DIGIT_BOTTOM" };
+  if (amount.position === "BOTTOM" && !threeDigitBottom) return { issue: "THREE_DIGIT_BOTTOM" };
   const result = stakesFor(withHundreds([...new Set(digits)], bases), amount);
   return "issue" in result ? result : { ...result, amount };
 }
@@ -915,10 +936,16 @@ function parseHundredsLine(
  * ใช้แบบนี้เฉพาะเมื่ออ่านได้ครบทุกบรรทัดและยอดรวมตรงพอดี
  */
 export function parseTicket(message: string, options: ParseOptions = {}): ParsedTicket {
-  const ticket = readTicket(message, options, false);
-  if (ticket.declaredTotal === null || ticket.issues.length === 0) return ticket;
-  const wide = readTicket(message, options, true);
-  return wide.issues.length === 0 && wide.declaredTotal !== null ? wide : ticket;
+  const previous = threeDigitBottom;
+  threeDigitBottom = options.threeDigitBottom ?? false;
+  try {
+    const ticket = readTicket(message, options, false);
+    if (ticket.declaredTotal === null || ticket.issues.length === 0) return ticket;
+    const wide = readTicket(message, options, true);
+    return wide.issues.length === 0 && wide.declaredTotal !== null ? wide : ticket;
+  } finally {
+    threeDigitBottom = previous;
+  }
 }
 
 function readTicket(message: string, options: ParseOptions, wide: boolean): ParsedTicket {
@@ -938,13 +965,16 @@ function readTicket(message: string, options: ParseOptions, wide: boolean): Pars
   // โพยบาท → รายการที่ไม่ได้ระบุสกุลเงินเป็นบาท (รายการที่ระบุ ກີບ / ₭ เองยังเป็นกีบ):
   // · มีบรรทัด B / ฿ เดี่ยว ๆ ด้านบนหรือด้านล่างของโพย
   // · ລວມ80฿ และทั้งข้อความไม่มีคำบอกกีบเลย
+  // · กลุ่มตั้งสกุลเงินเริ่มต้นเป็นบาท และทั้งข้อความไม่มีคำบอกกีบเลย (ไม่ระบุสกุลเลย = ใช้สกุลของกลุ่ม)
   const normalized = message.split(/\r?\n/).map(normalize);
+  const hasLakWord = normalized.some((text) => LAK_WORD.test(text));
   const fallback: Currency =
     hasThbMarkLine(normalized) ||
     (normalized.some(
       (text) => (totalOf(text) !== null || EQUALS_CURRENCY_TOTAL_LINE.test(text.replace(EMOJI, "").trim())) && THB_WORD.test(text),
     ) &&
-      !normalized.some((text) => LAK_WORD.test(text)))
+      !hasLakWord) ||
+    (options.defaultCurrency === "THB" && !hasLakWord)
       ? "THB"
       : "LAK";
   const bahtTicket = normalized.some((text) => THB_WORD.test(text)) && !normalized.some((text) => LAK_WORD.test(text));

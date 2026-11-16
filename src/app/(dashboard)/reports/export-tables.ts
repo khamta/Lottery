@@ -13,6 +13,7 @@ import {
   type WinningBet,
 } from "@/lottery/queries";
 import {
+  bottom3Of,
   buildSettlement,
   findOverLimits,
   pivotThreeDigit,
@@ -62,7 +63,8 @@ const money = (header: string): ExportColumn => ({ header, weight: 14, align: "r
 export function buildReportTable(input: ReportExportInput): ExportTable {
   const { t, intl, view, top, draw, keys } = input;
   const result = keys
-    ? t("reports.result", { top: keys[0]!.number, top2: keys[1]!.number, bottom: keys[2]!.number })
+    ? t("reports.result", { top: keys[0]!.number, top2: keys[1]!.number, bottom: keys[2]!.number }) +
+      (bottom3Of(keys) ? ` · ${t("lottery.digits3")} ${t("lottery.positionBOTTOM")} ${bottom3Of(keys)}` : "")
     : t("reports.noResultYet");
   const ranked = view === "two" || view === "three";
   const meta = [
@@ -92,6 +94,10 @@ export function buildReportTable(input: ReportExportInput): ExportTable {
     case "three": {
       const two = pivotTwoDigit(input.stakes);
       const three = pivotThreeDigit(input.stakes);
+      // 3 ตัวล่าง (กลุ่มที่เปิด 3 ตัวล่าง) — ต่อเป็นตารางที่สามทางขวาเฉพาะเมื่อมียอด
+      const threeBottom = pivotThreeDigit(input.stakes, "BOTTOM");
+      const hasBottom3 = threeBottom.length > 0;
+      const threeBottomRows = top ? threeBottom.slice(0, top) : threeBottom;
       const twoTotals = sumTwoDigit(two);
       const twoRows = top ? two.slice(0, top) : two;
       const threeRows = top ? three.slice(0, top) : three;
@@ -121,6 +127,18 @@ export function buildReportTable(input: ReportExportInput): ExportTable {
           stake(row.thb, { number: row.number, digits: 3, position: "TOP", currency: "THB" }),
         ];
       };
+      const threeBottomCells = (index: number): ExportCell[] => {
+        const row = threeBottomRows[index];
+        if (!row) return [null, null, null, null];
+        const won = bottom3Of(keys);
+        return [
+          index + 1,
+          numberCell(row.number, won === row.number ? [t("lottery.winBottom")] : []),
+          stake(row.lak, { number: row.number, digits: 3, position: "BOTTOM", currency: "LAK" }),
+          stake(row.thb, { number: row.number, digits: 3, position: "BOTTOM", currency: "THB" }),
+        ];
+      };
+      const bottom3Header = `${t("lottery.digits3")} ${t("lottery.positionBOTTOM")}`;
       return {
         ...base,
         title: `${t("reports.title")} — ${t(viewKey.two)} · ${t(viewKey.three)}`,
@@ -137,11 +155,21 @@ export function buildReportTable(input: ReportExportInput): ExportTable {
           { header: t(viewKey.three), weight: 11 },
           money(t("lottery.currencyLAK")),
           money(t("lottery.currencyTHB")),
+          ...(hasBottom3
+            ? [
+                { header: "", weight: 2 },
+                { header: t("lottery.rank"), weight: 5, align: "right" as const },
+                { header: bottom3Header, weight: 11 },
+                money(t("lottery.currencyLAK")),
+                money(t("lottery.currencyTHB")),
+              ]
+            : []),
         ],
-        rows: Array.from({ length: Math.max(twoRows.length, threeRows.length) }, (_, index) => [
+        rows: Array.from({ length: Math.max(twoRows.length, threeRows.length, threeBottomRows.length) }, (_, index) => [
           ...twoCells(index),
           null,
           ...threeCells(index),
+          ...(hasBottom3 ? [null, ...threeBottomCells(index)] : []),
         ]),
         // ยอดรวมของทุกเลข ไม่ใช่เฉพาะแถวที่แสดง (เหมือนบนจอ)
         totals:
@@ -158,6 +186,15 @@ export function buildReportTable(input: ReportExportInput): ExportTable {
                 t("lottery.totalAll"),
                 three.reduce((sum, row) => sum + row.lak, 0),
                 three.reduce((sum, row) => sum + row.thb, 0),
+                ...(hasBottom3
+                  ? [
+                      null,
+                      null,
+                      t("lottery.totalAll"),
+                      threeBottom.reduce((sum, row) => sum + row.lak, 0),
+                      threeBottom.reduce((sum, row) => sum + row.thb, 0),
+                    ]
+                  : []),
               ]
             : undefined,
         empty: t("reports.emptyBets"),

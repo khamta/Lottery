@@ -1,8 +1,11 @@
-import { parseTicket, type Currency, type ParsedBet, type ParsedTicket, type ParseIssue } from "./parser";
+import { parseTicket, type Currency, type ParsedBet, type ParsedTicket, type ParseIssue, type ParseOptions } from "./parser";
 import type { ReadRuleSpec } from "./read-rules";
 
-/** ตัวคูณกีบของลูกค้า + เงื่อนไขอ่านโพยของแม่หวย (ไม่ระบุ = ไม่มีเงื่อนไขเพิ่ม) */
-export type ReadOptions = { lakMultiplier: number; rules?: readonly ReadRuleSpec[] };
+/** ตัวคูณกีบของลูกค้า + เงื่อนไขอ่านโพยของแม่หวย (ไม่ระบุ = ไม่มีเงื่อนไขเพิ่ม) + ตั้งค่าของกลุ่ม WhatsApp (group-read.ts) */
+export type ReadOptions = Pick<ParseOptions, "threeDigitBottom" | "defaultCurrency"> & {
+  lakMultiplier: number;
+  rules?: readonly ReadRuleSpec[];
+};
 
 export type TicketStatusValue = "CONFIRMED" | "REVIEW";
 
@@ -47,8 +50,9 @@ export function summarizeTicket(parsed: ParsedTicket, force = false): TicketSumm
  * ข้อความ → ค่าที่จะเขียนลงตาราง tickets / bets — ทางเดียวที่ใช้ทั้งหน้าคีย์โพยและบอท WhatsApp
  * คืน null เมื่อข้อความไม่ใช่โพย
  */
-export function readTicketText(text: string, { lakMultiplier, rules }: ReadOptions, force = false) {
-  const parsed = parseTicket(text, { lakMultiplier, rules });
+export function readTicketText(text: string, options: ReadOptions, force = false) {
+  const { lakMultiplier } = options;
+  const parsed = parseTicket(text, options);
   if (!isTicketMessage(parsed)) return null;
   const summary = summarizeTicket(parsed, force);
 
@@ -80,8 +84,9 @@ export type TicketRecord = NonNullable<ReturnType<typeof readTicketText>>;
  * รอตรวจและยังไม่นับยอด โดยมี issue FROM_IMAGE บอกว่ายังรอรูปอยู่ — ข้อความ (คำบรรยายรูป) ว่างได้
  * OCR อ่านได้แล้วใช้ readTicketText ตามข้อความปกติ (ดู applyOcr ใน ingest.ts)
  */
-export function readImageTicketText(text: string, { lakMultiplier, rules }: ReadOptions): TicketRecord {
-  const parsed = parseTicket(text, { lakMultiplier, rules });
+export function readImageTicketText(text: string, options: ReadOptions): TicketRecord {
+  const { lakMultiplier } = options;
+  const parsed = parseTicket(text, options);
   return {
     fields: {
       status: "REVIEW",

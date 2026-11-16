@@ -9,6 +9,7 @@ import { LiveRefresh } from "@/components/shared/live-refresh";
 import { PageHeader } from "@/components/shared/page-header";
 import { getTranslations } from "@/i18n/server";
 import { getDealerContext } from "@/lottery/dealer";
+import { GROUP_READ_SELECT, type GroupReadSettings } from "@/lottery/group-read";
 import { rulesOf } from "@/lottery/ingest";
 import { oddLakTicketIds } from "@/lottery/odd-lak";
 import { DealerSwitcher } from "@/lottery/components/dealer-switcher";
@@ -208,6 +209,15 @@ export default async function TicketsPage({ searchParams }: PageProps) {
     }),
   });
 
+  // ตั้งค่าการอ่านของกลุ่ม WhatsApp ที่โพยในหน้านี้มาจาก (3 ตัวล่าง / สกุลเงินเริ่มต้น) — หน้าต่างโพยอ่านตัวอย่างสดตรงกับที่ server บันทึก
+  const groupIds = [...new Set(page.rows.flatMap((row) => (row.groupId ? [row.groupId] : [])))];
+  const groupReads: Record<string, GroupReadSettings> = Object.fromEntries(
+    (groupIds.length > 0
+      ? await prisma.whatsappGroup.findMany({ where: { id: { in: groupIds } }, select: { id: true, ...GROUP_READ_SELECT } })
+      : []
+    ).map(({ id, ...settings }) => [id, settings]),
+  );
+
   return (
     <>
       <PageHeader
@@ -221,6 +231,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
         draws={draws}
         customers={customers}
         rules={rules}
+        groupReads={groupReads}
         filters={filters}
         oddLakCount={oddLakCount}
         imageTicketCount={imageCount}

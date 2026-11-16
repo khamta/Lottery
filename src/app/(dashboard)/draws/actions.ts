@@ -35,6 +35,7 @@ function toData(input: DrawInput, current: DrawStatusValue | null) {
     status: nextDrawStatus({ topResult, bottomResult }, current),
     topResult,
     bottomResult,
+    bottom3Result: input.bottom3Result || null,
   };
 }
 

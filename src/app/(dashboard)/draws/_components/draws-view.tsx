@@ -45,7 +45,11 @@ export function DrawsView({ page, closeTimes }: { page: Paginated<DrawRow>; clos
   );
 
   function handleSave(values: DrawInput) {
-    const results = { topResult: values.topResult || null, bottomResult: values.bottomResult || null };
+    const results = {
+      topResult: values.topResult || null,
+      bottomResult: values.bottomResult || null,
+      bottom3Result: values.bottom3Result || null,
+    };
     const shared = {
       name: values.name,
       lottery: values.lottery,
