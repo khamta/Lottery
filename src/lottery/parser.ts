@@ -209,6 +209,8 @@ const EQUALS_CURRENCY_TOTAL_LINE = new RegExp(
   String.raw`^[=:]\s*(${AMOUNT})\s*(฿|บาท|บาด|ບາດ|baht|thb|₭|ກີບ|ກິບ|กีบ|กิบ|kip|lak)\s*$`,
   "iu",
 );
+/** =2800 — ยอดเปล่า ๆ หลัง = ใช้เป็นยอดรวมเฉพาะบรรทัดท้ายโพยใต้รายการที่มียอดครบแล้ว */
+const BARE_EQUALS_TOTAL_LINE = new RegExp(String.raw`^[=:]\s*(${AMOUNT})\s*$`, "u");
 /** ป3 / ອ.5 — ป้ายสั้น (ตัวหนังสือ 1–4 ตัว + เลข 1–2 หลัก) เหนือรายการแรก = หมายเหตุ ถ้าอ่านเป็นอย่างอื่นไม่ได้ */
 const LABEL_LINE = /^([\p{L}\p{M}]{1,4})\s*\.?\s*\d{1,2}$/u;
 
@@ -859,6 +861,8 @@ const SLASH_DASH_ENTRIES =
  */
 const DEBT_NOTE = /^[\p{L}\p{M}].*(?:ຄ້າງ|ค้าง)$/u;
 const DEBT_NOTE_TAIL = /^(.*\d\S*)\s+([\p{L}\p{M}].*(?:ຄ້າງ|ค้าง))$/u;
+/** เลขที่บิลที่ลูกค้าบอกไว้เฉย ๆ: "บิล61" · "ບິນ 12" · "bill#3" — หมายเหตุ ไม่ใช่รายการแทง */
+const BILL_NOTE = /^(?:บิล|บิน|ບິນ|ບິລ|ບີນ|bill|bil)\s*(?:ที่|ທີ່|ທີ|no\.?)?\s*[#.:-]?\s*\d{1,6}$/iu;
 /**
  * รายการ + ຫລັກ ในบรรทัดเดียว (กี่ชุดก็ได้): "16.56.96=10₭ ຫລັກ 8=2₭" → [รายการ, ຫລັກ…]
  * · "11-51-91=10 ຫລັກ5=10 ....| 12-52=5 ຫລັກ6=3" → แยกก่อนทุก ຫລັກ (ชุดถัดไปแยกด้วย MULTI_GROUP_BREAK)
@@ -1215,7 +1219,7 @@ function readTicket(message: string, options: ParseOptions, wide: boolean): Pars
     // ไม่มีตัวเลข (ชื่อ คำทักทาย) · เอาแต่3โต · วันที่ / เบอร์โทร (03/10/2026🇱🇦 · ນາງ ແອ໋ມ 02055551234) = หมายเหตุ
     // ธงชาติถูกตัดออกจาก text แล้ว — ตรวจวันที่กับบรรทัดเดิมที่ยังมีธง (🇹🇭16/11/26🇹🇭 = หัวโพย)
     const flaggedDate = /\p{Regional_Indicator}/u.test(ruled) && isDateOrPhoneLine(ruled);
-    if (!text || !/\d/.test(text) || ONLY_THREE_LINE.test(text) || DEBT_NOTE.test(text) || (!totalOf(text) && (isDateOrPhoneLine(text) || flaggedDate)) || SHORT_DATE_LINE.test(text)) {
+    if (!text || !/\d/.test(text) || ONLY_THREE_LINE.test(text) || DEBT_NOTE.test(text) || BILL_NOTE.test(text) || (!totalOf(text) && (isDateOrPhoneLine(text) || flaggedDate)) || SHORT_DATE_LINE.test(text)) {
       notes.push(original);
       if (DIVIDER_LINE.test(text)) afterDivider = true;
       return;
@@ -1285,7 +1289,14 @@ function readTicket(message: string, options: ParseOptions, wide: boolean): Pars
       pending.length === 0 && groups.length === 0
         ? (text.match(EQUALS_TOTAL_LINE) ?? (bets.length > 0 ? text.match(EQUALS_CURRENCY_TOTAL_LINE) : null))
         : null;
-    const total = totalOf(text) ?? (equalsTotal && readSuffix(equalsTotal[2]!) ? equalsTotal : null);
+    // =2800 เปล่า ๆ บรรทัดท้ายโพย ใต้รายการที่มียอดครบแล้ว (ไม่มีเลขรอยอด) = ยอดรวม
+    // (มีเลขรอ = ยอดเลขละของเลขเหล่านั้นตามเดิม · มีบรรทัดตัวเลขตามมาอีก = ไม่ใช่บรรทัดปิดท้าย)
+    const closingEquals =
+      !equalsTotal && pending.length === 0 && groups.length === 0 && bets.length > 0 &&
+      segments.slice(index + 1).every((segment) => !/\d/.test(segment.original))
+        ? text.match(BARE_EQUALS_TOTAL_LINE)
+        : null;
+    const total = totalOf(text) ?? (equalsTotal && readSuffix(equalsTotal[2]!) ? equalsTotal : null) ?? closingEquals;
     if (total) {
       afterTotal = true;
       // ทั้งโพยมีแต่เลขที่ไม่มียอด แล้วปิดท้ายโพยด้วยยอดรวม: "00 / 20 / … / 79 / 20,000" = ยอดรวมหารเท่ากันทุกเลข (เลขละ 2,000)

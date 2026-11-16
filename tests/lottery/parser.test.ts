@@ -1907,3 +1907,40 @@ describe("parseTicket — โพยจริงชุด 2026-10-16 (2)", () => 
     expect(parseTicket("2820\n68:20").needsReview).toBe(true);
   });
 });
+
+describe("=ยอด เปล่า ๆ บรรทัดท้ายโพย = ยอดรวม", () => {
+  test("ใต้รายการที่มียอดครบแล้ว (เว้นบรรทัดก็ได้) = ยอดรวม ตรงกัน = ไม่มีปัญหา", () => {
+    const ticket = parseTicket("38-83-28-82-11-31-13-200*200\n\n\n=2800", { defaultCurrency: "THB" });
+    expect(ticket.bets).toHaveLength(14);
+    expect(ticket.declaredTotal).toBe(2800);
+    expect(ticket.issues).toEqual([]);
+  });
+
+  test("ยอดรวมไม่ตรง = TOTAL_MISMATCH ให้คนตรวจ", () => {
+    const ticket = parseTicket("38-83-28-82-11-31-13-200*200\n=2000", { defaultCurrency: "THB" });
+    expect(ticket.issues.map((i) => i.code)).toEqual(["TOTAL_MISMATCH"]);
+  });
+
+  test("ยังเป็นยอดเลขละเมื่อมีเลขรอยอด · ไม่ใช่บรรทัดท้าย = ไม่ถือเป็นยอดรวม", () => {
+    expect(parseTicket("12 34\n=20").declaredTotal).toBeNull();
+    expect(parseTicket("12=10\n=20\n34=5").declaredTotal).toBeNull();
+  });
+});
+
+describe("เลขที่บิลที่ลูกค้าบอกไว้ = หมายเหตุ", () => {
+  test("บิล61 รวม 200 → บิล61 เป็นหมายเหตุ · รวม 200 เป็นยอดรวม", () => {
+    const ticket = parseTicket("059=100*100\nบิล61 รวม 200", { defaultCurrency: "THB", threeDigitBottom: true });
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.notes).toEqual(["บิล61"]);
+    expect(ticket.declaredTotal).toBe(200);
+  });
+
+  test("บิล / ບິນ / ບິນທີ / bill# + เลข ไม่ใช่รายการแทง", () => {
+    for (const label of ["บิล 61", "ບິນ12", "ບິນທີ 5", "bill#3"]) {
+      const ticket = parseTicket(`${label}\n12=10`);
+      expect(ticket.issues).toEqual([]);
+      expect(ticket.notes).toEqual([label]);
+      expect(ticket.bets).toHaveLength(1);
+    }
+  });
+});
