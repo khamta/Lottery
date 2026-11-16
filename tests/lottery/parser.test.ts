@@ -1944,3 +1944,181 @@ describe("เลขที่บิลที่ลูกค้าบอกไว�
     }
   });
 });
+
+describe("คำกำกับฝั่ง/สกุลเงินท้ายเลข ก่อน = (89ล่าง =100)", () => {
+  test("ฝั่งหน้า = ใช้กับยอดหลัง =", () => {
+    expect(brief(parseTicket("89ล่าง =100").bets)).toEqual(["89 BOTTOM LAK 100000"]);
+    expect(brief(parseTicket("89ລ່າງ=100").bets)).toEqual(["89 BOTTOM LAK 100000"]);
+    expect(brief(parseTicket("12.34ບລ=10").bets)).toEqual([
+      "12 TOP LAK 10000",
+      "12 BOTTOM LAK 10000",
+      "34 TOP LAK 10000",
+      "34 BOTTOM LAK 10000",
+    ]);
+  });
+
+  test("ฝั่งหน้า = + สกุลเงินท้ายยอด", () => {
+    expect(brief(parseTicket("89ล่าง=100฿").bets)).toEqual(["89 BOTTOM THB 100"]);
+  });
+
+  test("เลข 3 ตัวล่าง: ตามตั้งค่ากลุ่ม", () => {
+    expect(parseTicket("689ล่าง=10").issues.map((i) => i.code)).toEqual(["THREE_DIGIT_BOTTOM"]);
+    expect(brief(parseTicket("689ล่าง=10", { threeDigitBottom: true }).bets)).toEqual(["689 BOTTOM LAK 10000"]);
+  });
+});
+
+describe("ยอดที่เขียนเป็นผลบวก (88=200+220)", () => {
+  test("ยอดรวมที่แจ้งตรงกับผลบวก = นับยอดรวมกันฝั่งเดียว", () => {
+    const ticket = parseTicket("88=200+220\n\nรวม 420", { defaultCurrency: "THB" });
+    expect(ticket.issues).toEqual([]);
+    expect(brief(ticket.bets)).toEqual(["88 TOP THB 420"]);
+  });
+
+  test("คำกำกับท้ายยอดยังใช้ได้", () => {
+    expect(brief(parseTicket("88.28=10+5ล่าง\n12=10\nรวม 40").bets)).toEqual([
+      "88 BOTTOM LAK 15000",
+      "28 BOTTOM LAK 15000",
+      "12 TOP LAK 10000",
+    ]);
+  });
+
+  test("ยอดรวมไม่ตรง หรือไม่ได้แจ้งยอดรวม = รอตรวจ (ไม่เดา)", () => {
+    expect(parseTicket("88=200+220\n\nรวม 400").issues.map((i) => i.code)).toContain("UNREADABLE");
+    expect(parseTicket("88=200+220").issues.map((i) => i.code)).toEqual(["UNREADABLE"]);
+  });
+});
+
+describe("บรรทัดเลขล้วน 4 ตัวขึ้นไป เหนือบรรทัด เลข=ยอด = ใช้ยอดเดียวกัน", () => {
+  test("67.76.78.87..05.50.15.51 / 05.50=30×30", () => {
+    const ticket = parseTicket("67.76.78.87..05.50.15.51\n05.50=30×30", { defaultCurrency: "THB" });
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets).toHaveLength(20);
+    expect(ticket.bets.every((bet) => bet.amount === 30 && bet.currency === "THB")).toBe(true);
+  });
+
+  test("เลข 2–3 ตัว ยังกำกวม (อาจเป็น เลข ยอด) · เว้นบรรทัด = ไม่ใช้ยอดด้านล่าง", () => {
+    expect(brief(parseTicket("12 34\n56=10").bets)).toEqual(["12 TOP LAK 34000", "56 TOP LAK 10000"]);
+    expect(parseTicket("12.34.56.78\n\n90=10").issues.map((i) => i.code)).toEqual(["NO_AMOUNT"]);
+  });
+});
+
+describe("ยอด + สกุลเงิน บรรทัดท้ายโพย = ยอดรวม (600฿)", () => {
+  test("ตรงกับยอดที่คิดได้ = ไม่มีปัญหา", () => {
+    const ticket = parseTicket("109=100×100\n90=100×100\n09=100×100\n\n600฿", {
+      defaultCurrency: "THB",
+      threeDigitBottom: true,
+    });
+    expect(ticket.declaredTotal).toBe(600);
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets).toHaveLength(6);
+  });
+
+  test("ไม่ตรง = TOTAL_MISMATCH · มีคำบอกฝั่ง (34ล่าง) ไม่ใช่ยอดรวม", () => {
+    expect(parseTicket("12=10\n600b").issues.map((i) => i.code)).toEqual(["TOTAL_MISMATCH"]);
+    expect(parseTicket("12=10\n34ล่าง").declaredTotal).toBeNull();
+  });
+});
+
+describe("ตัวล่ะ (พิมพ์ผิดจาก ตัวละ) + บรรทัดเลขล้วนด้านบนใช้ยอดเดียวกัน", () => {
+  test("ตัวล่ะ = ตัวละ", () => {
+    expect(brief(parseTicket("79 97 ตัวล่ะ 30*30", { defaultCurrency: "THB" }).bets)).toEqual([
+      "79 TOP THB 30",
+      "79 BOTTOM THB 30",
+      "97 TOP THB 30",
+      "97 BOTTOM THB 30",
+    ]);
+  });
+
+  test("92 29 / 28 82 / 23 32 / 79 97 ตัวล่ะ 30*30 / =480 → ทุกเลขบนล่าง 30 ยอดรวมตรง", () => {
+    const ticket = parseTicket("92 29\n28 82\n23 32\n79 97 ตัวล่ะ 30*30\n\n\n=480", { defaultCurrency: "THB" });
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets).toHaveLength(16);
+    expect(ticket.bets.every((bet) => bet.amount === 30)).toBe(true);
+  });
+});
+
+describe("ยอดรวมของโพยบาทล้วน = ตามที่พิมพ์ (ไม่หารตัวคูณกีบ)", () => {
+  test("36 63 =5000*5000 / =20000 (บาท) → ยอดรวม 20,000 ตรงกัน", () => {
+    const ticket = parseTicket("36 63 =5000*5000\n\n\n=20000", { defaultCurrency: "THB" });
+    expect(ticket.declaredTotal).toBe(20000);
+    expect(ticket.issues).toEqual([]);
+  });
+
+  test("ไม่ตรง = แจ้งเป็นยอดบาทที่อ่านง่าย", () => {
+    const ticket = parseTicket("36 63 =5000*5000\n\n\n=30000", { defaultCurrency: "THB" });
+    expect(ticket.issues.map((i) => i.text)).toEqual(["30000 ≠ 20000"]);
+  });
+
+  test("โพยกีบยังใช้หน่วยย่อเหมือนเดิม", () => {
+    expect(parseTicket("36 63 =5*5\n\n\n=20000").declaredTotal).toBe(20);
+  });
+});
+
+describe("ประตู = กลับเลขครบทุกแบบ (281 =20*6ประตู)", () => {
+  test("281 6 ประตู แบบละ 20 = 120 · ลงบนอย่างเดียว", () => {
+    const ticket = parseTicket("281 =20*6ประตู", { defaultCurrency: "THB", threeDigitBottom: true });
+    expect(ticket.bets.map((bet) => bet.number).sort()).toEqual(["128", "182", "218", "281", "812", "821"]);
+    expect(ticket.bets.every((bet) => bet.position === "TOP" && bet.amount === 20)).toBe(true);
+    expect(ticket.typedTotal).toBe(120);
+  });
+
+  test("โพยเต็มในรูป ยอดรวม 480 ตรง", () => {
+    const text = "281 =20*6ประตู\n\n127  126 =50*50\n\n436  036  =20*20\n\n415  326  267  965  =10*10\n\n=480";
+    const ticket = parseTicket(text, { defaultCurrency: "THB", threeDigitBottom: true });
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.declaredTotal).toBe(480);
+  });
+
+  test("เลขซ้ำหลัก (112 = 3 ประตู) · ภาษาลาว ປະຕູ · จำนวนประตูไม่ตรง = อ่านไม่ออก", () => {
+    expect(parseTicket("112 =10*3ประตู").bets.map((bet) => bet.number)).toEqual(["112", "121", "211"]);
+    expect(parseTicket("28=10x2ປະຕູ").bets.map((bet) => bet.number)).toEqual(["28", "82"]);
+    expect(parseTicket("112 =10*6ประตู").issues.map((i) => i.code)).toEqual(["UNREADABLE"]);
+  });
+});
+
+describe("บรรทัดเลขล้วนใต้ เลข=ยอด ที่ไม่มียอดด้านล่างเลย = ใช้ยอดของบรรทัดบน", () => {
+  test("94=20*20 / 49 / 38 / 83 / รวม 300", () => {
+    const text = "บิลที่ 16\n\n12=20*50\n21=20*50\n\n94=20*20\n49\n38\n83\n\nรวม 300";
+    const ticket = parseTicket(text, { defaultCurrency: "THB" });
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.declaredTotal).toBe(300);
+    expect(brief(ticket.bets.filter((bet) => bet.number === "83"))).toEqual(["83 TOP THB 20", "83 BOTTOM THB 20"]);
+  });
+
+  test("มียอดตามมาด้านล่าง = ใช้ยอดด้านล่างตามเดิม", () => {
+    expect(brief(parseTicket("94=20*20\n49\n38\n83=10").bets).slice(2)).toEqual([
+      "49 TOP LAK 10000",
+      "38 TOP LAK 10000",
+      "83 TOP LAK 10000",
+    ]);
+    expect(brief(parseTicket("94=20*20\n49\n38\nໂຕ10").bets).slice(2)).toEqual(["49 TOP LAK 10000", "38 TOP LAK 10000"]);
+  });
+});
+
+describe("บรรทัดยอดที่คำกำกับอยู่หน้ายอด (=ล่าง200)", () => {
+  test("59 / 95 / =ล่าง200 → ทั้งสองเลขล่าง 200", () => {
+    expect(brief(parseTicket("59\n95\n=ล่าง200", { defaultCurrency: "THB" }).bets)).toEqual([
+      "59 BOTTOM THB 200",
+      "95 BOTTOM THB 200",
+    ]);
+    expect(brief(parseTicket("59\n95\n=ລ່າງ200").bets)).toEqual(["59 BOTTOM LAK 200000", "95 BOTTOM LAK 200000"]);
+  });
+
+  test("ฝั่งหน้า + สกุลเงินท้าย · ບລ หน้ายอด", () => {
+    expect(brief(parseTicket("59\n95\n=ล่าง200฿").bets)).toEqual(["59 BOTTOM THB 200", "95 BOTTOM THB 200"]);
+    expect(parseTicket("59\n95\n=ບລ 20").bets).toHaveLength(4);
+  });
+});
+
+describe("ฝั่ง + ยอด ไม่มี = (บน ล่าง 50×50)", () => {
+  test("เหนือบรรทัดเลข = หัวยอดของเลขด้านล่าง · ยอดรวมตรง", () => {
+    const ticket = parseTicket("บน ล่าง  50×50\n98\n89\nพี่นาด รวม 200", { defaultCurrency: "THB" });
+    expect(ticket.issues).toEqual([]);
+    expect(brief(ticket.bets)).toEqual(["98 TOP THB 50", "98 BOTTOM THB 50", "89 TOP THB 50", "89 BOTTOM THB 50"]);
+  });
+
+  test("ใต้บรรทัดเลขที่ยังไม่มียอด = ยอดของเลขเหล่านั้น", () => {
+    expect(parseTicket("98\n89\nบน ล่าง 50×50", { defaultCurrency: "THB" }).bets).toHaveLength(4);
+    expect(brief(parseTicket("ລ່າງ 20\n12\n34").bets)).toEqual(["12 BOTTOM LAK 20000", "34 BOTTOM LAK 20000"]);
+  });
+});
