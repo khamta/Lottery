@@ -290,7 +290,8 @@ model Draw {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([dealerId, name])
+  /// ชื่องวดห้ามซ้ำเฉพาะในประเภทหวยเดียวกัน — หวยลาว/หวยไทย/เวียดนาม เปิดวันเดียวกัน (ชื่อเดียวกัน) ได้
+  @@unique([dealerId, lottery, name])
   @@index([dealerId, status, drawDate])
   @@index([dealerId, lottery, status])
   @@index([status, closesAt])

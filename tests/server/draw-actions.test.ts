@@ -36,8 +36,22 @@ const tx = {
       return existing;
     },
     findUnique: async ({ where }: { where: { id: string } }) => db.draws.get(where.id) ?? null,
-    findFirst: async ({ where }: { where: { id: string; dealerId: string } }) => {
-      const draw = db.draws.get(where.id);
+    findFirst: async ({
+      where,
+    }: {
+      where: { id?: string | { not: string }; dealerId: string; lottery?: string; name?: string };
+    }) => {
+      // ตรวจชื่อซ้ำ: { dealerId, lottery, name, id?: { not } }
+      if (where.name !== undefined) {
+        const exceptId = typeof where.id === "object" ? where.id.not : undefined;
+        return (
+          [...db.draws.values()].find(
+            (d) =>
+              d.dealerId === where.dealerId && d.lottery === where.lottery && d.name === where.name && d.id !== exceptId,
+          ) ?? null
+        );
+      }
+      const draw = db.draws.get(where.id as string);
       return draw && draw.dealerId === where.dealerId ? draw : null;
     },
   },
@@ -189,6 +203,24 @@ describe("createDraw", () => {
     if (!result.ok) expect(result.code).toBe("CONFLICT");
   });
 
+  test("หวยลาวกับหวยไทย เปิดงวดวันเดียวกัน ชื่อเดียวกันได้", async () => {
+    const lao = await createDraw({ ...valid, lottery: "LAO" });
+    const thai = await createDraw({ ...valid, lottery: "THAI" });
+
+    expect(lao.ok).toBe(true);
+    expect(thai.ok).toBe(true);
+    expect([...db.draws.values()].map((d) => d.lottery)).toEqual(["LAO", "THAI"]);
+  });
+
+  test("ชื่อซ้ำในประเภทหวยเดียวกัน → draws.nameTaken ไม่สร้างงวด", async () => {
+    await createDraw({ ...valid, lottery: "THAI" });
+    const result = await createDraw({ ...valid, lottery: "THAI" });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toBe("draws.nameTaken");
+    expect(db.draws.size).toBe(1);
+  });
+
   test("เขียน audit log action CREATE พร้อม userId ของคนสร้าง", async () => {
     await createDraw(valid);
 
@@ -236,6 +268,21 @@ describe("updateDraw", () => {
     await updateDraw({ ...valid, id });
 
     expect(db.draws.get(id)).toMatchObject({ status: "CLOSED", topResult: null, bottomResult: null });
+  });
+});
+
+describe("updateDraw ชื่อซ้ำ", () => {
+  test("แก้ชื่อให้ซ้ำงวดอื่นในประเภทเดียวกันไม่ได้ · ซ้ำกับประเภทอื่นได้ · บันทึกชื่อเดิมของตัวเองได้", async () => {
+    const lao = await created({ ...valid, lottery: "LAO" });
+    await created({ ...valid, name: "งวดไทย", lottery: "THAI" });
+    const laoOther = await created({ ...valid, name: "งวดลาว 2", lottery: "LAO" });
+
+    const clash = await updateDraw({ ...valid, id: laoOther, lottery: "LAO" });
+    expect(clash.ok).toBe(false);
+    if (!clash.ok) expect(clash.message).toBe("draws.nameTaken");
+
+    expect((await updateDraw({ ...valid, id: laoOther, name: "งวดไทย", lottery: "LAO" })).ok).toBe(true);
+    expect((await updateDraw({ ...valid, id: lao, lottery: "LAO" })).ok).toBe(true);
   });
 });
 

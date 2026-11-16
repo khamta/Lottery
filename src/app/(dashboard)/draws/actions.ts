@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
+import type { Prisma } from "@prisma/client";
+
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { createAction } from "@/lib/action";
@@ -39,6 +41,15 @@ function toData(input: DrawInput, current: DrawStatusValue | null) {
   };
 }
 
+/** ชื่อซ้ำได้ข้ามประเภทหวย (ลาว/ไทย วันเดียวกัน) แต่ห้ามซ้ำในประเภทเดียวกัน — บอกให้ชัดแทน errors.conflict */
+async function assertNameFree(tx: Prisma.TransactionClient, dealerId: string, input: DrawInput, exceptId?: string) {
+  const clash = await tx.draw.findFirst({
+    where: { dealerId, lottery: input.lottery, name: input.name, ...(exceptId ? { id: { not: exceptId } } : {}) },
+    select: { id: true },
+  });
+  if (clash) throw new Error("draws.nameTaken");
+}
+
 /** งวดมีผลกับหน้าโพย รายงาน และ dashboard ด้วย */
 function revalidateDraws() {
   for (const path of ["/draws", "/tickets", "/reports", "/dashboard"]) revalidatePath(path);
@@ -51,6 +62,7 @@ export const createDraw = createAction(
     const dealerId = await requireDealerId(user.id);
 
     const draw = await prisma.$transaction(async (tx) => {
+      await assertNameFree(tx, dealerId, input);
       const draw = await tx.draw.create({ data: { ...toData(input, null), dealerId } });
 
       await logAudit(tx, {
@@ -80,6 +92,7 @@ export const updateDraw = createAction(
     const draw = await prisma.$transaction(async (tx) => {
       const before = await tx.draw.findFirst({ where: { id, dealerId } });
       if (!before) throw new Error("draws.notFound");
+      await assertNameFree(tx, dealerId, input, id);
 
       const draw = await tx.draw.update({ where: { id }, data: toData(input, before.status) });
 
