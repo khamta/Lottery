@@ -541,6 +541,11 @@ function normalize(text: string) {
     .replace(/[‐‑‒–—―−]/g, "-")
     // บ ไทยตัวเดียวคั่นระหว่างเลขกับยอด = บน หน้ายอด (สกุลเงินอยู่ท้ายยอดเสมอ): "02/42/82บ1แสน" = "02/42/82=บน1แสน"
     .replace(/(?<=\d)\s*บ\s*(?=\d)/g, "=บน")
+    // ยอดบน-ล่างคู่ต่อท้ายเลขโดยไม่มี = คั่น: "11 51 91 ບົນ10ລ່າງ5" = "11 51 91=ບົນ10ລ່າງ5"
+    .replace(
+      /(?<=^[^=:;]*\d)\s*(?=(?:ບົນ|บน|ລ່າງ|ລາງ|ລຸ່ມ|ล่าง)\s*\d[\d,.]*\s*[/,\-\s]?\s*(?:ບົນ|บน|ລ່າງ|ລາງ|ລຸ່ມ|ล่าง)\s*\d)/u,
+      "=",
+    )
     .trim()
     // วงเล็บครอบบรรทัดยอดรวมทั้งบรรทัด = ไม่มีผล: "(ລວມບົນ2.100ກີບ)" = "ລວມບົນ2.100ກີບ"
     .replace(/^[([]\s*((?:ໄທ|ไทย|ไท)?\s*(?:ລວມ|รวม|ลวม|total)[^()[\]]*?)\s*[)\]]$/iu, "$1");
@@ -662,6 +667,12 @@ function isNotSuffixTypo(word: string) {
 }
 
 /** ส่วนยอดหลัง = / ໂຕ เช่น "100ລ່າງ" · "1000*1000฿" */
+/** ตัวเลขยอดต้นข้อความ (รวม บน×ล่าง และหัวหน่วยที่ติดตัวเลข): "20" · "20*20" · "1แสน" · "1ລ້ານ*1ລ້ານ" */
+const LEAD_AMOUNT_DIGITS = new RegExp(
+  String.raw`^\d[\d.,]*\s*(?:${PLACE_UNIT})?(?:\s*[*x×]\s*\d[\d.,]*\s*(?:${PLACE_UNIT})?)*`,
+  "iu",
+);
+
 function parseAmount(text: string, fallback: Currency = "LAK"): Amount | { issue: ParseIssueCode } {
   // =ໂຕ5ພັນ / =ຮູລະ10 — คำว่า "เลขละ" หลัง = ไม่มีผลกับยอด
   let body = text.trim().replace(AMOUNT_EACH_PREFIX, "");
@@ -670,7 +681,13 @@ function parseAmount(text: string, fallback: Currency = "LAK"): Amount | { issue
   body = body.replace(SIDE_FIRST_PAIR, "$2$1/$4$3").replace(SIDE_SECOND_PAIR, "$1$2/$4$3");
   // =ບ10 / =ລ່າງ 20 / =ບລ5 — คำกำกับฝั่ง/สกุลเงินหน้ายอด = ท้ายยอด: "10ບ"
   const before = body.match(MARK_BEFORE_AMOUNT);
-  if (before && readSuffix(before[1])) body = `${before[2]}${before[1]}`;
+  // ย้ายไปไว้ติดหลังตัวเลขยอด (ก่อนคำกำกับ/ชื่อท้าย): "บนล่าง20฿แม่นก" = "20บนล่าง฿แม่นก" — ไม่งั้นชื่อคั่นกลาง
+  // ("20฿แม่นกบนล่าง") ทำให้ฝั่งที่อยู่หลังชื่อหายเงียบ ๆ
+  if (before && readSuffix(before[1])) {
+    // หัวหน่วยติดยอด ("1แสน") ต้องอยู่ติดตัวเลขเหมือนเดิม
+    const digits = before[2].match(LEAD_AMOUNT_DIGITS)![0];
+    body = `${digits}${before[1]}${before[2].slice(digits.length)}`;
+  }
   // =2ລ່າງ1 = เลข 2 ตัวล่าง เลขละ 1 → "1ລ່າງ" (parseLine ตรวจว่าเลขทุกตัวมีจำนวนหลักตรงกับที่บอก)
   const digitsSide = body.match(DIGITS_SIDE_PREFIX);
   if (digitsSide) body = `${body.slice(digitsSide[0].length)}${digitsSide[2]}`;
@@ -955,8 +972,27 @@ const SIMPLE_BET_LINE = /^\d{2,3}\s*[.\-]\s*\d{1,3}$/;
  */
 /** เลข.ยอด: "526.20" — ใช้เป็นยอดเฉพาะโพยที่เข้าเงื่อนไข dotAmounts ใน parseTicket */
 const DOT_AMOUNT_LINE = /^(\d{2,3})\s*\.\s*(\d{1,3})$/;
-/** เลข=ยอด+ยอด(+…): "88=200+220" → [ทั้งหมด, "88=", "200+220", คำกำกับท้าย] — ใช้ในการอ่านแบบกว้าง */
+/** เลข=ยอด+ยอด(+…): "88=200+220" → [ทั้งหมด, "88=", "200+220", คำกำกับท้าย] */
 const PLUS_AMOUNT_TAIL = new RegExp(String.raw`^(.*\d\s*[=:]\s*)((?:${AMOUNT})(?:\s*\+\s*(?:${AMOUNT}))+)(\D*)$`, "u");
+
+/**
+ * เลข=ยอด*ยอด*ยอด(*…) ตั้งแต่ 3 ยอด: "370=20*20*20" → [ทั้งหมด, "370=", "20*20*20", คำกำกับท้าย]
+ * (2 ยอด "20*20" ยังเป็น บน×ล่าง ตามเดิม)
+ */
+const TIMES_REPEAT_TAIL = new RegExp(
+  String.raw`^(.*\d\s*[=:]\s*)((?:${AMOUNT})(?:\s*[*x×]\s*(?:${AMOUNT})){2,})(\D*)$`,
+  "iu",
+);
+
+/**
+ * ยอดเขียนเป็นผลบวก / คูณตั้งแต่ 3 ยอด = ซื้อเลขเดิมหลายครั้ง (คำกำกับท้ายใช้กับทุกครั้ง):
+ * "370=30+30" → ["370=30", "370=30"] · "370=20*20*20" / "370=20+20+20" → "370=20" 3 ครั้ง
+ */
+function splitPlusAmounts(part: string) {
+  const repeat = part.trim().match(PLUS_AMOUNT_TAIL) ?? part.trim().match(TIMES_REPEAT_TAIL);
+  if (!repeat) return [part];
+  return repeat[2]!.split(/[+*x×]/i).map((amount) => `${repeat[1]}${amount.trim()}${repeat[3]}`);
+}
 const SPLIT_AMOUNT_LINE =/^(\d{2,3})\s*[.\-]\s*(\d)\s*[.\-]\s*(\d{1,3})$/;
 /** คำกำกับฝั่ง + ยอดรวม (ไม่มีเลขแทง): "ລ່າງບົນ ລວມ280" → ["ລ່າງບົນ", "ລວມ280"] */
 /** คำกำกับฝั่ง + ยอด (ไม่มีเลขแทง): "ລ່າງ30฿" → ["ລ່າງ", "30", "฿"] — ดูเงื่อนไขที่ใช้ใน parseTicket */
@@ -1159,6 +1195,7 @@ function readTicket(input: string, options: ParseOptions, wide: boolean): Parsed
       .flatMap((part) => part.split(THOUSAND_GROUP_BREAK))
       .flatMap((part) => part.split(SUFFIX_GROUP_BREAK))
       .flatMap((part) => part.split(MID_DIGIT_BREAK))
+      .flatMap(splitPlusAmounts)
       .flatMap((part) => (SLASH_DASH_ENTRIES.test(part.trim()) ? part.split("/").filter((entry) => entry.trim()) : [part]))
       .concat(tail ? [tail] : [])
       .concat(debt ? [debt[2]!] : [])
@@ -1194,7 +1231,9 @@ function readTicket(input: string, options: ParseOptions, wide: boolean): Parsed
     const lead = sided[1]!.replace(/[\s\-/]+/g, "");
     const mark = readSuffix(lead);
     const marks = `${lead}${sided[3]!.trim()}`;
-    if (!mark?.position || !readSuffix(marks)) return;
+    // ชื่อลูกค้าต่อท้ายได้เฉพาะบรรทัดยอดใต้เลข: "16 / บนล่าง20฿แม่นก" (ดู readSuffixWithoutName)
+    const named = !readSuffix(marks) && readSuffixWithoutName(marks) !== null;
+    if (!mark?.position || (!readSuffix(marks) && !named)) return;
     const neighbour = (step: number) => {
       for (let i = index + step; i >= 0 && i < segments.length; i += step) {
         const text = segments[i]!.original;
@@ -1204,7 +1243,7 @@ function readTicket(input: string, options: ParseOptions, wide: boolean): Parsed
     };
     const amount = sided[2]!.replace(/\s+/g, "");
     if (numberTokens(neighbour(-1))) segment.original = `=${amount}${marks}`;
-    else if (numberTokens(neighbour(1))) segment.original = `${marks} ตัว ${amount}`;
+    else if (!named && numberTokens(neighbour(1))) segment.original = `${marks} ตัว ${amount}`;
   });
   for (let i = segments.length - 1, next = false; i >= 0; i--) {
     const text = segments[i]!.original;
@@ -1331,15 +1370,6 @@ function readTicket(input: string, options: ParseOptions, wide: boolean): Parsed
     }
     const carried = carryAbove.get(index);
     if (carried !== undefined && /^[\d\s.,\-_]+$/.test(text)) text = `${text}=${carried}`;
-    // อ่านแบบกว้าง: ยอดที่เขียนเป็นผลบวก "88=200+220" = 88 ยอด 420 (รวมกันฝั่งเดียว เหมือน "11.5.50")
-    // ใช้ได้เฉพาะเมื่อยอดรวมที่แจ้งตรงพอดี (parseTicket รับผลอ่านแบบกว้างเมื่อไม่มีปัญหาเหลือเท่านั้น)
-    if (wide) {
-      text = text.replace(PLUS_AMOUNT_TAIL, (match, head: string, sum: string, tail: string) => {
-        const parts = sum.split("+").map((part) => toAmount(part.trim()));
-        if (parts.some((part) => part === null)) return match;
-        return `${head}${parts.reduce((total: number, part) => total + part!, 0)}${tail}`;
-      });
-    }
     text = semicolonNumbers(text.replace(EQUALS_AS_SEPARATOR, "$1-"));
     if (dotAmounts) text = text.replace(DOT_AMOUNT_LINE, "$1=$2");
     if (splitAmounts) text = text.replace(SPLIT_AMOUNT_LINE, (_, number: string, a: string, b: string) => `${number}=${Number(a) + Number(b)}`);
