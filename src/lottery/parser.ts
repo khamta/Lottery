@@ -147,6 +147,8 @@ const SUFFIX_TOKENS: SuffixToken[] = [
   { text: "ກິບ", currency: "LAK" },
   { text: "กีบ", currency: "LAK" },
   { text: "กิบ", currency: "LAK" },
+  // ກ ตัวเดียวท้ายยอด = ย่อของ ກີບ: "ຮ20ກ" = ຮູ20ກີບ (คำยาวกว่าถูกเลือกก่อน)
+  { text: "ກ", currency: "LAK" },
   { text: "lak", currency: "LAK" },
   { text: "kip", currency: "LAK" },
   // ລາວ ท้ายยอด = บอกว่าเป็นหวยลาว ไม่มีผลกับรายการ
@@ -508,6 +510,8 @@ function normalize(text: string) {
     .replace(/[๐-๙]/g, (d) => String(d.charCodeAt(0) - 0x0e50))
     // สระ/วรรณยุกต์/เครื่องหมายที่ติดบนตัวเลข ("0̂6" · "0ໍ6") = พิมพ์พลาด — ตัวเลขไม่มีเครื่องหมาย เก็บเฉพาะตัวเลข
     .replace(/(?<=\d)\p{M}+/gu, "")
+    // จุดกลาง / bullet ระหว่างเลข = จุดคั่นเลข: "916•956•996=20" = "916.956.996=20"
+    .replace(/(?<=\d)\s*[•·∙・●◦‧⋅]\s*(?=\d)/gu, ".")
     // ປອ່ງ = ປ່ອງ ที่วางไม้เอกผิดที่ (หน้าจอดูเหมือนกัน)
     .replace(/ປອ່ງ/g, "ປ່ອງ")
     // ປ້ອງ / ປອ້ງ = ປ່ອງ ที่ใช้ไม้โทแทนไม้เอก
@@ -537,7 +541,9 @@ function normalize(text: string) {
     .replace(/[‐‑‒–—―−]/g, "-")
     // บ ไทยตัวเดียวคั่นระหว่างเลขกับยอด = บน หน้ายอด (สกุลเงินอยู่ท้ายยอดเสมอ): "02/42/82บ1แสน" = "02/42/82=บน1แสน"
     .replace(/(?<=\d)\s*บ\s*(?=\d)/g, "=บน")
-    .trim();
+    .trim()
+    // วงเล็บครอบบรรทัดยอดรวมทั้งบรรทัด = ไม่มีผล: "(ລວມບົນ2.100ກີບ)" = "ລວມບົນ2.100ກີບ"
+    .replace(/^[([]\s*((?:ໄທ|ไทย|ไท)?\s*(?:ລວມ|รวม|ลวม|total)[^()[\]]*?)\s*[)\]]$/iu, "$1");
 }
 
 /**
@@ -996,6 +1002,20 @@ function parseHundredsLine(
  *  - ตัวเลข 4 หลักติดกัน = เลข 2 ตัว + ยอด ("2820" = 28=20)
  * ใช้แบบนี้เฉพาะเมื่ออ่านได้ครบทุกบรรทัดและยอดรวมตรงพอดี
  */
+/** บรรทัด "เลข:ยอด" / "เลข=ยอด" คู่เดียวล้วน: "08:13" */
+const PAIR_LINE = /^\s*\d{2,3}\s*[:=]\s*\d+\s*$/;
+/** บรรทัด "เลข'ยอด" คู่เดียว (' ตัวเดียว): "48'12" */
+const QUOTE_PAIR_LINE = /^\s*(\d{2,3})\s*['’‘`´]\s*(\d+)\s*$/;
+
+/**
+ * โพยที่เขียนบรรทัดละ "เลข:ยอด" (อย่างน้อย 2 บรรทัด) แล้วมีบางบรรทัดพิมพ์ ' แทน : ("08:13 / 48'12 / 88:13")
+ * → ' ในบรรทัดนั้นคั่นเลขกับยอด ไม่ใช่คั่นเลข (นอกรูปแบบนี้ ' ระหว่างเลขยังเป็นตัวคั่นเลขตามเดิม: 19'59'99=5)
+ */
+function quotePairLines(lines: string[]) {
+  if (lines.filter((line) => PAIR_LINE.test(line)).length < 2) return lines;
+  return lines.map((line) => line.replace(QUOTE_PAIR_LINE, "$1:$2"));
+}
+
 export function parseTicket(message: string, options: ParseOptions = {}): ParsedTicket {
   const previous = threeDigitBottom;
   threeDigitBottom = options.threeDigitBottom ?? false;
@@ -1009,7 +1029,8 @@ export function parseTicket(message: string, options: ParseOptions = {}): Parsed
   }
 }
 
-function readTicket(message: string, options: ParseOptions, wide: boolean): ParsedTicket {
+function readTicket(input: string, options: ParseOptions, wide: boolean): ParsedTicket {
+  const message = quotePairLines(input.split(/\r?\n/)).join("\n");
   const lakMultiplier = options.lakMultiplier ?? DEFAULT_LAK_MULTIPLIER;
   /** ยอดแทงกีบที่พิมพ์ → ยอดจริง (คูณเฉพาะ 1–999 · ตั้งแต่ 1,000 = พิมพ์เต็มจำนวนแล้ว) */
   const lakAmount = (typed: number) => (typed >= LAK_FULL_BET_AMOUNT ? typed : typed * lakMultiplier);
@@ -1053,6 +1074,8 @@ function readTicket(message: string, options: ParseOptions, wide: boolean): Pars
    */
   /** continued = บรรทัดลงท้ายด้วยตัวคั่น ("02-04-06-") = เขียนต่อบรรทัดถัดไป */
   let pending: Array<{ numbers: string[]; line: number; issue: ParseIssue; continued?: boolean }> = [];
+  /** บรรทัด "เลข=ยอด" ล่าสุด — ยอดของเลขไม่มียอดท้ายโพย */
+  let lastAmount: { amount: Amount; line: number } | null = null;
   /** หัวยอด (ລາວ ບົນ-ລ່າງ ຮູ10) — ยอดของบรรทัดเลขที่ไม่มียอดด้านล่าง · used = มีเลขใช้แล้ว */
   let heading: { amount: Amount; line: number; text: string; used: boolean } | null = null;
   /** หัวยอดที่ไม่มีเลขใช้เลย = อ่านไม่ออก (เหมือน ປ່ອງ3 ที่ไม่มีเลขรอด้านบน) */
@@ -1441,11 +1464,16 @@ function readTicket(message: string, options: ParseOptions, wide: boolean): Pars
       totalOf(text) ?? (equalsTotal && readSuffix(equalsTotal[2]!) ? equalsTotal : null) ?? closingEquals ?? closingCurrency;
     if (total) {
       afterTotal = true;
+      // ยอดรวม = ปิดโพย — เลขที่ตามมาหลังยอดรวมไม่ยืมยอดของรายการด้านบน
+      lastAmount = null;
       // ทั้งโพยมีแต่เลขที่ไม่มียอด แล้วปิดท้ายโพยด้วยยอดรวม: "00 / 20 / … / 79 / 20,000" = ยอดรวมหารเท่ากันทุกเลข (เลขละ 2,000)
       const count = pending.reduce((sum, wait) => sum + wait.numbers.length, 0);
       const closing = segments.slice(index + 1).every((segment) => !/\d/.test(segment.original));
       const whole = closing && bets.length === 0 && groups.length === 0 && count > 0 && !text.match(TOTAL_UNIT_LINE) ? toAmount(total[1]) : null;
-      const share = whole !== null && whole > 0 && Number.isInteger(whole / count) ? parseAmount(String(whole / count), fallback) : null;
+      // ยอดกีบเต็มจำนวนต้องหารแล้วได้หลักพันเต็ม (ลงท้าย 000): ລວມ28000 / 8 เลข = 3,500 → ไม่เดา ส่งให้คนตรวจ
+      const step = fallback === "LAK" && whole !== null && whole >= LAK_FULL_BET_AMOUNT && lakMultiplier > 0 ? lakMultiplier : 1;
+      const share =
+        whole !== null && whole > 0 && Number.isInteger(whole / count / step) ? parseAmount(String(whole / count), fallback) : null;
       const shared = share && !("issue" in share) ? pending.map((wait) => stakesFor(wait.numbers, share)) : [];
       if (share && !("issue" in share) && shared.every((result) => !("issue" in result))) {
         pending.forEach((wait, i) => {
@@ -1621,6 +1649,7 @@ function readTicket(message: string, options: ParseOptions, wide: boolean): Pars
       }
     }
     const placed = addStakes(result.stakes, () => line);
+    if (!hundreds && result.amount) lastAmount = { amount: result.amount, line };
     if (!hundreds) {
       const two = result.stakes.filter((s) => s.digits === 2).map((s) => s.number);
       lineBets = lineBets?.line === line ? { line, numbers: [...lineBets.numbers, ...two] } : { line, numbers: two };
@@ -1636,6 +1665,19 @@ function readTicket(message: string, options: ParseOptions, wide: boolean): Pars
   });
   // ยอดเต็มจำนวนที่หารกลับเป็นหน่วยย่ออาจมีทศนิยม (15,500 = 15.5) — ปัดกันเศษทศนิยมของ float
   closeHeading();
+  // เลขไม่มียอดท้ายโพย (ด้านล่างไม่มียอดมารับแล้ว) → ใช้ยอดของบรรทัดที่มียอดล่าสุดด้านบน
+  // "030-30บาท / 070 / 530 / 570" = 070 530 570 เลขละ 30 บาท (วันที่ท้ายโพย "16/11/26" ไม่นับ)
+  const above = lastAmount as { amount: Amount; line: number } | null;
+  if (above && pending.length > 0) {
+    for (const wait of pending) {
+      if (wait.line < above.line || isStandaloneDate(wait.issue.text)) continue;
+      const same = stakesFor(wait.numbers, above.amount);
+      if ("issue" in same) continue;
+      dropIssues([wait.issue]);
+      addStakes(same.stakes, () => wait.line);
+    }
+    pending = [];
+  }
   // วันที่ d/m/yy (คั่นด้วย / หรือ -) ที่ไม่มีบรรทัดยอดมารับจนจบโพย = วันที่ ไม่ใช่เลขแทง ("16/11/26" ท้ายโพย)
   // ("30.10.26" คั่นด้วย . ยังถือเป็นเลขแทงที่ไม่มียอด)
   for (const issue of [...issues]) {

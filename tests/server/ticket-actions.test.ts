@@ -255,7 +255,7 @@ describe("createTicket", () => {
   });
 
   test("มีบรรทัดที่อ่านไม่ออก → โพยรอตรวจ ยังไม่นับยอดและไม่มีรายการแทง", async () => {
-    const result = await createTicket({ ...valid, text: "32.72=300\n399" });
+    const result = await createTicket({ ...valid, text: "32.72=300\n399=?" });
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.data.status).toBe("REVIEW");
@@ -263,13 +263,13 @@ describe("createTicket", () => {
       status: "REVIEW",
       betCount: 0,
       totalLak: 0,
-      issues: [{ code: "NO_AMOUNT", line: 2, text: "399" }],
+      issues: [{ code: "UNREADABLE", line: 2, text: "399=?" }],
     });
     expect(db.bets).toEqual([]);
   });
 
   test("force → นับเฉพาะบรรทัดที่อ่านได้", async () => {
-    const result = await createTicket({ ...valid, text: "32.72=300\n399", force: true });
+    const result = await createTicket({ ...valid, text: "32.72=300\n399=?", force: true });
 
     if (result.ok) expect(result.data.status).toBe("CONFIRMED");
     expect(briefBets()).toEqual(["32 TOP LAK 300000", "72 TOP LAK 300000"]);
@@ -332,7 +332,7 @@ describe("createTicket", () => {
 
 describe("updateTicket", () => {
   test("แก้ข้อความของโพยรอตรวจ → นับยอด และ audit log บอกสถานะที่เปลี่ยน", async () => {
-    const created = await createTicket({ ...valid, text: "32.72=300\n399" });
+    const created = await createTicket({ ...valid, text: "32.72=300\n399=?" });
     const id = created.ok ? created.data.id : "";
     db.auditRows = [];
 

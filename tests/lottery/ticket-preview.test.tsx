@@ -23,13 +23,13 @@ describe("<TicketPreview /> (ผลการแยกข้อความก่
   });
 
   test("บรรทัดที่อ่านไม่ออกขึ้นเตือนพร้อมเลขบรรทัดและเหตุผล", () => {
-    render(<TicketPreview parsed={parseTicket("32=300\n399")} />);
+    render(<TicketPreview parsed={parseTicket("32=300\n399=?")} />);
 
     const alert = screen.getByRole("alert");
     expect(alert.textContent).toContain(tr("tickets.issuesTitle", { count: 1 }));
     expect(alert.textContent).toContain(tr("tickets.issueLine", { line: 2 }));
     expect(alert.textContent).toContain("399");
-    expect(alert.textContent).toContain(tr("tickets.issueNO_AMOUNT"));
+    expect(alert.textContent).toContain(tr("tickets.issueUNREADABLE"));
   });
 
   test("ยอดรวมที่ลูกค้าแจ้งไม่ตรง → บอกทั้งยอดที่แจ้งและยอดที่คิดได้", () => {

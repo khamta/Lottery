@@ -260,7 +260,7 @@ describe("ingestMessage", () => {
   });
 
   test("อ่านได้ไม่ครบ → โพยรอตรวจ ยังไม่นับยอด (บอทไม่ยืนยันแทนคน)", async () => {
-    const result = await ingestMessage(db, message("wa-1", "772;5\n399"));
+    const result = await ingestMessage(db, message("wa-1", "772;5\n399=?"));
 
     expect(result).toMatchObject({ action: "created", status: "REVIEW" });
     expect(state.bets).toEqual([]);

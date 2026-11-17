@@ -14,7 +14,7 @@ describe("summarizeTicket", () => {
   });
 
   test("มีบรรทัดที่อ่านไม่ออก → REVIEW ยังไม่นับยอดเลย", () => {
-    const summary = summarizeTicket(parseTicket("32.72=300\n399"));
+    const summary = summarizeTicket(parseTicket("32.72=300\n399=?"));
     expect(summary.status).toBe("REVIEW");
     expect(summary.bets).toEqual([]);
     expect(summary.totalLak).toBe(0);
@@ -22,7 +22,7 @@ describe("summarizeTicket", () => {
   });
 
   test("force → นับเฉพาะบรรทัดที่อ่านได้ แต่ยังเก็บปัญหาไว้", () => {
-    const summary = summarizeTicket(parseTicket("32.72=300\n399"), true);
+    const summary = summarizeTicket(parseTicket("32.72=300\n399=?"), true);
     expect(summary.status).toBe("CONFIRMED");
     expect(summary.totalLak).toBe(600_000);
     expect(summary.issues).toHaveLength(1);

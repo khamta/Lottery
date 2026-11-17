@@ -132,11 +132,14 @@ describe("parseTicket — ข้อความตัวอย่างจาก
     expect(ticket.needsReview).toBe(false);
   });
 
-  test("รูปแบบ เลข;ยอด — บรรทัดที่ไม่มียอดเข้าคิวรอตรวจ", () => {
+  test("รูปแบบ เลข;ยอด — บรรทัดท้ายที่ไม่มียอดใช้ยอดของบรรทัดด้านบน", () => {
     const ticket = parseTicket("772;5\n319;10\n399");
-    expect(brief(ticket.bets)).toEqual(["772 TOP LAK 5000", "319 TOP LAK 10000"]);
-    expect(ticket.issues).toEqual([{ code: "NO_AMOUNT", line: 3, text: "399" }]);
-    expect(ticket.needsReview).toBe(true);
+    expect(brief(ticket.bets)).toEqual(["772 TOP LAK 5000", "319 TOP LAK 10000", "399 TOP LAK 10000"]);
+    expect(ticket.issues).toEqual([]);
+    // หลังยอดรวม = ปิดโพยแล้ว ไม่ยืมยอดด้านบน → ยังรอตรวจ
+    const closed = parseTicket("772;5\n319;10\nລວມ15\n399");
+    expect(closed.issues).toEqual([{ code: "NO_AMOUNT", line: 4, text: "399" }]);
+    expect(closed.needsReview).toBe(true);
   });
 });
 
@@ -608,6 +611,59 @@ describe("parseTicket — กติกา", () => {
     expect(ticket.bets.every((b) => b.amount === 2000 && b.position === "TOP")).toBe(true);
     expect(ticket.declaredTotal).toBe(20);
     expect(ticket.typedTotal).toBe(20);
+  });
+
+  test("เลขไม่มียอดท้ายโพย = ใช้ยอดของบรรทัดด้านบน (030-30บาท / 070 / 530 / 570)", () => {
+    const ticket = parseTicket("30-50บาท\n70\n030-30บาท\n070\n530\n570");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.map((b) => `${b.number} ${b.currency} ${b.amount}`)).toEqual(
+      expect.arrayContaining(["070 THB 30", "530 THB 30", "570 THB 30"]),
+    );
+  });
+
+  test("วงเล็บครอบบรรทัดยอดรวม = ยอดรวมปกติ ((ລວມບົນ2.100ກີບ))", () => {
+    const ticket = parseTicket("03=700\n06=700\n09=700\nເລກລາວ\n(ລວມບົນ2.100ກີບ)");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.declaredTotal).toBe(2100);
+    expect(ticket.typedTotal).toBe(2100);
+    expect(parseTicket("32=10\n72=10\n[ລວມ20]").issues).toEqual([]);
+    expect(parseTicket("32=10\n(ລວມ30)").issues.map((i) => i.code)).toEqual(["TOTAL_MISMATCH"]);
+  });
+
+  test("ກ ตัวเดียวท้ายยอด = ກີບ (676/76/75/77/ຮ20ກ)", () => {
+    for (const text of ["676/76/75/77/ຮ20ກ", "676/76/75/77=20ກ"]) {
+      const ticket = parseTicket(text);
+      expect(ticket.issues).toEqual([]);
+      expect(ticket.bets.map((b) => `${b.number} ${b.position} ${b.currency} ${b.amount}`)).toEqual(
+        ["676", "76", "75", "77"].map((n) => `${n} TOP LAK 20000`),
+      );
+    }
+  });
+
+  test("โพยบรรทัดละ เลข:ยอด ที่บางบรรทัดพิมพ์ ' แทน : (48'12 = 48:12)", () => {
+    const ticket = parseTicket("08:13\n48'12\n88:13\n09:13\n52’12");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.map((b) => `${b.number} ${b.amount}`)).toEqual(
+      ["08 13000", "48 12000", "88 13000", "09 13000", "52 12000"],
+    );
+    // ไม่มีบรรทัด เลข:ยอด ให้เทียบ → ' ยังเป็นตัวคั่นเลขเหมือนเดิม
+    expect(parseTicket("19'59\n=5").bets.map((b) => b.number)).toEqual(["19", "59"]);
+  });
+
+  test("จุดกลาง / bullet คั่นเลข: 916•956•996=20 = 916.956.996=20", () => {
+    const ticket = parseTicket("02-16-56-96=20\n916•956•996=20\n006=20");
+    expect(ticket.issues).toEqual([]);
+    expect(ticket.bets.map((b) => `${b.number} ${b.amount}`)).toEqual(
+      ["02", "16", "56", "96", "916", "956", "996", "006"].map((n) => `${n} 20000`),
+    );
+    expect(parseTicket("916·956∙996=20").bets.map((b) => b.number)).toEqual(["916", "956", "996"]);
+  });
+
+  test("ยอดรวมกีบหารแล้วไม่ลงหลักพันเต็ม (ລວມ28000 / 8 เลข = 3,500) → ไม่เดายอด ส่งให้คนตรวจ", () => {
+    const ticket = parseTicket(["28", "68", "00", "20", "50", "06", "96", "86", "ລວມ28000"].join("\n"));
+    expect(ticket.bets.some((b) => b.amount === 3500)).toBe(false);
+    expect(ticket.needsReview).toBe(true);
+    expect(ticket.declaredTotal).toBe(28);
   });
 
   test("ชื่อ + ตัวเลขเปล่า ๆ บรรทัดสุดท้าย = ชื่อลูกค้า + ยอดรวม", () => {
