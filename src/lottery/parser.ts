@@ -312,8 +312,10 @@ const SIDE_SECOND_PAIR = new RegExp(String.raw`^(${AMOUNT})\s*${SIDE_WORD}\s*[/,
  */
 const DIGITS_SIDE_PREFIX = /^([23])\s*(?:ໂຕ|ຕົວ|ตัว|โต)?\s*(ບົນລ່າງ|ບລ|บนล่าง|บล|ລ່າງ|ລາງ|ລຸ່ມ|ล่าง|ບົນ|บน)\s*(?=\d)/u;
 const AMOUNT_PART = new RegExp(String.raw`^(${AMOUNT})(?:\s*[*x×]\s*(${AMOUNT}))?(.*)$`, "i");
-/** ขีดคั่นเลข 3 ตัวขึ้นไป (มียอดหลัง = ได้): 605-645-685 · 406-446-486=1 */
-const DASH_NUMBERS_LINE = /^\d{2,3}(?:\s*-\s*\d{2,3}){2,}\s*(?:[=;:].*)?$/;
+/** ขีดคั่นเลข: 3 ตัวขึ้นไป (605-645-685 · 406-446-486=1) หรือ 2 ตัวขึ้นไปก่อน = / : / ໂຕ (22-62=30 · 22-62ໂຕ30) */
+const DASH_NUMBERS_LINE = /^\d{2,3}(?:\s*-\s*\d{2,3}){2,}\s*(?:[=;:].*)?$|^\d{2,3}(?:\s*-\s*\d{2,3})+\s*-?\s*[=:]\s*[^=:]*\d/;
+/** / คั่นเลข: 3 ตัวขึ้นไป (09/49/89) หรือ 2 ตัวขึ้นไปก่อน = / : / ໂຕ (22/62=30 · 22/62ໂຕ30) */
+const SLASH_NUMBERS_LINE = /^\d{2,3}(?:\s*\/\s*\d{2,3}){2,}\s*(?:[=;:].*)?$|^\d{2,3}(?:\s*\/\s*\d{2,3})+\s*\/?\s*[=:]\s*[^=:]*\d/;
 /** ; คั่นเลข (2 ตัวขึ้นไป) แล้วขีดตัวเดียวคั่นยอด: 20;25-5 */
 const SEMICOLON_DASH_LINE = /^\s*(\d{2,3}(?:\s*;\s*\d{2,3})+)\s*-\s*(\d[^-=;:]*)$/;
 /**
@@ -436,8 +438,9 @@ const SHORT_DATE_LINE = /^[1-9]\s*\/\s*(?:0?[1-9]|1[0-2])$/u;
 const TAKE_BOTH = /(?:ເອົາ|เอา)?\s*(?:ທັງ|ທັ້ງ|ทั้ง|ทัง)\s*2\s*[-,.\/&]?\s*3\s*(?:ໂຕ|ຕົວ|ตัว|โต)?/u;
 /** ນຳ / ດ້ວຍ / ด้วย ท้ายบรรทัด ຫລັກ = ชุด ລັກ แทงเลขฐาน 2 ตัวด้วย: "ຈັບຫລັກ8ນຳ" */
 const HUNDREDS_ALSO = /(?<=\d)\s*(?:ນຳ|ນໍາ|ດ້ວຍ|ด้วย|นำ)\s*$/u;
-/** ໂຕ20 ບລ / =20 = บรรทัดยอดที่ไม่มีเลข — ใช้กับทุกชุด ລັກ ที่ยังไม่มียอดด้านบน */
-const SHARED_AMOUNT_LINE = /^(?:[=;:]\s*(?:ໂຕ|ຕົວ|ตัว|โต|to)?|(?:ໂຕ|ຕົວ|ตัว|โต|to)\s*[=;:]?)\s*(\d.*)$/iu;
+/** ໂຕ20 ບລ / =20 / =ປ່ອງ10ພັນ / =ບ່ອງ10ພັນ = บรรทัดยอดที่ไม่มีเลข — ใช้กับเลขหรือชุด ລັກ ที่ยังไม่มียอดด้านบน */
+const SHARED_AMOUNT_LINE =
+  /^(?:[=;:]\s*(?:(?:ໂຕ|ຕົວ|ตัว|โต|to|ປ່ອງ|ປອງ|ป่อง|ตรง|ຕົງ|ຮູ|ຮ|รู|hu)\s*(?:ລະ|ລ່ະ|ละ|ล่ะ)?)?|(?:ໂຕ|ຕົວ|ตัว|โต|to|ປ່ອງ|ປອງ|ป่อง|ตรง|ຕົງ|ຮູ|ຮ|รู|hu)\s*(?:ລະ|ລ່ະ|ละ|ล่ะ)?\s*[=;:]?)\s*(\d.*)$/iu;
 /** 22_10 = เลข 22 ยอด 10 — เลขเดียว ขีดล่างตัวเดียว ไม่มี = ; : */
 const UNDERSCORE_LINE = /^\s*\d{2,3}\s*_\s*\d[^_=;:]*$/;
 /**
@@ -470,8 +473,8 @@ const SINGLE_DIGIT_TAIL = /^(.*\d)\s*[_.,\-/\s()]+\s*(\d(?![\d,.])[^\d=;:]*)$/u;
  * ตัวคั่นต่างกัน (เลขคั่นช่องว่าง ยอดมี . ,) จึงไม่กำกวม — "732.772.3.000" ไม่รับ
  */
 const THOUSAND_FORMAT_TAIL = /^(\d{2,3}(?:\s+\d{2,3})*)\s+(\d{1,3}(?:[.,]000)+(?![\d.,])[^\d=;:]*)$/u;
-/** ປ່ອງ3 / ຮູ3 = ยอดเลขละ 3 ของทุกเลขที่ไม่มียอดในบรรทัดติดกันด้านบน */
-const EACH_AMOUNT_LINE = /^(?:ປ່ອງ|ປອງ|ป่อง|ตรง|ຕົງ|ຮູ|ຮ|รู|hu)\s*(\d.*)$/iu;
+/** ປ່ອງ3 / ຮູ3 / ບ່ອງລະ10 = ยอดเลขละของทุกเลขที่ไม่มียอดในบรรทัดติดกันด้านบน */
+const EACH_AMOUNT_LINE = /^(?:ປ່ອງ|ປອງ|ป่อง|ตรง|ຕົງ|ຮູ|ຮ|รู|hu)\s*(?:ລະ|ລ່ະ|ละ|ล่ะ)?\s*(\d.*)$/iu;
 /**
  * ลາວ ບົນ-ລ່າງ ຮູ10 = หัวยอด: [คำกำกับฝั่ง/สกุลเงิน] + ຮູ/ປ່ອງ/ໂຕ + ยอด — ไม่มีเลขรอด้านบน
  * จึงเป็นยอดของบรรทัดเลขที่ไม่มียอดด้านล่าง (จนกว่าจะเจอหัวยอดใหม่หรือ ລວມ)
@@ -518,6 +521,8 @@ function normalize(text: string) {
     .replace(/ປ້ອງ|ປອ້ງ/g, "ປ່ອງ")
     // ປ່ຽງ = ປ່ອງ ที่พิมพ์ ຽ แทน ອ
     .replace(/ປ່ຽງ/g, "ປ່ອງ")
+    // ບ່ອງ / ບອ່ງ / ບ້ອງ / ບອ້ງ / ບອງ / บ่อง หน้ายอด = ປ່ອງ (เฉพาะหน้ายอด/ລະ/=/ພັນ กันแตะชื่อคน)
+    .replace(/(?:ບ່ອງ|ບອ່ງ|ບ້ອງ|ບອ້ງ|ບອງ|บ่อง)(?=\s*(?:ລະ|ລ່ະ|ละ|ล่ะ|[=:]|\d|ພັນ|พัน))/g, "ປ່ອງ")
     // ຫັລກ = ຫລັກ ที่พิมพ์ไม้กันก่อน ລ (หน้าจอดูเหมือนกัน)
     .replace(/ຫັລກ/g, "ຫລັກ")
     // ໂຕ ที่ปนตัวอักษรไทย (โຕ / ໂต) = ໂຕ
@@ -960,8 +965,8 @@ const ATTACHED_TOTAL = /^(.*\d\D*?)((?:ລວມ|รวม|ลวม)[^\d]*\d[^=
  */
 /** เลขหลายตัว (เว้นวรรค/ตัวคั่น) แล้ว =ยอด: "65 68 62 67 60 69 63=1.000" — ดู sharesBelow ใน parseTicket */
 const BLOCK_AMOUNT_LINE = /^(\d{2,3}(?:[\s.,\-_]+\d{2,3})+)\s*=\s*\d/u;
-/** เลขตัวเดียวหรือหลายตัว แล้ว =ยอด: "23 023 923 823 =10" — ใช้ในการอ่านแบบกว้าง (ดู parseTicket) */
-const NUMBERS_AMOUNT_LINE = /^\d{2,3}(?:[\s.,\-_]+\d{2,3})*\s*[=:]\s*\d/u;
+/** เลขตัวเดียวหรือหลายตัว แล้ว =ยอด / :ยอด (มีคำกำกับหน้ายอดได้ เช่น "=ບລ30"): "23 023 923 823 =10" */
+const NUMBERS_AMOUNT_LINE = /^\d{2,3}(?:[\s.,\-/_]+\d{2,3})*[\s.,\-/_]*[=:]\s*[^=:]*\d/u;
 const SEMICOLON_NUMBERS =/^\d{2,3}(?:\s*[;:]\s*\d{2,3}){2,}\s*[;:]?$/;
 const semicolonNumbers = (text: string) => (SEMICOLON_NUMBERS.test(text) ? text.replace(/[;:]/g, ",") : text);
 /** เลข-ยอด แบบง่าย: "97-20" · "23.5" — ใช้ดูว่าโพยนี้เขียนยอดหลังขีด/จุด (ดู SPLIT_AMOUNT_LINE) */
@@ -1096,8 +1101,14 @@ function readTicket(input: string, options: ParseOptions, wide: boolean): Parsed
       ? "THB"
       : "LAK";
   const bahtTicket = normalized.some((text) => THB_WORD.test(text)) && !normalized.some((text) => LAK_WORD.test(text));
-  // มีบรรทัดที่ขีดคั่นเลข 3 ตัวขึ้นไป (605-645-685 / 406-446-486=1) → ขีดในโพยนี้คั่นเลข ไม่ใช่คั่นยอด
-  const dashNumbers = normalized.some((text) => DASH_NUMBERS_LINE.test(text));
+  // มีบรรทัดที่ขีดคั่นเลข (605-645-685 / 406-446-486=1 / 03-43-83ໂຕ30) → ขีดในโพยนี้คั่นเลข ไม่ใช่คั่นยอด
+  const dashNumbers = normalized.some(
+    (text) => !isStandaloneDate(text) && DASH_NUMBERS_LINE.test(text.replace(EACH_WORD, "=")),
+  );
+  // เช่นเดียวกันสำหรับ / (09/49/89 / 03/43/83ໂຕ30) → 30/70 ในโพยเดียวกันเป็นเลข 2 ตัว ไม่ใช่ 30=70
+  const slashNumbers = normalized.some(
+    (text) => !isStandaloneDate(text) && SLASH_NUMBERS_LINE.test(text.replace(EACH_WORD, "=")),
+  );
   /** บรรทัดเลข 2 ตัวล้วนที่ไม่มียอด (ติดกันได้หลายบรรทัด) — ถ้าบรรทัดถัดไปเป็น ຫລັກ จะใช้เป็นเลขฐานแทน และไม่นับเป็นปัญหา */
   let bare: { numbers: string[]; line: number; issues: ParseIssue[] } | null = null;
   /** ชุด "เลขฐาน + ລັກ2" ที่ยังไม่มียอด — รอบรรทัดยอดท้ายชุด (ໂຕ20 ບລ) · ระหว่างรอ issue ของชุดยังค้างไว้ */
@@ -1251,18 +1262,55 @@ function readTicket(input: string, options: ParseOptions, wide: boolean): Parsed
     if (numbersOnly && next) awaitsBelow.add(i);
     else next = !numbersOnly && (isAmountOnlyLine(text) || HUNDREDS_LINE.test(text));
   }
-  // บรรทัดเลขล้วนติดเหนือบรรทัด "เลข=ยอด" = เลขที่ใช้ยอดเดียวกัน
-  // อ่านแบบกว้าง (ดู parseTicket): ทุกบรรทัดเลขล้วน · อ่านปกติ: เฉพาะบรรทัดที่มีเลข 4 ตัวขึ้นไป
-  // ("67.76.78.87..05.50.15.51 / 05.50=30×30" — "32 72" 2–3 ตัวยังกำกวม อาจเป็น เลข ยอด)
+  // บรรทัดเลขล้วนติดเหนือบรรทัด "เลข=ยอด" / "เลข ໂຕ ยอด" = เลขที่ใช้ยอดเดียวกัน
+  // อ่านแบบกว้าง (ดู parseTicket): ทุกบรรทัดเลขล้วน
+  // อ่านปกติ: บรรทัดเลขเดี่ยว · 4 ตัวขึ้นไป · หรือ 2–3 ตัวที่คั่นด้วยเครื่องหมายที่ไม่ใช่ช่องว่าง ("09-49-89" / "30-70" / "09.49.89")
+  // ("32 72" / "32 72 50" ที่คั่นด้วยช่องว่างยังกำกวมกับ "{N} {A}" และ "30-70" ที่ทั้งโพยไม่ได้ใช้ขีดคั่นเลขยังเป็น เลข-ยอด)
+  const isShareableNumbers = (text: string) => {
+    const tokens = numberTokens(text);
+    if (!tokens) return false;
+    if (wide) return true;
+    if (isStandaloneDate(text) || totalOf(text)) return false;
+    // บรรทัดที่คั่นเลขด้วยตัวอื่นแล้วปิดท้ายด้วย -ยอด หรือ /ยอด ("08.48.88-20" · "19 59 99/50") มียอดของตัวเอง
+    if (DASH_LINE.test(text) && (!dashNumbers || tokens.length > 2)) return false;
+    if (SLASH_AMOUNT_LINE.test(text) && (!slashNumbers || tokens.length > 2)) return false;
+    if (UNDERSCORE_LINE.test(text)) return false;
+    if (tokens.length >= 4 || tokens.length === 1) return true;
+    return !/\d\s+\d/.test(text);
+  };
+  const isNumbersAmountLine = (text: string) => {
+    if (
+      totalOf(text) ||
+      HUNDREDS_LINE.test(text) ||
+      ONLY_THREE_LINE.test(text) ||
+      DEBT_NOTE.test(text) ||
+      BILL_NOTE.test(text) ||
+      isDateOrPhoneLine(text) ||
+      SHORT_DATE_LINE.test(text) ||
+      numberTokens(text) !== null
+    ) {
+      return false;
+    }
+    const ruled = applyReadRules(text, rules);
+    if (!ruled) return false;
+    const candidate = ruled.replace(EACH_WORD, "="); // "03-43-83ໂຕ30" = "03-43-83=30"
+    if (NUMBERS_AMOUNT_LINE.test(candidate)) return true;
+    const tailMatch =
+      candidate.match(THOUSAND_FORMAT_TAIL) ??
+      candidate.match(THOUSAND_TAIL) ??
+      candidate.match(TIMES_TAIL) ??
+      candidate.match(SLASH_TAIL) ??
+      candidate.match(SINGLE_DIGIT_TAIL);
+    return tailMatch !== null && numberTokens(tailMatch[1]!) !== null;
+  };
   const sharesBelow = new Set<number>();
   for (let i = segments.length - 1, next = false; i >= 0; i--) {
     const text = segments[i]!.original;
-    const tokens = numberTokens(text);
-    const numbersOnly = tokens !== null && (wide || tokens.length >= 4);
+    const numbersOnly = isShareableNumbers(text);
     if (numbersOnly && next) {
       awaitsBelow.add(i);
       sharesBelow.add(i);
-    } else next = !numbersOnly && NUMBERS_AMOUNT_LINE.test(text.replace(EACH_WORD, "=")); // "79 97 ตัวละ 30*30" = "79 97=30*30"
+    } else next = !numbersOnly && isNumbersAmountLine(text);
   }
   // บล็อกเลขที่มีจำนวนเลขเท่ากันทุกบรรทัด (4 ตัวขึ้นไป · "32 72 50" 3 ตัวยังเป็น เลข ยอด) แล้วบรรทัดสุดท้ายมี =ยอด = ยอดเดียวกันทั้งบล็อก:
   // "55 58 52 57 50 59 53 / … / 65 68 62 67 60 69 63=1.000" — ตัวท้ายของบรรทัดบนเป็นเลข ไม่ใช่ยอด ({N} {A})
@@ -1303,12 +1351,24 @@ function readTicket(input: string, options: ParseOptions, wide: boolean): Parsed
   // โพยเขียน "เลข-ยอด" ทีละบรรทัด (2 บรรทัดขึ้นไป) → "11.5.50" = ยอดรวม 5+50
   const splitAmounts = segments.filter((segment) => SIMPLE_BET_LINE.test(segment.original)).length >= 2;
   // "526.20 / 566 / 26 / … / 62.20" — บรรทัด เลข.ยอด 2 บรรทัดขึ้นไปที่ยอดเท่ากัน และบรรทัดอื่นเป็นเลขเดี่ยวล้วน
-  // → จุดคั่นยอด ("62.20" = 62 ยอด 20 ไม่ใช่เลข 62 กับ 20) แล้วเลขเดี่ยวที่รออยู่ได้ยอดเดียวกัน
-  const dotTails = segments.flatMap((segment) => segment.original.match(DOT_AMOUNT_LINE)?.[2] ?? []);
+  // หรือทั้งโพยเป็น เลข.ยอด ล้วน (ไม่มีเลขเดี่ยวคั่น) และมียอดซ้ำ (หรือมียอดรวมยืนยันในโหมด wide):
+  // "06.20 / 46.20 / 86.20 / 16.10 / 56.10 / 96.10" → จุดคั่นยอด (06=20, 16=10)
+  const isDotAmount = (text: string) => DOT_AMOUNT_LINE.test(text) && !totalOf(text);
+  const dotTails = segments.flatMap((segment) => (isDotAmount(segment.original) ? [segment.original.match(DOT_AMOUNT_LINE)![2]!] : []));
+  const hasBareSingle = segments.some(({ original }) => /^\d{2,3}$/.test(original));
+  const dotUnique = new Set(dotTails).size;
   const dotAmounts =
     dotTails.length >= 2 &&
-    new Set(dotTails).size === 1 &&
-    segments.every(({ original }) => !/\d/.test(original) || DOT_AMOUNT_LINE.test(original) || /^\d{2,3}$/.test(original));
+    dotTails.every((tail) => !tail.startsWith("0")) &&
+    (hasBareSingle ? dotUnique === 1 : dotUnique < dotTails.length || wide) &&
+    segments.every(
+      ({ original }) =>
+        !/\d/.test(original) ||
+        isDotAmount(original) ||
+        /^\d{2,3}$/.test(original) ||
+        totalOf(original) !== null ||
+        isDateOrPhoneLine(original),
+    );
 
   segments.forEach(({ original, line }, index) => {
     if (!original) {
@@ -1357,7 +1417,9 @@ function readTicket(input: string, options: ParseOptions, wide: boolean): Parsed
       notes.push(name[1]!);
       text = text.slice(name[0].length);
     }
-    if (!awaitsBelow.has(index)) text = text.replace(SLASH_AMOUNT_LINE, "$1=$2");
+    if (!awaitsBelow.has(index) && !(slashNumbers && /^\d{2,3}\s*\/\s*\d{2,3}$/.test(text))) {
+      text = text.replace(SLASH_AMOUNT_LINE, "$1=$2");
+    }
     // อ่านแบบกว้าง: ตัวเลข 4 หลักติดกัน = เลข 2 ตัว + ยอด 2 หลักที่ลืมพิมพ์ตัวคั่น ("2820" = 28=20)
     if (wide) text = text.replace(/^(\d{2})(\d{2})$/, "$1=$2");
     // จำนวนประตูก่อนยอด: "988 *3 ประตู ตัวละ430" = "988=430*3ประตู" (ดู DOORS_AMOUNT)
@@ -1371,7 +1433,7 @@ function readTicket(input: string, options: ParseOptions, wide: boolean): Parsed
     const carried = carryAbove.get(index);
     if (carried !== undefined && /^[\d\s.,\-_]+$/.test(text)) text = `${text}=${carried}`;
     text = semicolonNumbers(text.replace(EQUALS_AS_SEPARATOR, "$1-"));
-    if (dotAmounts) text = text.replace(DOT_AMOUNT_LINE, "$1=$2");
+    if (dotAmounts && isDotAmount(text)) text = text.replace(DOT_AMOUNT_LINE, "$1=$2");
     if (splitAmounts) text = text.replace(SPLIT_AMOUNT_LINE, (_, number: string, a: string, b: string) => `${number}=${Number(a) + Number(b)}`);
 
     if (TAKE_BOTH.test(text)) {
